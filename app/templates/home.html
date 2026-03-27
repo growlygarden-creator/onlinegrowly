@@ -189,7 +189,13 @@
                         <strong id="trend-tooltip-value">-</strong>
                         <span id="trend-tooltip-time">-</span>
                     </div>
-                    <div id="trend-empty" class="chart-empty">Historikk vises her når backend har lagret noen målinger.</div>
+                    <div id="trend-empty" class="chart-empty">
+                        <div class="chart-empty-card">
+                            <strong>Ingen historikk i dette vinduet</strong>
+                            <span>Prøv en annen periode, en annen sensor eller lukk trendvinduet igjen.</span>
+                            <button type="button" id="trend-empty-close" class="button subtle-button">Lukk</button>
+                        </div>
+                    </div>
                 </div>
             </section>
         </div>
@@ -231,6 +237,7 @@
         const trendModal = document.getElementById("trend-modal");
         const trendModalBackdrop = document.getElementById("trend-modal-backdrop");
         const trendCloseButton = document.getElementById("trend-close");
+        const trendEmptyCloseButton = document.getElementById("trend-empty-close");
 
         const osloTimeZone = "Europe/Oslo";
 
@@ -842,6 +849,7 @@
             dragStartX = null;
         });
         trendCloseButton.addEventListener("click", closeTrendModal);
+        trendEmptyCloseButton.addEventListener("click", closeTrendModal);
         trendModalBackdrop.addEventListener("click", closeTrendModal);
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape" && trendModalOpen) {
