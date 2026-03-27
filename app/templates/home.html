@@ -409,6 +409,25 @@
             customRangeEnd = end.toISOString();
         }
 
+        function shiftTrendWindow(deltaMs) {
+            const { start, end } = currentRangeWindow();
+            const duration = end.getTime() - start.getTime();
+            let nextStart = new Date(start.getTime() + deltaMs);
+            let nextEnd = new Date(end.getTime() + deltaMs);
+            const now = new Date();
+
+            if (nextEnd > now) {
+                nextEnd = now;
+                nextStart = new Date(now.getTime() - duration);
+            }
+
+            applyRangeWindow(nextStart, nextEnd);
+            zoomLevel = 1;
+            return fetchTrend(selectedMetric).catch((error) => {
+                trendSummary.textContent = error.message;
+            });
+        }
+
         function chartBounds(width, height) {
             return {
                 left: 18,
@@ -529,7 +548,7 @@
 
         function spanLabel() {
             if (selectedSpan === "minutes") {
-                return "minutter";
+                return "minuttvisning siste døgn";
             }
             if (selectedSpan === "days") {
                 return "dager";
@@ -756,6 +775,9 @@
 
         cards.forEach((card) => {
             card.addEventListener("click", () => {
+                customRangeStart = "";
+                customRangeEnd = "";
+                zoomLevel = 1;
                 setTrendModalOpen(true);
                 fetchTrend(card.dataset.metric).catch((error) => {
                     trendSummary.textContent = error.message;
@@ -765,6 +787,8 @@
         spanButtons.forEach((button) => {
             button.addEventListener("click", () => {
                 zoomLevel = 1;
+                customRangeStart = "";
+                customRangeEnd = "";
                 updateSelectedSpan(button.dataset.span);
                 fetchTrend(selectedMetric).catch((error) => {
                     trendSummary.textContent = error.message;
@@ -800,27 +824,12 @@
         trendPrevButton.addEventListener("click", () => {
             const { start, end } = currentRangeWindow();
             const duration = end.getTime() - start.getTime();
-            applyRangeWindow(new Date(start.getTime() - duration), new Date(end.getTime() - duration));
-            zoomLevel = 1;
-            fetchTrend(selectedMetric).catch((error) => {
-                trendSummary.textContent = error.message;
-            });
+            shiftTrendWindow(-(duration * 0.7));
         });
         trendNextButton.addEventListener("click", () => {
             const { start, end } = currentRangeWindow();
             const duration = end.getTime() - start.getTime();
-            let nextStart = new Date(start.getTime() + duration);
-            let nextEnd = new Date(end.getTime() + duration);
-            const now = new Date();
-            if (nextEnd > now) {
-                nextEnd = now;
-                nextStart = new Date(now.getTime() - duration);
-            }
-            applyRangeWindow(nextStart, nextEnd);
-            zoomLevel = 1;
-            fetchTrend(selectedMetric).catch((error) => {
-                trendSummary.textContent = error.message;
-            });
+            shiftTrendWindow(duration * 0.7);
         });
         trendHitbox.addEventListener("mousemove", (event) => {
             showHover(nearestPoint(event.clientX));
@@ -829,6 +838,7 @@
         let dragStartX = null;
         trendHitbox.addEventListener("pointerdown", (event) => {
             dragStartX = event.clientX;
+            trendHitbox.setPointerCapture?.(event.pointerId);
         });
         trendHitbox.addEventListener("pointerup", (event) => {
             if (dragStartX === null) {
@@ -836,14 +846,15 @@
             }
             const deltaX = event.clientX - dragStartX;
             dragStartX = null;
-            if (Math.abs(deltaX) < 36) {
+            const chartRect = document.getElementById("trend-chart").getBoundingClientRect();
+            const chartWidth = Math.max(chartRect.width, 1);
+            const dragRatio = deltaX / chartWidth;
+            if (Math.abs(dragRatio) < 0.04) {
                 return;
             }
-            if (deltaX < 0) {
-                trendPrevButton.click();
-            } else {
-                trendNextButton.click();
-            }
+            const { start, end } = currentRangeWindow();
+            const duration = end.getTime() - start.getTime();
+            shiftTrendWindow(-(duration * dragRatio));
         });
         trendHitbox.addEventListener("pointercancel", () => {
             dragStartX = null;
