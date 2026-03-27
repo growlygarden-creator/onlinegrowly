@@ -1008,6 +1008,10 @@ select {
     padding: 24px;
 }
 
+.trend-modal[hidden] {
+    display: none !important;
+}
+
 .trend-modal-backdrop {
     position: absolute;
     inset: 0;
