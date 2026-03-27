@@ -40,6 +40,7 @@
             </label>
             <div class="actions">
                 <button id="refresh-button" class="button" type="button">Oppdater nå</button>
+                <button id="save-sensor-url-button" class="button subtle-button" type="button">Lagre sensor URL</button>
                 <span id="connection-badge" class="status-pill">Venter på første svar</span>
             </div>
             <p class="helper-text">Tips: når ESP32 er på vanlig Wi-Fi kan du bytte til dens vanlige IP her. Hver henting lagres i backend for trendvisning.</p>
@@ -226,6 +227,7 @@ må dele felles jord</pre>
 
         const input = document.getElementById("sensor-url");
         const refreshButton = document.getElementById("refresh-button");
+        const saveSensorUrlButton = document.getElementById("save-sensor-url-button");
         const badge = document.getElementById("connection-badge");
         const updatedAt = document.getElementById("updated-at");
         const sensorValidity = document.getElementById("sensor-validity");
@@ -251,8 +253,7 @@ må dele felles jord</pre>
         const userList = document.getElementById("user-list");
 
         function loadStoredUrl() {
-            const savedUrl = window.localStorage.getItem(storageKey);
-            input.value = savedUrl || defaultSensorUrl;
+            input.value = defaultSensorUrl;
             normalizeTargetUrl({ updateField: true });
         }
 
@@ -286,6 +287,30 @@ må dele felles jord</pre>
             activeTarget.textContent = url;
             settingsDebugTarget.textContent = `ESP32 target: ${url}`;
             return url;
+        }
+
+        async function saveSensorUrl() {
+            setStatus("Lagrer sensor-URL...", "loading");
+
+            try {
+                const sensorUrl = currentTarget();
+                const response = await fetch("/api/settings", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ sensor_url: sensorUrl })
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "save_sensor_url_failed");
+                }
+                input.value = result.settings.sensor_url || sensorUrl;
+                activeTarget.textContent = input.value;
+                settingsDebugTarget.textContent = `ESP32 target: ${input.value}`;
+                setStatus("Sensor URL lagret", "online");
+            } catch (error) {
+                setStatus(`Feil ved lagring`, "offline");
+                sensorError.textContent = error?.message || String(error);
+            }
         }
 
         function setStatus(text, mode) {
@@ -529,6 +554,7 @@ må dele felles jord</pre>
         loadStoredUrl();
         loadHistoryStartFields();
         refreshButton.addEventListener("click", testSensor);
+        saveSensorUrlButton.addEventListener("click", saveSensorUrl);
         input.addEventListener("change", () => {
             try {
                 currentTarget();

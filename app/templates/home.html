@@ -125,70 +125,74 @@
             </div>
         </section>
 
-        <section class="panel trend-panel">
-            <div class="trend-header">
-                <div>
-                    <p class="eyebrow trend-kicker">Trend</p>
-                    <h2 id="trend-title">Lufttemperatur</h2>
+        <div id="trend-modal" class="trend-modal" hidden>
+            <div id="trend-modal-backdrop" class="trend-modal-backdrop"></div>
+            <section class="panel trend-panel trend-modal-panel">
+                <div class="trend-header">
+                    <div>
+                        <p class="eyebrow trend-kicker">Trend</p>
+                        <h2 id="trend-title">Lufttemperatur</h2>
+                    </div>
+                    <div class="trend-meta">
+                        <span id="trend-summary">Venter på historikk</span>
+                        <span id="trend-points" class="status-pill">0 punkter</span>
+                        <button type="button" id="trend-close" class="trend-close-button" aria-label="Lukk trend">×</button>
+                    </div>
                 </div>
-                <div class="trend-meta">
-                    <span id="trend-summary">Venter på historikk</span>
-                    <span id="trend-points" class="status-pill">0 punkter</span>
+                <div class="trend-toolbar">
+                    <div class="segmented-control" id="span-control">
+                        <button type="button" class="span-button active" data-span="minutes">Minutter</button>
+                        <button type="button" class="span-button" data-span="hours">Timer</button>
+                        <button type="button" class="span-button" data-span="days">Dager</button>
+                    </div>
+                    <div class="zoom-controls">
+                        <button type="button" class="zoom-button" id="zoom-out">Zoom ut</button>
+                        <button type="button" class="zoom-button" id="zoom-in">Zoom inn</button>
+                        <button type="button" class="zoom-button" id="zoom-reset">Reset</button>
+                    </div>
                 </div>
-            </div>
-            <div class="trend-toolbar">
-                <div class="segmented-control" id="span-control">
-                    <button type="button" class="span-button active" data-span="minutes">Minutter</button>
-                    <button type="button" class="span-button" data-span="hours">Timer</button>
-                    <button type="button" class="span-button" data-span="days">Dager</button>
+                <div class="trend-toolbar trend-toolbar-range">
+                    <span class="trend-swipe-hint">Sveip i grafen eller bruk knappene for å bla i perioden.</span>
+                    <div class="zoom-controls">
+                        <button type="button" class="zoom-button" id="trend-prev">Forrige</button>
+                        <button type="button" class="zoom-button" id="trend-next">Neste</button>
+                        <button type="button" class="zoom-button" id="trend-range-clear">Siste vindu</button>
+                    </div>
                 </div>
-                <div class="zoom-controls">
-                    <button type="button" class="zoom-button" id="zoom-out">Zoom ut</button>
-                    <button type="button" class="zoom-button" id="zoom-in">Zoom inn</button>
-                    <button type="button" class="zoom-button" id="zoom-reset">Reset</button>
+                <div class="chart-shell">
+                    <svg id="trend-chart" class="trend-chart" viewBox="0 0 800 260" preserveAspectRatio="none" aria-label="Trend chart">
+                        <defs>
+                            <linearGradient id="trend-fill-gradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop id="trend-fill-stop-top" offset="0%" stop-color="rgba(134, 201, 150, 0.30)"></stop>
+                                <stop id="trend-fill-stop-bottom" offset="100%" stop-color="rgba(134, 201, 150, 0.02)"></stop>
+                            </linearGradient>
+                            <filter id="trend-glow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feGaussianBlur stdDeviation="5" result="blur"></feGaussianBlur>
+                                <feMerge>
+                                    <feMergeNode in="blur"></feMergeNode>
+                                    <feMergeNode in="SourceGraphic"></feMergeNode>
+                                </feMerge>
+                            </filter>
+                        </defs>
+                        <g id="trend-grid" class="trend-grid"></g>
+                        <path id="trend-area" class="trend-area" d=""></path>
+                        <path id="trend-line" class="trend-line" d=""></path>
+                        <line id="trend-hover-line" class="trend-hover-line" x1="0" y1="0" x2="0" y2="0"></line>
+                        <circle id="trend-last-point-glow" class="trend-last-point-glow" cx="0" cy="0" r="0"></circle>
+                        <circle id="trend-last-point" class="trend-last-point" cx="0" cy="0" r="0"></circle>
+                        <circle id="trend-hover-point" class="trend-hover-point" cx="0" cy="0" r="0"></circle>
+                        <g id="trend-y-axis" class="trend-axis"></g>
+                        <g id="trend-x-axis" class="trend-axis"></g>
+                        <rect id="trend-hitbox" class="trend-hitbox" x="0" y="0" width="800" height="260"></rect>
+                    </svg>
+                    <div id="trend-tooltip" class="trend-tooltip" hidden>
+                        <strong id="trend-tooltip-value">-</strong>
+                        <span id="trend-tooltip-time">-</span>
+                    </div>
+                    <div id="trend-empty" class="chart-empty">Historikk vises her når backend har lagret noen målinger.</div>
                 </div>
-            </div>
-            <div class="trend-toolbar trend-toolbar-range">
-                <span class="trend-swipe-hint">Sveip i grafen eller bruk knappene for å bla i perioden.</span>
-                <div class="zoom-controls">
-                    <button type="button" class="zoom-button" id="trend-prev">Forrige</button>
-                    <button type="button" class="zoom-button" id="trend-next">Neste</button>
-                    <button type="button" class="zoom-button" id="trend-range-clear">Siste vindu</button>
-                </div>
-            </div>
-            <div class="chart-shell">
-                <svg id="trend-chart" class="trend-chart" viewBox="0 0 800 260" preserveAspectRatio="none" aria-label="Trend chart">
-                    <defs>
-                        <linearGradient id="trend-fill-gradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop id="trend-fill-stop-top" offset="0%" stop-color="rgba(134, 201, 150, 0.30)"></stop>
-                            <stop id="trend-fill-stop-bottom" offset="100%" stop-color="rgba(134, 201, 150, 0.02)"></stop>
-                        </linearGradient>
-                        <filter id="trend-glow" x="-20%" y="-20%" width="140%" height="140%">
-                            <feGaussianBlur stdDeviation="5" result="blur"></feGaussianBlur>
-                            <feMerge>
-                                <feMergeNode in="blur"></feMergeNode>
-                                <feMergeNode in="SourceGraphic"></feMergeNode>
-                            </feMerge>
-                        </filter>
-                    </defs>
-                    <g id="trend-grid" class="trend-grid"></g>
-                    <path id="trend-area" class="trend-area" d=""></path>
-                    <path id="trend-line" class="trend-line" d=""></path>
-                    <line id="trend-hover-line" class="trend-hover-line" x1="0" y1="0" x2="0" y2="0"></line>
-                    <circle id="trend-last-point-glow" class="trend-last-point-glow" cx="0" cy="0" r="0"></circle>
-                    <circle id="trend-last-point" class="trend-last-point" cx="0" cy="0" r="0"></circle>
-                    <circle id="trend-hover-point" class="trend-hover-point" cx="0" cy="0" r="0"></circle>
-                    <g id="trend-y-axis" class="trend-axis"></g>
-                    <g id="trend-x-axis" class="trend-axis"></g>
-                    <rect id="trend-hitbox" class="trend-hitbox" x="0" y="0" width="800" height="260"></rect>
-                </svg>
-                <div id="trend-tooltip" class="trend-tooltip" hidden>
-                    <strong id="trend-tooltip-value">-</strong>
-                    <span id="trend-tooltip-time">-</span>
-                </div>
-                <div id="trend-empty" class="chart-empty">Historikk vises her når backend har lagret noen målinger.</div>
-            </div>
-        </section>
+            </section>
+        </div>
 
     </main>
 
@@ -224,6 +228,9 @@
         const trendPrevButton = document.getElementById("trend-prev");
         const trendNextButton = document.getElementById("trend-next");
         const trendRangeClearButton = document.getElementById("trend-range-clear");
+        const trendModal = document.getElementById("trend-modal");
+        const trendModalBackdrop = document.getElementById("trend-modal-backdrop");
+        const trendCloseButton = document.getElementById("trend-close");
 
         const osloTimeZone = "Europe/Oslo";
 
@@ -282,6 +289,7 @@
         let latestRenderedPoints = [];
         let customRangeStart = "";
         let customRangeEnd = "";
+        let trendModalOpen = false;
 
         const spanWindowMs = {
             minutes: 6 * 60 * 60 * 1000,
@@ -353,6 +361,17 @@
                 card.classList.toggle("selected", card.dataset.metric === metric);
             });
             applyMetricTheme(metric);
+        }
+
+        function setTrendModalOpen(open) {
+            trendModalOpen = open;
+            trendModal.hidden = !open;
+            document.body.classList.toggle("modal-open", open);
+        }
+
+        function closeTrendModal() {
+            setTrendModalOpen(false);
+            clearHover();
         }
 
         function updateSelectedSpan(span) {
@@ -717,7 +736,9 @@
                         setMetricRange(metric, summaryPayload.summary[metric]);
                     });
                 }
-                await fetchTrend(selectedMetric);
+                if (trendModalOpen) {
+                    await fetchTrend(selectedMetric);
+                }
             } catch (error) {
                 Object.keys(metricMap).forEach((key) => setMetric(key, "-"));
                 Object.keys(rangeMap).forEach((key) => setMetricRange(key, null));
@@ -728,6 +749,7 @@
 
         cards.forEach((card) => {
             card.addEventListener("click", () => {
+                setTrendModalOpen(true);
                 fetchTrend(card.dataset.metric).catch((error) => {
                     trendSummary.textContent = error.message;
                 });
@@ -818,6 +840,13 @@
         });
         trendHitbox.addEventListener("pointercancel", () => {
             dragStartX = null;
+        });
+        trendCloseButton.addEventListener("click", closeTrendModal);
+        trendModalBackdrop.addEventListener("click", closeTrendModal);
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && trendModalOpen) {
+                closeTrendModal();
+            }
         });
         updateSelectedSpan(selectedSpan);
         applyMetricTheme(selectedMetric);

@@ -40,6 +40,7 @@ SUPABASE_API_KEY = os.getenv(
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZmeGt4c2NsZ2lvanJ6bXh2eXVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzOTI1MzYsImV4cCI6MjA4OTk2ODUzNn0.yOtn_wNGOje0QAEdWYll8XJkojFANCxpmWd5F1eoPzA",
 )
 DEFAULT_APP_SETTINGS: dict[str, Any] = {
+    "sensor_url": DEFAULT_SENSOR_URL,
     "sample_time_soil_ms": 60000,
     "sample_time_light_ms": 60000,
     "sample_time_air_ms": 60000,
@@ -241,6 +242,13 @@ def normalize_history_start_at(value: Any) -> str:
     return parsed.strftime("%Y-%m-%dT00:00")
 
 
+def normalize_sensor_url(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return DEFAULT_SENSOR_URL
+    return f"{normalize_device_base_url(text)}/sensor"
+
+
 def app_settings() -> dict[str, Any]:
     settings = DEFAULT_APP_SETTINGS.copy()
     with db_connection() as connection:
@@ -257,6 +265,9 @@ def app_settings() -> dict[str, Any]:
             settings["history_start_at"] = normalize_history_start_at(row["value"])
             continue
         if key in settings:
+            if key == "sensor_url":
+                settings[key] = normalize_sensor_url(row["value"])
+                continue
             if key == "history_start_at":
                 settings[key] = normalize_history_start_at(row["value"])
                 continue
@@ -275,6 +286,9 @@ def save_app_settings(payload: dict[str, Any]) -> dict[str, Any]:
             continue
         value = payload[key]
         if value is None:
+            continue
+        if key == "sensor_url":
+            updated[key] = normalize_sensor_url(value)
             continue
         if key == "history_start_at":
             updated[key] = normalize_history_start_at(value)
@@ -989,11 +1003,12 @@ async def home(request: Request):
     redirect = require_viewer_page(request)
     if redirect:
         return redirect
+    settings = app_settings()
     return templates.TemplateResponse(
         "home.html",
         {
             "request": request,
-            "default_sensor_url": DEFAULT_SENSOR_URL,
+            "default_sensor_url": settings["sensor_url"],
             **template_auth_context(request),
         },
     )
@@ -1004,12 +1019,13 @@ async def settings(request: Request):
     redirect = require_settings_page(request)
     if redirect:
         return redirect
+    settings_payload = app_settings()
     return templates.TemplateResponse(
         "settings.html",
         {
             "request": request,
-            "default_sensor_url": DEFAULT_SENSOR_URL,
-            "sample_settings": app_settings(),
+            "default_sensor_url": settings_payload["sensor_url"],
+            "sample_settings": settings_payload,
             **template_auth_context(request),
         },
     )
@@ -1020,42 +1036,44 @@ async def greenhouse_test(request: Request):
     redirect = require_viewer_page(request)
     if redirect:
         return redirect
+    settings = app_settings()
     return templates.TemplateResponse(
         "greenhouse_test.html",
         {
             "request": request,
-            "default_sensor_url": DEFAULT_SENSOR_URL,
+            "default_sensor_url": settings["sensor_url"],
             **template_auth_context(request),
         },
     )
 
 
 @app.get("/api/sensor")
-async def sensor_proxy(request: Request, target: str = Query(default=DEFAULT_SENSOR_URL)):
+async def sensor_proxy(request: Request, target: str | None = Query(default=None)):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
+    resolved_target = normalize_sensor_url(target or app_settings().get("sensor_url", DEFAULT_SENSOR_URL))
     try:
-        data = fetch_sensor_payload(target)
+        data = fetch_sensor_payload(resolved_target)
     except HTTPError as exc:
         return JSONResponse(
             status_code=502,
-            content={"ok": False, "error": f"sensor_http_{exc.code}", "target": target},
+            content={"ok": False, "error": f"sensor_http_{exc.code}", "target": resolved_target},
         )
     except URLError as exc:
         reason = getattr(exc, "reason", "connection_failed")
         return JSONResponse(
             status_code=502,
-            content={"ok": False, "error": str(reason), "target": target},
+            content={"ok": False, "error": str(reason), "target": resolved_target},
         )
     except json.JSONDecodeError:
         return JSONResponse(
             status_code=502,
-            content={"ok": False, "error": "invalid_sensor_json", "target": target},
+            content={"ok": False, "error": "invalid_sensor_json", "target": resolved_target},
         )
 
-    stored = store_sensor_sample({**data, "source": target})
-    return {"ok": True, "target": target, "sensor": data, "stored": stored}
+    stored = store_sensor_sample({**data, "source": resolved_target})
+    return {"ok": True, "target": resolved_target, "sensor": data, "stored": stored}
 
 
 @app.post("/api/sensor/ingest")

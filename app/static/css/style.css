@@ -970,6 +970,56 @@ select {
     display: none;
 }
 
+.modal-open {
+    overflow: hidden;
+}
+
+.trend-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+}
+
+.trend-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(3, 6, 4, 0.72);
+    backdrop-filter: blur(6px);
+}
+
+.trend-modal-panel {
+    position: relative;
+    z-index: 1;
+    width: min(1040px, 100%);
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
+}
+
+.trend-close-button {
+    width: 40px;
+    height: 40px;
+    border: 1px solid rgba(161, 171, 162, 0.18);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+
+.trend-close-button:hover,
+.trend-close-button:focus-visible {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(161, 171, 162, 0.28);
+    transform: translateY(-1px);
+    outline: none;
+}
+
 .detail-panel {
     display: grid;
     gap: 12px;
@@ -1264,6 +1314,14 @@ select {
         font-size: 1.2rem;
     }
 
+    .trend-modal {
+        padding: 16px;
+    }
+
+    .trend-modal-panel {
+        max-height: calc(100vh - 32px);
+    }
+
     .eyebrow {
         margin-bottom: 6px;
         font-size: 0.74rem;
@@ -1406,6 +1464,12 @@ select {
         min-height: 32px;
         padding: 6px 10px;
         font-size: 0.8rem;
+    }
+
+    .trend-close-button {
+        width: 36px;
+        height: 36px;
+        font-size: 1.35rem;
     }
 
     .greenhouse-metric-tabs {
