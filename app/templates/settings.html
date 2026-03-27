@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Growly Innstillinger</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260327-light-5">
+</head>
+<body>
+    <main class="dashboard-shell">
+        <header class="page-topbar">
+            <a class="landing-brand" href="/" aria-label="Growly Garden">
+                <img class="logo-mark small" src="{{ url_for('static', path='logo.png') }}" alt="Growly logo">
+                <span>Growly Garden</span>
+            </a>
+            <nav class="page-nav">
+                <a href="/">Hjem</a>
+                <a href="/monitor">Monitor</a>
+                <a href="/drivhus-test">Drivhus test</a>
+                <a href="/settings" class="active">{% if not current_user_is_admin %}<span class="nav-lock" aria-hidden="true">🔒</span>{% endif %}Innstillinger</a>
+                <form method="post" action="/logout" class="page-nav-form">
+                    <button type="submit" class="page-nav-button">Logg ut</button>
+                </form>
+            </nav>
+        </header>
+
+        <section class="hero page-hero">
+            <div class="hero-copy">
+                <p class="eyebrow">Innstillinger</p>
+                <h1>System og tilgang</h1>
+                <p class="lead">Administrer sensoradresse, intervaller, datastart og brukere på ett sted.</p>
+            </div>
+        </section>
+
+        <section class="panel control-panel settings-card">
+            <h1 class="settings-title">Sensor URL</h1>
+            <label class="field">
+                <span>Sensor URL</span>
+                <input id="sensor-url" type="text" value="{{ default_sensor_url }}" spellcheck="false">
+            </label>
+            <div class="actions">
+                <button id="refresh-button" class="button" type="button">Oppdater nå</button>
+                <span id="connection-badge" class="status-pill">Venter på første svar</span>
+            </div>
+            <p class="helper-text">Tips: når ESP32 er på vanlig Wi-Fi kan du bytte til dens vanlige IP her. Hver henting lagres i backend for trendvisning.</p>
+        </section>
+
+        <section class="panel settings-card">
+            <h2 class="settings-subtitle">Samplingsintervall</h2>
+            <p class="helper-text">Bestem hvor ofte systemet skal hente og sende data videre. Verdiene lagres i backend og pushes også til ESP32-en når den er online.</p>
+            <div class="settings-grid">
+                <label class="field">
+                    <span>7in1 jordsensor</span>
+                    <div class="unit-input">
+                        <input id="sample-time-soil" type="number" min="1" step="1" value="{{ sample_settings['sample_time_soil_ms'] // 60000 }}">
+                        <span class="unit-suffix">min</span>
+                    </div>
+                </label>
+                <label class="field">
+                    <span>BH1750 lys</span>
+                    <div class="unit-input">
+                        <input id="sample-time-light" type="number" min="1" step="1" value="{{ sample_settings['sample_time_light_ms'] // 60000 }}">
+                        <span class="unit-suffix">min</span>
+                    </div>
+                </label>
+                <label class="field">
+                    <span>Luftsensor</span>
+                    <div class="unit-input">
+                        <input id="sample-time-air" type="number" min="1" step="1" value="{{ sample_settings['sample_time_air_ms'] // 60000 }}">
+                        <span class="unit-suffix">min</span>
+                    </div>
+                </label>
+                <label class="field">
+                    <span>Sky / backend-synk</span>
+                    <div class="unit-input">
+                        <input id="sample-time-cloud" type="number" min="1" step="1" value="{{ sample_settings['sample_time_cloud_ms'] // 60000 }}">
+                        <span class="unit-suffix">min</span>
+                    </div>
+                </label>
+            </div>
+            <div class="actions">
+                <button id="save-settings-button" class="button" type="button">Lagre intervaller</button>
+                <span id="settings-save-status" class="status-pill">Ikke lagret enda</span>
+            </div>
+            <p id="settings-debug-target" class="helper-text">ESP32 target: -</p>
+        </section>
+
+        <section class="panel settings-card">
+            <h2 class="settings-subtitle">Data start</h2>
+            <p class="helper-text">Alt før dette tidspunktet skjules i monitor, trender og sammendrag. Det betyr at ingen data fra før denne tiden skal vises noe sted i appen.</p>
+            <div class="settings-grid">
+                <label class="field">
+                    <span>Startdato for visning</span>
+                    <input id="history-start-date" type="date" value="{{ sample_settings['history_start_at'].split('T')[0] if sample_settings['history_start_at'] else '' }}">
+                </label>
+                <label class="field">
+                    <span>Klokkeslett</span>
+                    <input id="history-start-time" type="time" value="{{ sample_settings['history_start_at'].split('T')[1] if sample_settings['history_start_at'] else '' }}">
+                </label>
+            </div>
+            <div class="actions">
+                <button id="save-history-start-button" class="button" type="button">Lagre data start</button>
+                <span id="history-start-status" class="status-pill">Ikke lagret enda</span>
+            </div>
+            <p class="helper-text">La feltet stå tomt hvis du vil vise all historikk.</p>
+        </section>
+
+        <section class="panel settings-card">
+            <h2 class="settings-subtitle">Brukere</h2>
+            <p class="helper-text">Legg til nye visningsbrukere eller bytt passord på eksisterende brukere. Dette påvirker vanlig login til appen, ikke den ekstra låsen på Innstillinger.</p>
+
+            <div class="settings-grid users-grid">
+                <label class="field">
+                    <span>Nytt brukernavn</span>
+                    <input id="new-username" type="text" autocomplete="off" spellcheck="false">
+                </label>
+                <label class="field">
+                    <span>Nytt passord</span>
+                    <input id="new-user-password" type="password" autocomplete="new-password">
+                </label>
+            </div>
+            <label class="toggle-line admin-toggle-line">
+                <input id="new-user-admin" type="checkbox">
+                <span>Gi denne brukeren admin-tilgang til Innstillinger</span>
+            </label>
+
+            <div class="actions">
+                <button id="add-user-button" class="button" type="button">Legg til bruker</button>
+                <span id="user-status" class="status-pill">Ingen endring ennå</span>
+            </div>
+
+            <div id="user-list" class="user-list"></div>
+        </section>
+
+        <section class="panel detail-panel">
+            <div class="detail-row">
+                <span>Sist oppdatert</span>
+                <strong id="updated-at">-</strong>
+            </div>
+            <div class="detail-row">
+                <span>Sensor-status</span>
+                <strong id="sensor-validity">-</strong>
+            </div>
+            <div class="detail-row">
+                <span>Feil</span>
+                <strong id="sensor-error">-</strong>
+            </div>
+            <div class="detail-row">
+                <span>Mål</span>
+                <strong id="active-target">{{ default_sensor_url }}</strong>
+            </div>
+            <pre id="raw-json" class="raw-json">Venter på data...</pre>
+        </section>
+
+        <section class="panel settings-card wiring-card">
+            <h2 class="settings-subtitle">Koblingsskjema</h2>
+            <p class="helper-text">Dette er oppsettet som faktisk har fungert i prosjektet nå. Bruk det som fasit når du flytter alt over i en egen boks.</p>
+
+            <div class="wiring-grid">
+                <article class="wiring-block">
+                    <h3>ESP32 → MAX485</h3>
+                    <pre class="wiring-code">3V3    → VCC
+GPIO17 → DI
+GPIO18 → RO
+GPIO16 → DE
+GPIO16 → RE
+GND    → GND</pre>
+                    <p class="helper-text">DE og RE skal ligge på samme GPIO. Felles jord er helt nødvendig.</p>
+                </article>
+
+                <article class="wiring-block">
+                    <h3>MAX485 → 7in1 jordsensor</h3>
+                    <pre class="wiring-code">A      → gul/grønn
+B      → blå
+Sensor brun  → +5V
+Sensor svart → GND</pre>
+                    <p class="helper-text">Hvis jordsensoren gir timeout, er første test alltid å bytte A og B.</p>
+                </article>
+
+                <article class="wiring-block">
+                    <h3>I2C-buss</h3>
+                    <pre class="wiring-code">GPIO8 → SDA
+GPIO9 → SCL
+3V3   → VCC
+GND   → GND</pre>
+                    <p class="helper-text">BH1750 og BMP280 deler samme SDA og SCL på denne bussen.</p>
+                </article>
+
+                <article class="wiring-block">
+                    <h3>BH1750 lys</h3>
+                    <pre class="wiring-code">VCC → 3V3
+GND → GND
+SDA → GPIO8
+SCL → GPIO9
+ADDR → åpen</pre>
+                    <p class="helper-text">BH1750 blir funnet på 0x23 i dette oppsettet.</p>
+                </article>
+
+                <article class="wiring-block">
+                    <h3>BMP280 luftsensor</h3>
+                    <pre class="wiring-code">VCC → 3V3
+GND → GND
+SDA → GPIO8
+SCL → GPIO9
+CSB → 3V3
+SDO → GND</pre>
+                    <p class="helper-text">Modulen du har nå svarer som BMP280 på 0x76. Den gir temperatur og lufttrykk, men ikke luftfuktighet.</p>
+                </article>
+
+                <article class="wiring-block">
+                    <h3>Husk dette</h3>
+                    <pre class="wiring-code">ESP32 GND
+MAX485 GND
+Sensor GND
+I2C-sensor GND
+må dele felles jord</pre>
+                    <p class="helper-text">Hvis noe plutselig ser dødt ut, sjekk strøm og jord før du begynner å mistenke firmware.</p>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const defaultSensorUrl = "{{ default_sensor_url }}";
+        const storageKey = "growly.sensorUrl";
+
+        const input = document.getElementById("sensor-url");
+        const refreshButton = document.getElementById("refresh-button");
+        const badge = document.getElementById("connection-badge");
+        const updatedAt = document.getElementById("updated-at");
+        const sensorValidity = document.getElementById("sensor-validity");
+        const sensorError = document.getElementById("sensor-error");
+        const activeTarget = document.getElementById("active-target");
+        const rawJson = document.getElementById("raw-json");
+        const sampleTimeSoil = document.getElementById("sample-time-soil");
+        const sampleTimeLight = document.getElementById("sample-time-light");
+        const sampleTimeAir = document.getElementById("sample-time-air");
+        const sampleTimeCloud = document.getElementById("sample-time-cloud");
+        const historyStartDate = document.getElementById("history-start-date");
+        const historyStartTime = document.getElementById("history-start-time");
+        const saveHistoryStartButton = document.getElementById("save-history-start-button");
+        const historyStartStatus = document.getElementById("history-start-status");
+        const saveSettingsButton = document.getElementById("save-settings-button");
+        const settingsSaveStatus = document.getElementById("settings-save-status");
+        const settingsDebugTarget = document.getElementById("settings-debug-target");
+        const newUsername = document.getElementById("new-username");
+        const newUserPassword = document.getElementById("new-user-password");
+        const newUserAdmin = document.getElementById("new-user-admin");
+        const addUserButton = document.getElementById("add-user-button");
+        const userStatus = document.getElementById("user-status");
+        const userList = document.getElementById("user-list");
+
+        function loadStoredUrl() {
+            const savedUrl = window.localStorage.getItem(storageKey);
+            input.value = savedUrl || defaultSensorUrl;
+            normalizeTargetUrl({ updateField: true });
+        }
+
+        function normalizeTargetUrl({ updateField = false } = {}) {
+            let raw = (input.value || "").trim() || defaultSensorUrl;
+            raw = raw.replace(/\s+/g, "");
+
+            if (!/^https?:\/\//i.test(raw)) {
+                raw = `http://${raw}`;
+            }
+
+            const match = raw.match(/^(https?):\/\/([^\/?#]+)(\/[^?#]*)?$/i);
+            if (!match || !match[2]) {
+                throw new Error("Ugyldig Sensor URL. Bruk for eksempel http://192.168.0.131/sensor");
+            }
+
+            const scheme = match[1].toLowerCase();
+            const host = match[2];
+            const path = (match[3] || "").replace(/\/+$/, "");
+            const normalized = `${scheme}://${host}${path}`;
+
+            if (updateField) {
+                input.value = normalized;
+            }
+            return normalized;
+        }
+
+        function currentTarget() {
+            const url = normalizeTargetUrl({ updateField: true });
+            window.localStorage.setItem(storageKey, url);
+            activeTarget.textContent = url;
+            settingsDebugTarget.textContent = `ESP32 target: ${url}`;
+            return url;
+        }
+
+        function setStatus(text, mode) {
+            badge.textContent = text;
+            badge.dataset.mode = mode;
+        }
+
+        function setSaveStatus(text, mode = "") {
+            settingsSaveStatus.textContent = text;
+            settingsSaveStatus.dataset.mode = mode;
+        }
+
+        function setHistoryStartStatus(text, mode = "") {
+            historyStartStatus.textContent = text;
+            historyStartStatus.dataset.mode = mode;
+        }
+
+        function setUserStatus(text, mode = "") {
+            userStatus.textContent = text;
+            userStatus.dataset.mode = mode;
+        }
+
+        function renderUsers(users) {
+            if (!users || !users.length) {
+                userList.innerHTML = '<p class="helper-text">Ingen brukere registrert ennå.</p>';
+                return;
+            }
+
+            userList.innerHTML = users.map((user) => `
+                <article class="user-card">
+                    <div class="user-card-head">
+                        <div>
+                            <strong>${user.username}</strong>
+                            <p class="helper-text">${user.is_active ? "Aktiv" : "Deaktivert"} · ${user.is_admin ? "Admin" : "Visning"}</p>
+                        </div>
+                        <div class="user-card-toggles">
+                            <label class="toggle-line">
+                                <input type="checkbox" data-user-toggle="${user.username}" ${user.is_active ? "checked" : ""}>
+                                <span>${user.is_active ? "Aktiv" : "Av"}</span>
+                            </label>
+                            <label class="toggle-line">
+                                <input type="checkbox" data-user-admin-toggle="${user.username}" ${user.is_admin ? "checked" : ""}>
+                                <span>${user.is_admin ? "Admin" : "Vanlig"}</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="user-card-actions">
+                        <input type="password" data-user-password="${user.username}" placeholder="Nytt passord">
+                        <button type="button" class="button subtle-button" data-user-save="${user.username}">Lagre</button>
+                    </div>
+                </article>
+            `).join("");
+        }
+
+        async function loadUsers() {
+            const response = await fetch("/api/users", { cache: "no-store" });
+            const payload = await response.json();
+            if (!payload.ok) {
+                throw new Error(payload.error || "users_load_failed");
+            }
+            renderUsers(payload.users || []);
+        }
+
+        async function addUser() {
+            setUserStatus("Lagrer bruker...", "warning");
+            const payload = {
+                username: (newUsername.value || "").trim(),
+                password: newUserPassword.value || "",
+                is_admin: !!newUserAdmin.checked
+            };
+
+            try {
+                const response = await fetch("/api/users", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "user_create_failed");
+                }
+                newUsername.value = "";
+                newUserPassword.value = "";
+                newUserAdmin.checked = false;
+                renderUsers(result.users || []);
+                setUserStatus("Bruker lagret", "online");
+            } catch (error) {
+                setUserStatus(`Feil: ${error.message || error}`, "offline");
+            }
+        }
+
+        async function updateUser(username) {
+            const passwordInput = document.querySelector(`[data-user-password="${username}"]`);
+            const toggleInput = document.querySelector(`[data-user-toggle="${username}"]`);
+            const adminToggleInput = document.querySelector(`[data-user-admin-toggle="${username}"]`);
+            const payload = {
+                password: passwordInput?.value || "",
+                is_active: !!toggleInput?.checked,
+                is_admin: !!adminToggleInput?.checked
+            };
+
+            setUserStatus(`Lagrer ${username}...`, "warning");
+
+            try {
+                const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "user_update_failed");
+                }
+                if (passwordInput) {
+                    passwordInput.value = "";
+                }
+                renderUsers(result.users || []);
+                setUserStatus(`Oppdatert ${username}`, "online");
+            } catch (error) {
+                setUserStatus(`Feil: ${error.message || error}`, "offline");
+            }
+        }
+
+        function loadHistoryStartFields() {
+            historyStartDate.value = (historyStartDate.value || "").trim();
+            historyStartTime.value = (historyStartTime.value || "").trim();
+        }
+
+        function buildHistoryStartValue() {
+            const datePart = (historyStartDate.value || "").trim();
+            const timePart = (historyStartTime.value || "").trim();
+            if (!datePart) {
+                return "";
+            }
+            return `${datePart}T${timePart || "00:00"}`;
+        }
+
+        async function saveSampleSettings() {
+            setSaveStatus("Lagrer...", "warning");
+
+            const minuteToMs = (value) => Math.max(1, Number(value || 1)) * 60000;
+
+            const payload = {
+                sample_time_soil_ms: minuteToMs(sampleTimeSoil.value),
+                sample_time_light_ms: minuteToMs(sampleTimeLight.value),
+                sample_time_air_ms: minuteToMs(sampleTimeAir.value),
+                sample_time_cloud_ms: minuteToMs(sampleTimeCloud.value)
+            };
+
+            try {
+                const target = currentTarget();
+                settingsDebugTarget.textContent = `ESP32 target: ${target} -> /device-settings`;
+                const response = await fetch("/api/device-settings", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ ...payload, target })
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "save_failed");
+                }
+
+                sampleTimeSoil.value = Math.round(result.settings.sample_time_soil_ms / 60000);
+                sampleTimeLight.value = Math.round(result.settings.sample_time_light_ms / 60000);
+                sampleTimeAir.value = Math.round(result.settings.sample_time_air_ms / 60000);
+                sampleTimeCloud.value = Math.round(result.settings.sample_time_cloud_ms / 60000);
+                setSaveStatus("Lagret på app og ESP32", "online");
+                settingsDebugTarget.textContent = `ESP32 target: ${result.target || target} -> OK`;
+            } catch (error) {
+                const label = error?.name ? `${error.name}: ` : "";
+                const message = error?.message || String(error);
+                settingsDebugTarget.textContent = `ESP32 target: FEIL under lagring`;
+                setSaveStatus(`Feil: ${label}${message}`, "offline");
+            }
+        }
+
+        async function saveHistoryStart() {
+            setHistoryStartStatus("Lagrer...", "warning");
+
+            const payload = {
+                history_start_at: buildHistoryStartValue()
+            };
+
+            try {
+                const response = await fetch("/api/settings", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "save_history_start_failed");
+                }
+
+                const saved = (result.settings.history_start_at || "").trim();
+                if (saved.includes("T")) {
+                    const [datePart, timePart] = saved.split("T");
+                    historyStartDate.value = datePart || "";
+                    historyStartTime.value = (timePart || "").slice(0, 5);
+                } else {
+                    historyStartDate.value = "";
+                    historyStartTime.value = "";
+                }
+                setHistoryStartStatus("Loggstart lagret", "online");
+            } catch (error) {
+                const label = error?.name ? `${error.name}: ` : "";
+                const message = error?.message || String(error);
+                setHistoryStartStatus(`Feil: ${label}${message}`, "offline");
+            }
+        }
+
+        async function testSensor() {
+            const target = currentTarget();
+            setStatus("Henter data...", "loading");
+
+            try {
+                const response = await fetch(`/api/sensor?target=${encodeURIComponent(target)}`, { cache: "no-store" });
+                const payload = await response.json();
+                if (!payload.ok) {
+                    throw new Error(payload.error || "unknown_error");
+                }
+                updatedAt.textContent = new Date().toLocaleTimeString("no-NO", { timeZone: "Europe/Oslo" });
+                sensorValidity.textContent = payload.sensor.valid ? "Gyldig svar" : "Svar mottatt";
+                sensorError.textContent = payload.sensor.error || "Ingen";
+                rawJson.textContent = JSON.stringify(payload.sensor, null, 2);
+                setStatus(payload.sensor.valid ? "Sensor online" : "Svar mottatt", payload.sensor.valid ? "online" : "warning");
+            } catch (error) {
+                updatedAt.textContent = new Date().toLocaleTimeString("no-NO", { timeZone: "Europe/Oslo" });
+                sensorValidity.textContent = "Ingen kontakt";
+                sensorError.textContent = error.message;
+                rawJson.textContent = `Klarte ikke hente data fra sensor.\n\n${error.message}`;
+                setStatus("Sensor offline", "offline");
+            }
+        }
+
+        loadStoredUrl();
+        loadHistoryStartFields();
+        refreshButton.addEventListener("click", testSensor);
+        input.addEventListener("change", () => {
+            try {
+                currentTarget();
+            } catch (error) {
+                setSaveStatus(`Feil: ${error.message}`, "offline");
+            }
+        });
+        saveSettingsButton.addEventListener("click", saveSampleSettings);
+        saveHistoryStartButton.addEventListener("click", saveHistoryStart);
+        addUserButton.addEventListener("click", addUser);
+        userList.addEventListener("click", (event) => {
+            const button = event.target.closest("[data-user-save]");
+            if (!button) {
+                return;
+            }
+            updateUser(button.dataset.userSave);
+        });
+        testSensor();
+        loadUsers().catch((error) => {
+            setUserStatus(`Feil: ${error.message || error}`, "offline");
+        });
+    </script>
+</body>
+</html>

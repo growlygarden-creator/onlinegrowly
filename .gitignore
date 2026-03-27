@@ -1,0 +1,10 @@
+.venv/
+.pio/
+.vscode/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.env.local
+data/growly.db
+Temp Web site/

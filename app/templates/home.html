@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Growly</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260327-light-5">
+</head>
+<body>
+    <main class="dashboard-shell">
+        <header class="page-topbar">
+            <a class="landing-brand" href="/" aria-label="Growly Garden">
+                <img class="logo-mark small" src="{{ url_for('static', path='logo.png') }}" alt="Growly logo">
+                <span>Growly Garden</span>
+            </a>
+            <nav class="page-nav">
+                <a href="/">Hjem</a>
+                <a href="/monitor" class="active">Monitor</a>
+                <a href="/drivhus-test">Drivhus test</a>
+                <a href="/settings">{% if not current_user_is_admin %}<span class="nav-lock" aria-hidden="true">🔒</span>{% endif %}Innstillinger</a>
+                <form method="post" action="/logout" class="page-nav-form">
+                    <button type="submit" class="page-nav-button">Logg ut</button>
+                </form>
+            </nav>
+        </header>
+
+        <section class="hero page-hero">
+            <div class="hero-copy">
+                <p class="eyebrow">Live sensoroversikt</p>
+                <h1>Live test av sensorer V1</h1>
+                <p class="lead">Klikk på et kort for å se trend. Skyhistorikken hentes fra Supabase.</p>
+            </div>
+        </section>
+
+        <section class="sensor-zone sensor-zone-air">
+            <div class="zone-header">
+                <div>
+                    <p class="zone-kicker">Luft</p>
+                    <h2>Uteluft</h2>
+                </div>
+                <p class="zone-note">GY-BM/BME280-sensor for test i fri luft. Disse kortene er klare for lufttemperatur, luftfuktighet og atmosfærisk trykk.</p>
+            </div>
+            <div class="stats-grid air-grid">
+                <button class="metric-card metric-card-air" type="button" data-metric="air_temperature" data-label="Lufttemperatur" data-unit="C">
+                    <p>Lufttemperatur</p>
+                    <strong id="air-temperature-value">-</strong>
+                    <span class="metric-footnote">Kommer fra luftsensor</span>
+                    <span id="air-temperature-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-air" type="button" data-metric="air_humidity" data-label="Luftfuktighet" data-unit="%">
+                    <p>Luftfuktighet</p>
+                    <strong id="air-humidity-value">-</strong>
+                    <span id="air-humidity-note" class="metric-footnote">Kommer fra luftsensor</span>
+                    <span id="air-humidity-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-air" type="button" data-metric="air_pressure" data-label="Lufttrykk" data-unit="hPa">
+                    <p>Lufttrykk</p>
+                    <strong id="air-pressure-value">-</strong>
+                    <span class="metric-footnote">Kommer fra luftsensor</span>
+                    <span id="air-pressure-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-air" type="button" data-metric="lux" data-label="Lysnivå" data-unit="lx">
+                    <p>Lysnivå</p>
+                    <strong id="lux-value">-</strong>
+                    <span class="metric-footnote">Kommer fra BH1750</span>
+                    <span id="lux-range" class="metric-range">Min - · Maks -</span>
+                </button>
+            </div>
+        </section>
+
+        <section class="sensor-zone sensor-zone-soil">
+            <div class="zone-header">
+                <div>
+                    <p class="zone-kicker">Jord</p>
+                    <h2>Jord i hagen</h2>
+                </div>
+                <p class="zone-note">RS485-jordsensor i hagen. Disse kortene kan klikkes for trendvisning gjennom testperioden.</p>
+            </div>
+            <div class="stats-grid soil-grid">
+                <button class="metric-card metric-card-soil selected" type="button" data-metric="humidity" data-label="Jordfuktighet" data-unit="%">
+                    <p>Jordfuktighet</p>
+                    <strong id="humidity-value">-</strong>
+                    <span id="humidity-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-soil" type="button" data-metric="temperature" data-label="Jordtemperatur" data-unit="C">
+                    <p>Jordtemperatur</p>
+                    <strong id="temperature-value">-</strong>
+                    <span id="temperature-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-soil" type="button" data-metric="ph" data-label="Jord pH" data-unit="">
+                    <p>Jord pH</p>
+                    <strong id="ph-value">-</strong>
+                    <span id="ph-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-soil" type="button" data-metric="conductivity" data-label="Ledningsevne" data-unit="">
+                    <p>Ledningsevne</p>
+                    <strong id="conductivity-value">-</strong>
+                    <span id="conductivity-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-soil" type="button" data-metric="nitrogen" data-label="Nitrogen" data-unit="">
+                    <p>Nitrogen</p>
+                    <strong id="nitrogen-value">-</strong>
+                    <span id="nitrogen-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-soil" type="button" data-metric="phosphorus" data-label="Fosfor" data-unit="">
+                    <p>Fosfor</p>
+                    <strong id="phosphorus-value">-</strong>
+                    <span id="phosphorus-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-soil" type="button" data-metric="potassium" data-label="Kalium" data-unit="">
+                    <p>Kalium</p>
+                    <strong id="potassium-value">-</strong>
+                    <span id="potassium-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-soil" type="button" data-metric="salinity" data-label="Saltinnhold" data-unit="">
+                    <p>Saltinnhold</p>
+                    <strong id="salinity-value">-</strong>
+                    <span id="salinity-range" class="metric-range">Min - · Maks -</span>
+                </button>
+                <button class="metric-card metric-card-soil" type="button" data-metric="tds" data-label="TDS" data-unit="">
+                    <p>TDS</p>
+                    <strong id="tds-value">-</strong>
+                    <span id="tds-range" class="metric-range">Min - · Maks -</span>
+                </button>
+            </div>
+        </section>
+
+        <section class="panel trend-panel">
+            <div class="trend-header">
+                <div>
+                    <p class="eyebrow trend-kicker">Trend</p>
+                    <h2 id="trend-title">Lufttemperatur</h2>
+                </div>
+                <div class="trend-meta">
+                    <span id="trend-summary">Venter på historikk</span>
+                    <span id="trend-points" class="status-pill">0 punkter</span>
+                </div>
+            </div>
+            <div class="trend-toolbar">
+                <div class="segmented-control" id="span-control">
+                    <button type="button" class="span-button active" data-span="minutes">Minutter</button>
+                    <button type="button" class="span-button" data-span="hours">Timer</button>
+                    <button type="button" class="span-button" data-span="days">Dager</button>
+                </div>
+                <div class="zoom-controls">
+                    <button type="button" class="zoom-button" id="zoom-out">Zoom ut</button>
+                    <button type="button" class="zoom-button" id="zoom-in">Zoom inn</button>
+                    <button type="button" class="zoom-button" id="zoom-reset">Reset</button>
+                </div>
+            </div>
+            <div class="trend-toolbar trend-toolbar-range">
+                <span class="trend-swipe-hint">Sveip i grafen eller bruk knappene for å bla i perioden.</span>
+                <div class="zoom-controls">
+                    <button type="button" class="zoom-button" id="trend-prev">Forrige</button>
+                    <button type="button" class="zoom-button" id="trend-next">Neste</button>
+                    <button type="button" class="zoom-button" id="trend-range-clear">Siste vindu</button>
+                </div>
+            </div>
+            <div class="chart-shell">
+                <svg id="trend-chart" class="trend-chart" viewBox="0 0 800 260" preserveAspectRatio="none" aria-label="Trend chart">
+                    <defs>
+                        <linearGradient id="trend-fill-gradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop id="trend-fill-stop-top" offset="0%" stop-color="rgba(134, 201, 150, 0.30)"></stop>
+                            <stop id="trend-fill-stop-bottom" offset="100%" stop-color="rgba(134, 201, 150, 0.02)"></stop>
+                        </linearGradient>
+                        <filter id="trend-glow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="5" result="blur"></feGaussianBlur>
+                            <feMerge>
+                                <feMergeNode in="blur"></feMergeNode>
+                                <feMergeNode in="SourceGraphic"></feMergeNode>
+                            </feMerge>
+                        </filter>
+                    </defs>
+                    <g id="trend-grid" class="trend-grid"></g>
+                    <path id="trend-area" class="trend-area" d=""></path>
+                    <path id="trend-line" class="trend-line" d=""></path>
+                    <line id="trend-hover-line" class="trend-hover-line" x1="0" y1="0" x2="0" y2="0"></line>
+                    <circle id="trend-last-point-glow" class="trend-last-point-glow" cx="0" cy="0" r="0"></circle>
+                    <circle id="trend-last-point" class="trend-last-point" cx="0" cy="0" r="0"></circle>
+                    <circle id="trend-hover-point" class="trend-hover-point" cx="0" cy="0" r="0"></circle>
+                    <g id="trend-y-axis" class="trend-axis"></g>
+                    <g id="trend-x-axis" class="trend-axis"></g>
+                    <rect id="trend-hitbox" class="trend-hitbox" x="0" y="0" width="800" height="260"></rect>
+                </svg>
+                <div id="trend-tooltip" class="trend-tooltip" hidden>
+                    <strong id="trend-tooltip-value">-</strong>
+                    <span id="trend-tooltip-time">-</span>
+                </div>
+                <div id="trend-empty" class="chart-empty">Historikk vises her når backend har lagret noen målinger.</div>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const defaultSensorUrl = "{{ default_sensor_url }}";
+        const storageKey = "growly.sensorUrl";
+        let refreshIntervalMs = 60000;
+        let refreshTimer = null;
+
+        const trendTitle = document.getElementById("trend-title");
+        const trendSummary = document.getElementById("trend-summary");
+        const trendPoints = document.getElementById("trend-points");
+        const trendLine = document.getElementById("trend-line");
+        const trendArea = document.getElementById("trend-area");
+        const trendEmpty = document.getElementById("trend-empty");
+        const trendGrid = document.getElementById("trend-grid");
+        const trendXAxis = document.getElementById("trend-x-axis");
+        const trendYAxis = document.getElementById("trend-y-axis");
+        const trendHoverLine = document.getElementById("trend-hover-line");
+        const trendHoverPoint = document.getElementById("trend-hover-point");
+        const trendLastPoint = document.getElementById("trend-last-point");
+        const trendLastPointGlow = document.getElementById("trend-last-point-glow");
+        const trendHitbox = document.getElementById("trend-hitbox");
+        const trendTooltip = document.getElementById("trend-tooltip");
+        const trendTooltipValue = document.getElementById("trend-tooltip-value");
+        const trendTooltipTime = document.getElementById("trend-tooltip-time");
+        const trendFillStopTop = document.getElementById("trend-fill-stop-top");
+        const trendFillStopBottom = document.getElementById("trend-fill-stop-bottom");
+        const spanButtons = Array.from(document.querySelectorAll(".span-button"));
+        const zoomInButton = document.getElementById("zoom-in");
+        const zoomOutButton = document.getElementById("zoom-out");
+        const zoomResetButton = document.getElementById("zoom-reset");
+        const trendPrevButton = document.getElementById("trend-prev");
+        const trendNextButton = document.getElementById("trend-next");
+        const trendRangeClearButton = document.getElementById("trend-range-clear");
+
+        const osloTimeZone = "Europe/Oslo";
+
+        const metricMap = {
+            air_temperature: document.getElementById("air-temperature-value"),
+            air_humidity: document.getElementById("air-humidity-value"),
+            air_pressure: document.getElementById("air-pressure-value"),
+            lux: document.getElementById("lux-value"),
+            humidity: document.getElementById("humidity-value"),
+            temperature: document.getElementById("temperature-value"),
+            ph: document.getElementById("ph-value"),
+            conductivity: document.getElementById("conductivity-value"),
+            nitrogen: document.getElementById("nitrogen-value"),
+            phosphorus: document.getElementById("phosphorus-value"),
+            potassium: document.getElementById("potassium-value"),
+            salinity: document.getElementById("salinity-value"),
+            tds: document.getElementById("tds-value")
+        };
+        const airHumidityNote = document.getElementById("air-humidity-note");
+        const rangeMap = {
+            air_temperature: document.getElementById("air-temperature-range"),
+            air_humidity: document.getElementById("air-humidity-range"),
+            air_pressure: document.getElementById("air-pressure-range"),
+            lux: document.getElementById("lux-range"),
+            humidity: document.getElementById("humidity-range"),
+            temperature: document.getElementById("temperature-range"),
+            ph: document.getElementById("ph-range"),
+            conductivity: document.getElementById("conductivity-range"),
+            nitrogen: document.getElementById("nitrogen-range"),
+            phosphorus: document.getElementById("phosphorus-range"),
+            potassium: document.getElementById("potassium-range"),
+            salinity: document.getElementById("salinity-range"),
+            tds: document.getElementById("tds-range")
+        };
+
+        const cards = Array.from(document.querySelectorAll(".metric-card"));
+        const metricTheme = {
+            air_temperature: { line: "#f6c86e", fillTop: "rgba(246, 200, 110, 0.30)", fillBottom: "rgba(246, 200, 110, 0.02)" },
+            air_humidity: { line: "#7fd8c5", fillTop: "rgba(127, 216, 197, 0.32)", fillBottom: "rgba(127, 216, 197, 0.02)" },
+            air_pressure: { line: "#9acbff", fillTop: "rgba(154, 203, 255, 0.28)", fillBottom: "rgba(154, 203, 255, 0.02)" },
+            lux: { line: "#ffe082", fillTop: "rgba(255, 224, 130, 0.30)", fillBottom: "rgba(255, 224, 130, 0.02)" },
+            humidity: { line: "#7fd8c5", fillTop: "rgba(127, 216, 197, 0.32)", fillBottom: "rgba(127, 216, 197, 0.02)" },
+            temperature: { line: "#f6c86e", fillTop: "rgba(246, 200, 110, 0.30)", fillBottom: "rgba(246, 200, 110, 0.02)" },
+            ph: { line: "#c0e47d", fillTop: "rgba(192, 228, 125, 0.28)", fillBottom: "rgba(192, 228, 125, 0.02)" },
+            conductivity: { line: "#86c996", fillTop: "rgba(134, 201, 150, 0.28)", fillBottom: "rgba(134, 201, 150, 0.02)" },
+            nitrogen: { line: "#8cd17d", fillTop: "rgba(140, 209, 125, 0.28)", fillBottom: "rgba(140, 209, 125, 0.02)" },
+            phosphorus: { line: "#76c7f2", fillTop: "rgba(118, 199, 242, 0.26)", fillBottom: "rgba(118, 199, 242, 0.02)" },
+            potassium: { line: "#ffb86b", fillTop: "rgba(255, 184, 107, 0.26)", fillBottom: "rgba(255, 184, 107, 0.02)" },
+            salinity: { line: "#6ed3d0", fillTop: "rgba(110, 211, 208, 0.26)", fillBottom: "rgba(110, 211, 208, 0.02)" },
+            tds: { line: "#9acbff", fillTop: "rgba(154, 203, 255, 0.26)", fillBottom: "rgba(154, 203, 255, 0.02)" }
+        };
+        let selectedMetric = "air_temperature";
+        let selectedSpan = "hours";
+        let zoomLevel = 1;
+        let latestTrendPayload = null;
+        let latestRenderedPoints = [];
+        let customRangeStart = "";
+        let customRangeEnd = "";
+
+        const spanWindowMs = {
+            minutes: 6 * 60 * 60 * 1000,
+            hours: 3 * 24 * 60 * 60 * 1000,
+            days: 30 * 24 * 60 * 60 * 1000
+        };
+
+        function loadStoredUrl() {
+            const savedUrl = window.localStorage.getItem(storageKey);
+            return savedUrl || defaultSensorUrl;
+        }
+
+        function currentTarget() {
+            return loadStoredUrl();
+        }
+
+        function currentCard() {
+            return cards.find((card) => card.dataset.metric === selectedMetric);
+        }
+
+        function setMetric(id, value, suffix = "") {
+            metricMap[id].textContent = value === null || value === undefined ? "-" : `${value}${suffix}`;
+        }
+
+        function metricDecimals(metric) {
+            return ["air_temperature", "air_humidity", "temperature", "humidity", "ph", "lux"].includes(metric) ? 1 : 0;
+        }
+
+        function setMetricRange(metric, summary) {
+            const element = rangeMap[metric];
+            if (!element) {
+                return;
+            }
+
+            if (!summary || summary.min === null || summary.max === null) {
+                element.innerHTML = `
+                    <span class="metric-range-item">
+                        <span class="metric-range-label">Min</span>
+                        <span class="metric-range-value">-</span>
+                    </span>
+                    <span class="metric-range-item">
+                        <span class="metric-range-label">Maks</span>
+                        <span class="metric-range-value">-</span>
+                    </span>
+                `;
+                return;
+            }
+
+            const card = cards.find((item) => item.dataset.metric === metric);
+            const unit = card?.dataset.unit || "";
+            const decimals = metricDecimals(metric);
+            const minText = `${Number(summary.min).toFixed(decimals)}${unit ? ` ${unit}` : ""}`;
+            const maxText = `${Number(summary.max).toFixed(decimals)}${unit ? ` ${unit}` : ""}`;
+            element.innerHTML = `
+                <span class="metric-range-item">
+                    <span class="metric-range-label">Min</span>
+                    <span class="metric-range-value">${minText}</span>
+                </span>
+                <span class="metric-range-item">
+                    <span class="metric-range-label">Maks</span>
+                    <span class="metric-range-value">${maxText}</span>
+                </span>
+            `;
+        }
+
+        function updateSelectedCard(metric) {
+            selectedMetric = metric;
+            cards.forEach((card) => {
+                card.classList.toggle("selected", card.dataset.metric === metric);
+            });
+            applyMetricTheme(metric);
+        }
+
+        function updateSelectedSpan(span) {
+            selectedSpan = span;
+            spanButtons.forEach((button) => {
+                button.classList.toggle("active", button.dataset.span === span);
+            });
+        }
+
+        function defaultRangeWindow() {
+            const end = new Date();
+            const start = new Date(end.getTime() - (spanWindowMs[selectedSpan] || spanWindowMs.hours));
+            return { start, end };
+        }
+
+        function currentRangeWindow() {
+            if (customRangeStart && customRangeEnd) {
+                return {
+                    start: new Date(customRangeStart),
+                    end: new Date(customRangeEnd)
+                };
+            }
+            return defaultRangeWindow();
+        }
+
+        function applyRangeWindow(start, end) {
+            customRangeStart = start.toISOString();
+            customRangeEnd = end.toISOString();
+        }
+
+        function chartBounds(width, height) {
+            return {
+                left: 18,
+                right: width - 76,
+                top: 16,
+                bottom: height - 34
+            };
+        }
+
+        function pointCoordinates(points, width, height, minValue, maxValue) {
+            if (points.length === 0) {
+                return [];
+            }
+
+            const bounds = chartBounds(width, height);
+            const spread = maxValue - minValue || 1;
+            return points.map((point, index) => {
+                const x = points.length === 1
+                    ? (bounds.left + bounds.right) / 2
+                    : bounds.left + (index / (points.length - 1)) * (bounds.right - bounds.left);
+                const y = bounds.bottom - ((point - minValue) / spread) * (bounds.bottom - bounds.top);
+                return { x, y };
+            });
+        }
+
+        function buildChartPath(points, width, height, minValue, maxValue) {
+            if (points.length === 0) {
+                return "";
+            }
+            const coordinates = pointCoordinates(points, width, height, minValue, maxValue);
+            return coordinates.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
+        }
+
+        function formatAxisTime(date) {
+            if (selectedSpan === "days") {
+                return date.toLocaleDateString("no-NO", { day: "2-digit", month: "2-digit", timeZone: osloTimeZone });
+            }
+            return date.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit", timeZone: osloTimeZone });
+        }
+
+        function formatOsloDateTime(value) {
+            return new Date(value).toLocaleString("no-NO", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: osloTimeZone
+            });
+        }
+
+        function formatOsloDate(value) {
+            return new Date(value).toLocaleDateString("no-NO", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                timeZone: osloTimeZone
+            });
+        }
+
+        function renderAxes(points, width, height, minValue, maxValue) {
+            const yTicks = 4;
+            const xTicks = Math.min(4, points.length);
+            const valueSpread = maxValue - minValue || 1;
+            const bounds = chartBounds(width, height);
+
+            const gridParts = [];
+            const yAxisParts = [];
+            const xAxisParts = [];
+
+            for (let index = 0; index <= yTicks; index += 1) {
+                const ratio = index / yTicks;
+                const y = bounds.bottom - ratio * (bounds.bottom - bounds.top);
+                const value = minValue + ratio * valueSpread;
+
+                gridParts.push(`<line x1="${bounds.left}" y1="${y.toFixed(2)}" x2="${bounds.right}" y2="${y.toFixed(2)}"></line>`);
+                yAxisParts.push(
+                    `<line x1="${bounds.right}" y1="${y.toFixed(2)}" x2="${(bounds.right + 8).toFixed(2)}" y2="${y.toFixed(2)}" stroke="rgba(161,171,162,0.28)" stroke-width="1"></line>` +
+                    `<text x="${width - 8}" y="${(y + 4).toFixed(2)}" text-anchor="end" fill="#a1aba2">${value.toFixed(1)}</text>`
+                );
+            }
+
+            yAxisParts.push(`<line x1="${bounds.right}" y1="${bounds.top}" x2="${bounds.right}" y2="${bounds.bottom}" stroke="rgba(161,171,162,0.18)" stroke-width="1"></line>`);
+
+            if (points.length === 1) {
+                const date = new Date(points[0].recorded_at);
+                const centerX = (bounds.left + bounds.right) / 2;
+                xAxisParts.push(
+                    `<line x1="${centerX.toFixed(2)}" y1="${bounds.bottom}" x2="${centerX.toFixed(2)}" y2="${(bounds.bottom + 7).toFixed(2)}" stroke="rgba(161,171,162,0.28)" stroke-width="1"></line>` +
+                    `<text x="${centerX.toFixed(2)}" y="${(height - 8).toFixed(2)}" text-anchor="middle" fill="#a1aba2">${formatAxisTime(date)}</text>`
+                );
+            } else {
+                for (let index = 0; index < xTicks; index += 1) {
+                    const ratio = xTicks === 1 ? 0 : index / (xTicks - 1);
+                    const pointIndex = Math.min(points.length - 1, Math.round(ratio * (points.length - 1)));
+                    const x = bounds.left + ratio * (bounds.right - bounds.left);
+                    const date = new Date(points[pointIndex].recorded_at);
+                    xAxisParts.push(
+                        `<line x1="${x.toFixed(2)}" y1="${bounds.bottom}" x2="${x.toFixed(2)}" y2="${(bounds.bottom + 7).toFixed(2)}" stroke="rgba(161,171,162,0.28)" stroke-width="1"></line>` +
+                        `<text x="${x.toFixed(2)}" y="${(height - 8).toFixed(2)}" text-anchor="${index === 0 ? "start" : index === xTicks - 1 ? "end" : "middle"}" fill="#a1aba2">${formatAxisTime(date)}</text>`
+                    );
+                }
+            }
+
+            xAxisParts.push(`<line x1="${bounds.left}" y1="${bounds.bottom}" x2="${bounds.right}" y2="${bounds.bottom}" stroke="rgba(161,171,162,0.18)" stroke-width="1"></line>`);
+
+            trendGrid.innerHTML = gridParts.join("");
+            trendYAxis.innerHTML = yAxisParts.join("");
+            trendXAxis.innerHTML = xAxisParts.join("");
+        }
+
+        function visiblePoints(points) {
+            if (!points.length) {
+                return points;
+            }
+            const visibleCount = Math.max(12, Math.floor(points.length / zoomLevel));
+            return points.slice(-visibleCount);
+        }
+
+        function spanLabel() {
+            if (selectedSpan === "minutes") {
+                return "minutter";
+            }
+            if (selectedSpan === "days") {
+                return "dager";
+            }
+            return "timer";
+        }
+
+        function formatMetricValue(value, metric, unit) {
+            const decimals = ["air_temperature", "air_humidity", "temperature", "humidity", "ph", "lux"].includes(metric) ? 1 : 0;
+            return `${Number(value).toFixed(decimals)}${unit ? ` ${unit}` : ""}`;
+        }
+
+        function applyMetricTheme(metric) {
+            const theme = metricTheme[metric] || metricTheme.humidity;
+            trendLine.style.stroke = theme.line;
+            trendHoverLine.style.stroke = theme.line;
+            trendHoverPoint.style.fill = theme.line;
+            trendHoverPoint.style.stroke = theme.line;
+            trendLastPoint.style.fill = theme.line;
+            trendLastPoint.style.stroke = theme.line;
+            trendLastPointGlow.style.fill = theme.line;
+            trendFillStopTop.setAttribute("stop-color", theme.fillTop);
+            trendFillStopBottom.setAttribute("stop-color", theme.fillBottom);
+        }
+
+        function renderTrend(metric, payload) {
+            const card = currentCard();
+            const unit = card?.dataset.unit || "";
+            const label = card?.dataset.label || metric;
+            const allPoints = payload.points || [];
+            const points = visiblePoints(allPoints);
+
+            trendTitle.textContent = label;
+            trendPoints.textContent = `${points.length} av ${allPoints.length} punkter`;
+
+            if (!allPoints.length || !points.length) {
+                trendSummary.textContent = "Ingen historikk ennå";
+                trendLine.setAttribute("d", "");
+                trendArea.setAttribute("d", "");
+                trendGrid.innerHTML = "";
+                trendYAxis.innerHTML = "";
+                trendXAxis.innerHTML = "";
+                trendEmpty.hidden = false;
+                return;
+            }
+
+            const values = points.map((point) => Number(point.value));
+            const minValue = Math.min(...values);
+            const maxValue = Math.max(...values);
+            const latestValue = values[values.length - 1];
+            const previousValue = values.length > 1 ? values[values.length - 2] : latestValue;
+            const delta = latestValue - previousValue;
+            const deltaDecimals = ["air_temperature", "air_humidity", "temperature", "humidity", "ph", "lux"].includes(metric) ? 1 : 0;
+            const deltaText = `${delta >= 0 ? "+" : ""}${delta.toFixed(deltaDecimals)}${unit ? ` ${unit}` : ""}`;
+            const rangeLabel = payload.date_from && payload.date_to
+                ? `${formatOsloDateTime(payload.date_from)} → ${formatOsloDateTime(payload.date_to)}`
+                : `siste ${spanLabel()}`;
+            trendSummary.textContent = `${rangeLabel} · nå ${formatMetricValue(latestValue, metric, unit)} · endring ${deltaText}`;
+
+            const width = 800;
+            const height = 260;
+            const linePath = buildChartPath(values, width, height, minValue, maxValue);
+            const bounds = chartBounds(width, height);
+            const areaPath = `${linePath} L ${bounds.right} ${bounds.bottom} L ${bounds.left} ${bounds.bottom} Z`;
+            const coordinates = pointCoordinates(values, width, height, minValue, maxValue);
+            const lastPointCoords = coordinates[coordinates.length - 1];
+
+            trendLine.setAttribute("d", linePath);
+            trendArea.setAttribute("d", areaPath);
+            trendLastPoint.setAttribute("cx", lastPointCoords.x.toFixed(2));
+            trendLastPoint.setAttribute("cy", lastPointCoords.y.toFixed(2));
+            trendLastPoint.setAttribute("r", "5.5");
+            trendLastPointGlow.setAttribute("cx", lastPointCoords.x.toFixed(2));
+            trendLastPointGlow.setAttribute("cy", lastPointCoords.y.toFixed(2));
+            trendLastPointGlow.setAttribute("r", "10");
+            trendHoverLine.setAttribute("x1", "0");
+            trendHoverLine.setAttribute("x2", "0");
+            trendHoverLine.setAttribute("y1", "0");
+            trendHoverLine.setAttribute("y2", "0");
+            trendHoverPoint.setAttribute("r", "0");
+            trendTooltip.hidden = true;
+            renderAxes(points, width, height, minValue, maxValue);
+            trendEmpty.hidden = true;
+            latestRenderedPoints = points.map((point, index) => ({
+                x: coordinates[index].x,
+                y: coordinates[index].y,
+                recorded_at: point.recorded_at,
+                value: Number(point.value),
+                metric,
+                unit
+            }));
+        }
+
+        function positionTooltip(point) {
+            const chartRect = document.getElementById("trend-chart").getBoundingClientRect();
+            const shellRect = document.querySelector(".chart-shell").getBoundingClientRect();
+            const xRatio = point.x / 800;
+            const yRatio = point.y / 260;
+            const left = (chartRect.left - shellRect.left) + xRatio * chartRect.width;
+            const top = (chartRect.top - shellRect.top) + yRatio * chartRect.height;
+
+            trendTooltip.style.left = `${Math.min(Math.max(left + 14, 10), shellRect.width - 150)}px`;
+            trendTooltip.style.top = `${Math.max(top - 56, 10)}px`;
+        }
+
+        function nearestPoint(clientX) {
+            if (!latestRenderedPoints.length) {
+                return null;
+            }
+
+            const chartRect = document.getElementById("trend-chart").getBoundingClientRect();
+            const relativeX = ((clientX - chartRect.left) / chartRect.width) * 800;
+            let closest = latestRenderedPoints[0];
+            let smallestDistance = Math.abs(relativeX - closest.x);
+
+            latestRenderedPoints.forEach((point) => {
+                const distance = Math.abs(relativeX - point.x);
+                if (distance < smallestDistance) {
+                    closest = point;
+                    smallestDistance = distance;
+                }
+            });
+            return closest;
+        }
+
+        function showHover(point) {
+            if (!point) {
+                return;
+            }
+
+            trendHoverLine.setAttribute("x1", point.x.toFixed(2));
+            trendHoverLine.setAttribute("x2", point.x.toFixed(2));
+            trendHoverLine.setAttribute("y1", "16");
+            trendHoverLine.setAttribute("y2", "226");
+            trendHoverPoint.setAttribute("cx", point.x.toFixed(2));
+            trendHoverPoint.setAttribute("cy", point.y.toFixed(2));
+            trendHoverPoint.setAttribute("r", "5");
+
+            trendTooltipValue.textContent = formatMetricValue(point.value, point.metric, point.unit);
+            const pointDate = new Date(point.recorded_at);
+            trendTooltipTime.textContent = selectedSpan === "days"
+                ? formatOsloDate(pointDate)
+                : formatOsloDateTime(pointDate);
+            positionTooltip(point);
+            trendTooltip.hidden = false;
+        }
+
+        function clearHover() {
+            trendHoverLine.setAttribute("x1", "0");
+            trendHoverLine.setAttribute("x2", "0");
+            trendHoverLine.setAttribute("y1", "0");
+            trendHoverLine.setAttribute("y2", "0");
+            trendHoverPoint.setAttribute("r", "0");
+            trendTooltip.hidden = true;
+        }
+
+        async function fetchTrend(metric = selectedMetric) {
+            updateSelectedCard(metric);
+            const params = new URLSearchParams({
+                metric,
+                span: selectedSpan,
+                limit: "480"
+            });
+            if (customRangeStart) {
+                params.set("date_from", customRangeStart);
+            }
+            if (customRangeEnd) {
+                params.set("date_to", customRangeEnd);
+            }
+            const response = await fetch(`/api/history?${params.toString()}`, { cache: "no-store" });
+            const payload = await response.json();
+            if (!payload.ok) {
+                throw new Error(payload.error || "trend_failed");
+            }
+            latestTrendPayload = payload;
+            renderTrend(metric, payload);
+        }
+
+        async function fetchSensor() {
+            try {
+                const [latestResponse, summaryResponse] = await Promise.all([
+                    fetch("/api/latest", { cache: "no-store" }),
+                    fetch("/api/day-summary", { cache: "no-store" })
+                ]);
+                const payload = await latestResponse.json();
+                const summaryPayload = await summaryResponse.json();
+
+                if (!payload.ok || !payload.sample) {
+                    throw new Error(payload.error || "ingen_data_fra_supabase");
+                }
+
+                const sensor = payload.sample;
+                setMetric("air_temperature", sensor.air_temperature, " C");
+                setMetric("air_humidity", sensor.air_humidity, " %");
+                setMetric("air_pressure", sensor.air_pressure, " hPa");
+                setMetric("lux", sensor.lux, " lx");
+                airHumidityNote.textContent = sensor.air_humidity === null || sensor.air_humidity === undefined
+                    ? "Ikke støttet av denne sensoren - type BMP280 til bestilling"
+                    : "Kommer fra luftsensor";
+                setMetric("humidity", sensor.humidity, " %");
+                setMetric("temperature", sensor.temperature, " C");
+                setMetric("ph", sensor.ph);
+                setMetric("conductivity", sensor.conductivity);
+                setMetric("nitrogen", sensor.nitrogen);
+                setMetric("phosphorus", sensor.phosphorus);
+                setMetric("potassium", sensor.potassium);
+                setMetric("salinity", sensor.salinity);
+                setMetric("tds", sensor.tds);
+                if (summaryPayload.ok && summaryPayload.summary) {
+                    Object.keys(rangeMap).forEach((metric) => {
+                        setMetricRange(metric, summaryPayload.summary[metric]);
+                    });
+                }
+                await fetchTrend(selectedMetric);
+            } catch (error) {
+                Object.keys(metricMap).forEach((key) => setMetric(key, "-"));
+                Object.keys(rangeMap).forEach((key) => setMetricRange(key, null));
+                airHumidityNote.textContent = "Ikke støttet av denne sensoren - type BMP280 til bestilling";
+                trendSummary.textContent = error.message;
+            }
+        }
+
+        cards.forEach((card) => {
+            card.addEventListener("click", () => {
+                fetchTrend(card.dataset.metric).catch((error) => {
+                    trendSummary.textContent = error.message;
+                });
+            });
+        });
+        spanButtons.forEach((button) => {
+            button.addEventListener("click", () => {
+                zoomLevel = 1;
+                updateSelectedSpan(button.dataset.span);
+                fetchTrend(selectedMetric).catch((error) => {
+                    trendSummary.textContent = error.message;
+                });
+            });
+        });
+        zoomInButton.addEventListener("click", () => {
+            zoomLevel = Math.min(16, zoomLevel * 2);
+            if (latestTrendPayload) {
+                renderTrend(selectedMetric, latestTrendPayload);
+            }
+        });
+        zoomOutButton.addEventListener("click", () => {
+            zoomLevel = Math.max(1, zoomLevel / 2);
+            if (latestTrendPayload) {
+                renderTrend(selectedMetric, latestTrendPayload);
+            }
+        });
+        zoomResetButton.addEventListener("click", () => {
+            zoomLevel = 1;
+            if (latestTrendPayload) {
+                renderTrend(selectedMetric, latestTrendPayload);
+            }
+        });
+        trendRangeClearButton.addEventListener("click", () => {
+            customRangeStart = "";
+            customRangeEnd = "";
+            zoomLevel = 1;
+            fetchTrend(selectedMetric).catch((error) => {
+                trendSummary.textContent = error.message;
+            });
+        });
+        trendPrevButton.addEventListener("click", () => {
+            const { start, end } = currentRangeWindow();
+            const duration = end.getTime() - start.getTime();
+            applyRangeWindow(new Date(start.getTime() - duration), new Date(end.getTime() - duration));
+            zoomLevel = 1;
+            fetchTrend(selectedMetric).catch((error) => {
+                trendSummary.textContent = error.message;
+            });
+        });
+        trendNextButton.addEventListener("click", () => {
+            const { start, end } = currentRangeWindow();
+            const duration = end.getTime() - start.getTime();
+            let nextStart = new Date(start.getTime() + duration);
+            let nextEnd = new Date(end.getTime() + duration);
+            const now = new Date();
+            if (nextEnd > now) {
+                nextEnd = now;
+                nextStart = new Date(now.getTime() - duration);
+            }
+            applyRangeWindow(nextStart, nextEnd);
+            zoomLevel = 1;
+            fetchTrend(selectedMetric).catch((error) => {
+                trendSummary.textContent = error.message;
+            });
+        });
+        trendHitbox.addEventListener("mousemove", (event) => {
+            showHover(nearestPoint(event.clientX));
+        });
+        trendHitbox.addEventListener("mouseleave", clearHover);
+        let dragStartX = null;
+        trendHitbox.addEventListener("pointerdown", (event) => {
+            dragStartX = event.clientX;
+        });
+        trendHitbox.addEventListener("pointerup", (event) => {
+            if (dragStartX === null) {
+                return;
+            }
+            const deltaX = event.clientX - dragStartX;
+            dragStartX = null;
+            if (Math.abs(deltaX) < 36) {
+                return;
+            }
+            if (deltaX < 0) {
+                trendPrevButton.click();
+            } else {
+                trendNextButton.click();
+            }
+        });
+        trendHitbox.addEventListener("pointercancel", () => {
+            dragStartX = null;
+        });
+        updateSelectedSpan(selectedSpan);
+        applyMetricTheme(selectedMetric);
+        async function loadRuntimeSettings() {
+            try {
+                const response = await fetch("/api/settings", { cache: "no-store" });
+                const payload = await response.json();
+                if (payload.ok && payload.settings?.sample_time_cloud_ms) {
+                    refreshIntervalMs = Number(payload.settings.sample_time_cloud_ms) || 60000;
+                }
+            } catch (error) {
+                refreshIntervalMs = 60000;
+            }
+        }
+
+        function startRefreshLoop() {
+            if (refreshTimer) {
+                window.clearInterval(refreshTimer);
+            }
+            refreshTimer = window.setInterval(fetchSensor, refreshIntervalMs);
+        }
+
+        async function bootDashboard() {
+            await loadRuntimeSettings();
+            await fetchSensor();
+            startRefreshLoop();
+        }
+
+        bootDashboard();
+    </script>
+</body>
+</html>
