@@ -22,7 +22,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
-DATA_DIR = Path(os.getenv("GROWLY_DATA_DIR", str(ROOT_DIR / "data")))
+PREFERRED_DATA_DIR = Path(os.getenv("GROWLY_DATA_DIR", str(ROOT_DIR / "data")))
+FALLBACK_DATA_DIR = Path("/tmp/growly-data")
+DATA_DIR = PREFERRED_DATA_DIR
 DB_PATH = DATA_DIR / "growly.db"
 DEFAULT_SENSOR_URL = "http://192.168.0.133/sensor"
 APP_USERNAME = os.getenv("APP_USERNAME", "growly")
@@ -106,8 +108,19 @@ def db_connection() -> sqlite3.Connection:
     return connection
 
 
+def ensure_data_dir() -> None:
+    global DATA_DIR, DB_PATH
+    try:
+        PREFERRED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        DATA_DIR = PREFERRED_DATA_DIR
+    except PermissionError:
+        FALLBACK_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        DATA_DIR = FALLBACK_DATA_DIR
+    DB_PATH = DATA_DIR / "growly.db"
+
+
 def init_db() -> None:
-    DATA_DIR.mkdir(exist_ok=True)
+    ensure_data_dir()
     with db_connection() as connection:
         connection.execute(
             """
