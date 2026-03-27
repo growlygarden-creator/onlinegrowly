@@ -452,8 +452,13 @@ må dele felles jord</pre>
                 sampleTimeLight.value = Math.round(result.settings.sample_time_light_ms / 60000);
                 sampleTimeAir.value = Math.round(result.settings.sample_time_air_ms / 60000);
                 sampleTimeCloud.value = Math.round(result.settings.sample_time_cloud_ms / 60000);
-                setSaveStatus("Lagret på app og ESP32", "online");
-                settingsDebugTarget.textContent = `ESP32 target: ${result.target || target} -> OK`;
+                if (result.device_ok) {
+                    setSaveStatus("Lagret på app og ESP32", "online");
+                    settingsDebugTarget.textContent = `ESP32 target: ${result.target || target} -> OK`;
+                } else {
+                    setSaveStatus("Lagret i appen · ESP32 ikke oppdatert", "warning");
+                    settingsDebugTarget.textContent = `ESP32 target: ${result.target || target || "-"} -> ${result.device_error || "ikke tilgjengelig"}`;
+                }
             } catch (error) {
                 const label = error?.name ? `${error.name}: ` : "";
                 const message = error?.message || String(error);

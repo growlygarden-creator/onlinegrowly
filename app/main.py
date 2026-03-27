@@ -1193,33 +1193,56 @@ async def update_device_settings(request: Request, payload: dict[str, Any]):
     if auth_error:
         return auth_error
     target = str(payload.get("target", "")).strip()
-    if not target:
-        return JSONResponse(status_code=400, content={"ok": False, "error": "missing_target"})
-
     settings_payload = save_app_settings(payload)
+    if not target:
+        return {
+            "ok": True,
+            "settings": settings_payload,
+            "device_ok": False,
+            "device_error": "missing_target",
+            "target": "",
+        }
 
     try:
         device_response = push_device_settings(target, settings_payload)
     except ValueError as exc:
-        return JSONResponse(
-            status_code=400,
-            content={"ok": False, "error": str(exc), "target": target},
-        )
+        return {
+            "ok": True,
+            "settings": settings_payload,
+            "device_ok": False,
+            "device_error": str(exc),
+            "target": target,
+        }
     except HTTPError as exc:
-        return JSONResponse(
-            status_code=502,
-            content={"ok": False, "error": f"device_http_{exc.code}", "target": target},
-        )
+        return {
+            "ok": True,
+            "settings": settings_payload,
+            "device_ok": False,
+            "device_error": f"device_http_{exc.code}",
+            "target": target,
+        }
     except URLError as exc:
         reason = getattr(exc, "reason", "device_connection_failed")
-        return JSONResponse(
-            status_code=502,
-            content={"ok": False, "error": str(reason), "target": target},
-        )
+        return {
+            "ok": True,
+            "settings": settings_payload,
+            "device_ok": False,
+            "device_error": str(reason),
+            "target": target,
+        }
     except json.JSONDecodeError:
-        return JSONResponse(
-            status_code=502,
-            content={"ok": False, "error": "invalid_device_settings_json", "target": target},
-        )
+        return {
+            "ok": True,
+            "settings": settings_payload,
+            "device_ok": False,
+            "device_error": "invalid_device_settings_json",
+            "target": target,
+        }
 
-    return {"ok": True, "settings": settings_payload, "device": device_response, "target": target}
+    return {
+        "ok": True,
+        "settings": settings_payload,
+        "device_ok": True,
+        "device": device_response,
+        "target": target,
+    }
