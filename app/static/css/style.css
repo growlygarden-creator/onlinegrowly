@@ -921,6 +921,12 @@ select {
 .trend-hitbox {
     fill: transparent;
     pointer-events: all;
+    cursor: grab;
+    touch-action: pan-y;
+}
+
+.trend-modal.is-dragging .trend-hitbox {
+    cursor: grabbing;
 }
 
 .trend-tooltip {
@@ -980,6 +986,41 @@ select {
     border-radius: 18px;
     background: rgba(9, 15, 10, 0.82);
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+}
+
+.trend-insight {
+    display: grid;
+    gap: 10px;
+}
+
+.trend-insight[hidden] {
+    display: none;
+}
+
+.trend-insight-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.trend-insight-card {
+    padding: 14px 15px;
+    border-radius: 16px;
+    border: 1px solid rgba(161, 171, 162, 0.12);
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.trend-insight-card h3 {
+    margin: 0 0 8px;
+    font-size: 0.86rem;
+    letter-spacing: -0.01em;
+}
+
+.trend-insight-card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.52;
 }
 
 .chart-empty-card strong {
@@ -1056,6 +1097,20 @@ select {
 
 .detail-row strong {
     text-align: right;
+}
+
+.storage-card {
+    gap: 10px;
+}
+
+.storage-card-warning {
+    border-color: rgba(246, 200, 110, 0.28);
+    box-shadow: 0 0 0 1px rgba(246, 200, 110, 0.08) inset;
+}
+
+.storage-card-ok {
+    border-color: rgba(134, 201, 150, 0.28);
+    box-shadow: 0 0 0 1px rgba(134, 201, 150, 0.08) inset;
 }
 
 .raw-json {
@@ -1349,6 +1404,10 @@ select {
 
     .trend-modal-panel {
         max-height: calc(100vh - 32px);
+    }
+
+    .trend-insight-grid {
+        grid-template-columns: 1fr;
     }
 
     .eyebrow {

@@ -756,6 +756,54 @@ def supabase_metric_history_by_span(
     return points[-limit:]
 
 
+def local_metric_first_recorded_at(metric: str) -> str | None:
+    if metric not in METRIC_KEYS:
+        raise ValueError("unsupported_metric")
+    global_start = history_start_iso()
+    with db_connection() as connection:
+        if global_start:
+            row = connection.execute(
+                f"""
+                SELECT recorded_at
+                FROM sensor_samples
+                WHERE {metric} IS NOT NULL
+                  AND recorded_at >= ?
+                ORDER BY recorded_at ASC
+                LIMIT 1
+                """,
+                (global_start,),
+            ).fetchone()
+        else:
+            row = connection.execute(
+                f"""
+                SELECT recorded_at
+                FROM sensor_samples
+                WHERE {metric} IS NOT NULL
+                ORDER BY recorded_at ASC
+                LIMIT 1
+                """
+            ).fetchone()
+    return row["recorded_at"] if row else None
+
+
+def supabase_metric_first_recorded_at(metric: str) -> str | None:
+    if metric not in METRIC_KEYS:
+        raise ValueError("unsupported_metric")
+    params = {
+        "select": "created_at",
+        f"{metric}": "not.is.null",
+        "order": "created_at.asc",
+        "limit": "1",
+    }
+    global_start = history_start_iso()
+    if global_start:
+        params["created_at"] = f"gte.{global_start}"
+    rows = fetch_supabase_rows(params)
+    if not rows:
+        return None
+    return rows[0].get("created_at")
+
+
 def today_window_iso() -> tuple[str, str]:
     now_local = datetime.now(APP_TIMEZONE)
     start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1143,9 +1191,12 @@ async def history(
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
+    source = "local"
+    fallback_reason: str | None = None
     try:
         if supabase_enabled():
             history_rows = supabase_metric_history_by_span(metric, span, limit, date_from=date_from, date_to=date_to)
+            source = "supabase"
         else:
             history_rows = metric_history_by_span(metric, span, limit, date_from=date_from, date_to=date_to)
     except ValueError:
@@ -1153,8 +1204,10 @@ async def history(
             status_code=400,
             content={"ok": False, "error": "unsupported_history_request", "metric": metric, "span": span},
         )
-    except (HTTPError, URLError, json.JSONDecodeError):
+    except (HTTPError, URLError, json.JSONDecodeError) as exc:
         history_rows = metric_history_by_span(metric, span, limit, date_from=date_from, date_to=date_to)
+        source = "local_fallback"
+        fallback_reason = str(exc)
 
     return {
         "ok": True,
@@ -1162,7 +1215,41 @@ async def history(
         "span": span,
         "date_from": date_from,
         "date_to": date_to,
+        "source": source,
+        "fallback_reason": fallback_reason,
         "points": history_rows,
+    }
+
+
+@app.get("/api/history-start")
+async def history_start(request: Request, metric: str):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    source = "local"
+    fallback_reason: str | None = None
+    try:
+        if supabase_enabled():
+            recorded_at = supabase_metric_first_recorded_at(metric)
+            source = "supabase"
+        else:
+            recorded_at = local_metric_first_recorded_at(metric)
+    except ValueError:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "unsupported_metric", "metric": metric},
+        )
+    except (HTTPError, URLError, json.JSONDecodeError) as exc:
+        recorded_at = local_metric_first_recorded_at(metric)
+        source = "local_fallback"
+        fallback_reason = str(exc)
+
+    return {
+        "ok": True,
+        "metric": metric,
+        "source": source,
+        "fallback_reason": fallback_reason,
+        "recorded_at": recorded_at,
     }
 
 
@@ -1171,11 +1258,19 @@ async def latest(request: Request):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
+    source = "local"
+    fallback_reason: str | None = None
     try:
-        sample = supabase_latest_sample() if supabase_enabled() else latest_sample()
-    except (HTTPError, URLError, json.JSONDecodeError):
+        if supabase_enabled():
+            sample = supabase_latest_sample()
+            source = "supabase"
+        else:
+            sample = latest_sample()
+    except (HTTPError, URLError, json.JSONDecodeError) as exc:
         sample = latest_sample()
-    return {"ok": True, "sample": sample}
+        source = "local_fallback"
+        fallback_reason = str(exc)
+    return {"ok": True, "sample": sample, "source": source, "fallback_reason": fallback_reason}
 
 
 @app.get("/api/day-summary")
@@ -1183,11 +1278,19 @@ async def day_summary(request: Request):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
+    source = "local"
+    fallback_reason: str | None = None
     try:
-        summary = supabase_day_summary() if supabase_enabled() else local_day_summary()
-    except (HTTPError, URLError, json.JSONDecodeError):
+        if supabase_enabled():
+            summary = supabase_day_summary()
+            source = "supabase"
+        else:
+            summary = local_day_summary()
+    except (HTTPError, URLError, json.JSONDecodeError) as exc:
         summary = local_day_summary()
-    return {"ok": True, "summary": summary}
+        source = "local_fallback"
+        fallback_reason = str(exc)
+    return {"ok": True, "summary": summary, "source": source, "fallback_reason": fallback_reason}
 
 
 @app.get("/api/settings")

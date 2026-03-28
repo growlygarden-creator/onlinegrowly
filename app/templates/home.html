@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Growly</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260327-light-6">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260328-trend-clean-1">
 </head>
 <body>
     <main class="dashboard-shell">
@@ -135,28 +135,15 @@
                     </div>
                     <div class="trend-meta">
                         <span id="trend-summary">Venter på historikk</span>
-                        <span id="trend-points" class="status-pill">0 punkter</span>
                         <button type="button" id="trend-close" class="trend-close-button" aria-label="Lukk trend">×</button>
                     </div>
                 </div>
                 <div class="trend-toolbar">
-                    <div class="segmented-control" id="span-control">
-                        <button type="button" class="span-button active" data-span="minutes">Minutter</button>
-                        <button type="button" class="span-button" data-span="hours">Timer</button>
-                        <button type="button" class="span-button" data-span="days">Dager</button>
-                    </div>
+                    <span class="trend-swipe-hint">Viser 24 timer som standard. Sveip eller scroll i grafen for å bla bakover i historikken.</span>
                     <div class="zoom-controls">
                         <button type="button" class="zoom-button" id="zoom-out">Zoom ut</button>
                         <button type="button" class="zoom-button" id="zoom-in">Zoom inn</button>
                         <button type="button" class="zoom-button" id="zoom-reset">Reset</button>
-                    </div>
-                </div>
-                <div class="trend-toolbar trend-toolbar-range">
-                    <span class="trend-swipe-hint">Sveip i grafen eller bruk knappene for å bla i perioden.</span>
-                    <div class="zoom-controls">
-                        <button type="button" class="zoom-button" id="trend-prev">Forrige</button>
-                        <button type="button" class="zoom-button" id="trend-next">Neste</button>
-                        <button type="button" class="zoom-button" id="trend-range-clear">Siste vindu</button>
                     </div>
                 </div>
                 <div class="chart-shell">
@@ -197,6 +184,26 @@
                         </div>
                     </div>
                 </div>
+                <section id="trend-insight" class="trend-insight" hidden>
+                    <div class="trend-insight-grid">
+                        <article class="trend-insight-card">
+                            <h3>Hva betyr dette?</h3>
+                            <p id="trend-insight-meaning">-</p>
+                        </article>
+                        <article class="trend-insight-card">
+                            <h3>Lav verdi</h3>
+                            <p id="trend-insight-low">-</p>
+                        </article>
+                        <article class="trend-insight-card">
+                            <h3>Høy verdi</h3>
+                            <p id="trend-insight-high">-</p>
+                        </article>
+                        <article class="trend-insight-card">
+                            <h3>Tiltak</h3>
+                            <p id="trend-insight-action">-</p>
+                        </article>
+                    </div>
+                </section>
             </section>
         </div>
 
@@ -210,7 +217,6 @@
 
         const trendTitle = document.getElementById("trend-title");
         const trendSummary = document.getElementById("trend-summary");
-        const trendPoints = document.getElementById("trend-points");
         const trendLine = document.getElementById("trend-line");
         const trendArea = document.getElementById("trend-area");
         const trendEmpty = document.getElementById("trend-empty");
@@ -227,17 +233,18 @@
         const trendTooltipTime = document.getElementById("trend-tooltip-time");
         const trendFillStopTop = document.getElementById("trend-fill-stop-top");
         const trendFillStopBottom = document.getElementById("trend-fill-stop-bottom");
-        const spanButtons = Array.from(document.querySelectorAll(".span-button"));
         const zoomInButton = document.getElementById("zoom-in");
         const zoomOutButton = document.getElementById("zoom-out");
         const zoomResetButton = document.getElementById("zoom-reset");
-        const trendPrevButton = document.getElementById("trend-prev");
-        const trendNextButton = document.getElementById("trend-next");
-        const trendRangeClearButton = document.getElementById("trend-range-clear");
         const trendModal = document.getElementById("trend-modal");
         const trendModalBackdrop = document.getElementById("trend-modal-backdrop");
         const trendCloseButton = document.getElementById("trend-close");
         const trendEmptyCloseButton = document.getElementById("trend-empty-close");
+        const trendInsight = document.getElementById("trend-insight");
+        const trendInsightMeaning = document.getElementById("trend-insight-meaning");
+        const trendInsightLow = document.getElementById("trend-insight-low");
+        const trendInsightHigh = document.getElementById("trend-insight-high");
+        const trendInsightAction = document.getElementById("trend-insight-action");
 
         const osloTimeZone = "Europe/Oslo";
 
@@ -289,20 +296,95 @@
             salinity: { line: "#6ed3d0", fillTop: "rgba(110, 211, 208, 0.26)", fillBottom: "rgba(110, 211, 208, 0.02)" },
             tds: { line: "#9acbff", fillTop: "rgba(154, 203, 255, 0.26)", fillBottom: "rgba(154, 203, 255, 0.02)" }
         };
+        const metricInsightMap = {
+            air_temperature: {
+                meaning: "Lufttemperatur sier noe om hvor varmt eller kjølig miljøet rundt planten faktisk er. Den påvirker tempoet i vekst, fordamping og hvor mye stress planten står i gjennom døgnet.",
+                low: "For lav lufttemperatur gir ofte tregere vekst og mindre aktivitet i planten. Når lufta blir for kald over tid, kan utviklingen stoppe opp og planten bruke mer energi på å tåle forholdene enn å vokse.",
+                high: "For høy lufttemperatur øker fordamping og stress. Planten kan miste mer vann, bli slapp og få dårligere balanse mellom vekst og overlevelse, spesielt hvis jorda også tørker raskt.",
+                action: "Ved lav verdi: vurder lunere plassering, mer skjerming eller å vente med varmekrevende planter. Ved høy verdi: gi mer lufting, litt skygge i de varmeste timene og følg jordfuktigheten tettere."
+            },
+            air_pressure: {
+                meaning: "Lufttrykk er en miljømåling som sier noe om værbildet og hvor stabil luftmassen rundt dyrkeplassen er. Den er mest nyttig som støtteinformasjon sammen med temperatur, lys og historikk over tid.",
+                low: "Lavt lufttrykk betyr ikke i seg selv at noe er galt for planten, men det kan henge sammen med skiftende vær, mer fukt i lufta og raskere endringer i forholdene rundt planten.",
+                high: "Høyt lufttrykk er heller ikke nødvendigvis et problem alene, men det kan følge mer stabile og tørre perioder. Da kan lys, temperatur og uttørking bli viktigere å følge med på.",
+                action: "Bruk lufttrykk som kontekst, ikke som eneste beslutningsgrunnlag. Se det sammen med temperatur, lys og jordfuktighet før du gjør tiltak."
+            },
+            lux: {
+                meaning: "Lysnivå forteller hvor mye lys planten faktisk mottar. Det påvirker hvor mye energi planten har tilgjengelig til vekst, etablering og videre utvikling.",
+                low: "For lavt lys gir ofte svakere vekst, mindre energi og planter som strekker seg mot lyset. Over tid kan utviklingen bli tynn, treg og ubalansert.",
+                high: "Høyt lys er ofte bra, men svært sterkt lys sammen med varme og lav jordfukt kan gi stress. Da kan planten bruke mye vann og få hardere belastning midt på dagen.",
+                action: "Ved lav verdi: vurder lysere plassering eller mindre skygge. Ved høy verdi: se lys i sammenheng med varme og jordfukt, og bruk skjerming hvis planten virker stresset."
+            },
+            humidity: {
+                meaning: "Jordfuktighet sier noe om hvor mye vann som er tilgjengelig rundt røttene akkurat nå. Den brukes for å vurdere om planten har jevn tilgang på fukt eller om jorda svinger for mye mellom vått og tørt.",
+                low: "For lav jordfuktighet betyr ofte tørkestress. Planten bruker mer energi på å overleve enn å vokse, blad kan henge, og opptak av næring blir svakere.",
+                high: "For høy jordfuktighet kan gi lite luft rundt røttene. Da øker risikoen for sur jord, råte og svak rotutvikling, spesielt over tid.",
+                action: "Ved lav verdi: vann rolig og jevnt, og se om jorda holder bedre på fukt. Ved høy verdi: vent med vanning, forbedre drenering og sørg for at jorda ikke blir stående kompakt og våt."
+            },
+            temperature: {
+                meaning: "Jordtemperatur påvirker hvor aktiv rota er. Selv om lufta er grei, kan kald jord gjøre at planten tar opp vann og næring tregt.",
+                low: "For lav jordtemperatur gir treg vekst, dårlig næringsopptak og mindre rotaktivitet. Frøspiring og tidlig etablering blir ofte svakere.",
+                high: "For høy jordtemperatur kan stresse røttene og tørke ut jorda raskere. Det kan også gi mer ustabile fuktforhold rundt planten.",
+                action: "Ved lav verdi: bruk dekke, bedre plassering eller vent med krevende planter. Ved høy verdi: skjerme jorda mot sterk sol, vanne smartere og bruk jorddekke for å jevne ut temperaturen."
+            },
+            ph: {
+                meaning: "Jord pH sier noe om hvor sur eller basisk jorda er. Den styrer hvor lett planten får tak i næringsstoffene som allerede finnes i jorda.",
+                low: "For lav pH betyr sur jord. Da kan enkelte næringsstoffer bli mindre tilgjengelige, mens andre blir for dominerende og skaper ubalanse.",
+                high: "For høy pH gjør også næringsopptak vanskelig. Planter kan få mangelsymptomer selv om jorda egentlig inneholder nok næring.",
+                action: "Ved lav verdi: vurder kalking i små steg og følg utviklingen over tid. Ved høy verdi: unngå mer kalk, bruk mer passende jord eller gjødselstrategi og se an utviklingen gradvis."
+            },
+            conductivity: {
+                meaning: "Ledningsevne sier hvor mye oppløste salter og næringsstoffer som finnes i jordvæsken. Den brukes som en generell indikator på hvor 'sterk' løsningen rundt røttene er.",
+                low: "For lav ledningsevne kan bety at jorda er næringsfattig eller utvasket. Da kan planten mangle drivstoff til stabil vekst.",
+                high: "For høy ledningsevne betyr ofte at det er mye salter i rotsonen. Det kan hemme vannopptak og gi sviskader eller stress.",
+                action: "Ved lav verdi: vurder forsiktig tilførsel av næring eller mer levende jord. Ved høy verdi: reduser gjødsling, skyll gjennom jorda ved behov og følg med på saltinnhold og TDS samtidig."
+            },
+            nitrogen: {
+                meaning: "Nitrogen er et hovednæringsstoff for bladverk og vekst. Det driver grønn masse og aktiv utvikling, særlig i vekstfasen.",
+                low: "For lav nitrogenverdi gir ofte blekere blader, langsom vekst og mindre vitalitet. Planten blir lett hengende etter.",
+                high: "For høy nitrogenverdi kan gi mye bladverk, men svakere balanse. Planten kan bli myk, strekke seg mye og bruke mindre energi på rot, blomstring eller frukt.",
+                action: "Ved lav verdi: vurder nitrogenkilde eller mer balansert næring. Ved høy verdi: brems nitrogentilførselen og la planten stabilisere seg før du mater videre."
+            },
+            phosphorus: {
+                meaning: "Fosfor er viktig for røtter, etablering, energiomsetning og senere blomstring og utvikling. Det er spesielt viktig tidlig i plantens liv.",
+                low: "For lav fosforverdi kan gi treg etablering, svak rotvekst og dårlig fremdrift, selv om planten ellers ser grei ut.",
+                high: "For høy fosforverdi er sjelden nyttig og kan skape ubalanse mot andre næringsstoffer. Da får du lett mer av noe du ikke trenger mer av.",
+                action: "Ved lav verdi: bruk jord eller næring med bedre fosforbalanse. Ved høy verdi: unngå mer fosfor en periode og fokuser på jevn drift i stedet for å overkorrigere."
+            },
+            potassium: {
+                meaning: "Kalium er riktig navn her, ikke kalsium. Kalium støtter vannbalanse, robusthet, stressmestring og kvalitet i vekst, blomstring og modning.",
+                low: "For lav kaliumverdi kan gi svak motstandskraft, dårlig regulering av vann og mindre stabile planter under stress.",
+                high: "For høy kaliumverdi kan skape ubalanse mot andre næringsstoffer og gjøre at planten får mindre nytte av helheten i jorda.",
+                action: "Ved lav verdi: vurder mer balansert næring med kalium. Ved høy verdi: stopp videre kaliumtilførsel en stund og se verdien i sammenheng med ledningsevne og saltinnhold."
+            },
+            salinity: {
+                meaning: "Saltinnhold beskriver hvor mye salter som samler seg i rotsonen. Det er en viktig stressindikator i dyrking over tid.",
+                low: "Lavt saltinnhold er som regel uproblematisk, men veldig lave verdier sammen med lav ledningsevne kan bety at jorda også er næringssvak.",
+                high: "Høyt saltinnhold gjør det vanskeligere for røttene å ta opp vann. Det kan gi stress selv om jorda egentlig er fuktig.",
+                action: "Ved høy verdi: reduser gjødseltrykket, vurder gjennomvanning og følg med på ledningsevne og TDS. Ved lave verdier: se dem i sammenheng med resten av næringsbildet før du gjør noe."
+            },
+            tds: {
+                meaning: "TDS står for Total Dissolved Solids, altså total mengde oppløste stoffer. Den brukes som et grovt mål på hvor mye som er løst opp i jordvæsken.",
+                low: "Lav TDS kan bety at jorda inneholder lite tilgjengelig næring eller at mye er blitt skylt ut. Da kan planten mangle byggesteiner for jevn vekst.",
+                high: "Høy TDS betyr at løsningen rundt røttene er konsentrert. Det kan gi saltstress og gjøre vannopptak vanskeligere.",
+                action: "Ved lav verdi: vurder mer næring eller en rikere jordstrategi. Ved høy verdi: reduser tilførsel, følg med på ledningsevne og saltinnhold, og unngå å gjøre jorda stadig 'sterkere'."
+            }
+        };
         let selectedMetric = "air_temperature";
-        let selectedSpan = "hours";
-        let zoomLevel = 1;
+        let trendWindowMs = 24 * 60 * 60 * 1000;
         let latestTrendPayload = null;
         let latestRenderedPoints = [];
         let customRangeStart = "";
         let customRangeEnd = "";
         let trendModalOpen = false;
+        let trendFetchInFlight = false;
+        let trendDragX = null;
+        let trendDragLastPanAt = 0;
 
-        const spanWindowMs = {
-            minutes: 6 * 60 * 60 * 1000,
-            hours: 3 * 24 * 60 * 60 * 1000,
-            days: 30 * 24 * 60 * 60 * 1000
-        };
+        const defaultTrendWindowMs = 24 * 60 * 60 * 1000;
+        const trendZoomStepMs = 6 * 60 * 60 * 1000;
+        const minTrendWindowMs = 6 * 60 * 60 * 1000;
+        const maxTrendWindowMs = 30 * 24 * 60 * 60 * 1000;
 
         function loadStoredUrl() {
             const savedUrl = window.localStorage.getItem(storageKey);
@@ -374,6 +456,7 @@
             trendModalOpen = open;
             trendModal.hidden = !open;
             document.body.classList.toggle("modal-open", open);
+            trendModal.classList.toggle("is-open", open);
         }
 
         function closeTrendModal() {
@@ -381,16 +464,9 @@
             clearHover();
         }
 
-        function updateSelectedSpan(span) {
-            selectedSpan = span;
-            spanButtons.forEach((button) => {
-                button.classList.toggle("active", button.dataset.span === span);
-            });
-        }
-
         function defaultRangeWindow() {
             const end = new Date();
-            const start = new Date(end.getTime() - (spanWindowMs[selectedSpan] || spanWindowMs.hours));
+            const start = new Date(end.getTime() - trendWindowMs);
             return { start, end };
         }
 
@@ -409,7 +485,10 @@
             customRangeEnd = end.toISOString();
         }
 
-        function shiftTrendWindow(deltaMs) {
+        async function shiftTrendWindow(deltaMs) {
+            if (trendFetchInFlight) {
+                return;
+            }
             const { start, end } = currentRangeWindow();
             const duration = end.getTime() - start.getTime();
             let nextStart = new Date(start.getTime() + deltaMs);
@@ -422,9 +501,11 @@
             }
 
             applyRangeWindow(nextStart, nextEnd);
-            zoomLevel = 1;
+            trendFetchInFlight = true;
             return fetchTrend(selectedMetric).catch((error) => {
                 trendSummary.textContent = error.message;
+            }).finally(() => {
+                trendFetchInFlight = false;
             });
         }
 
@@ -437,32 +518,33 @@
             };
         }
 
-        function pointCoordinates(points, width, height, minValue, maxValue) {
-            if (points.length === 0) {
+        function pointCoordinates(points, width, height, minValue, maxValue, rangeStartMs, rangeEndMs) {
+            if (points.length === 0 || !Number.isFinite(rangeStartMs) || !Number.isFinite(rangeEndMs) || rangeEndMs <= rangeStartMs) {
                 return [];
             }
 
             const bounds = chartBounds(width, height);
             const spread = maxValue - minValue || 1;
-            return points.map((point, index) => {
-                const x = points.length === 1
-                    ? (bounds.left + bounds.right) / 2
-                    : bounds.left + (index / (points.length - 1)) * (bounds.right - bounds.left);
+            const timeSpread = rangeEndMs - rangeStartMs;
+            return points.map((point) => {
+                const recordedAtMs = new Date(point.recorded_at).getTime();
+                const ratio = Math.min(1, Math.max(0, (recordedAtMs - rangeStartMs) / timeSpread));
+                const x = bounds.left + ratio * (bounds.right - bounds.left);
                 const y = bounds.bottom - ((point - minValue) / spread) * (bounds.bottom - bounds.top);
                 return { x, y };
             });
         }
 
-        function buildChartPath(points, width, height, minValue, maxValue) {
+        function buildChartPath(points, width, height, minValue, maxValue, rangeStartMs, rangeEndMs) {
             if (points.length === 0) {
                 return "";
             }
-            const coordinates = pointCoordinates(points, width, height, minValue, maxValue);
+            const coordinates = pointCoordinates(points, width, height, minValue, maxValue, rangeStartMs, rangeEndMs);
             return coordinates.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
         }
 
         function formatAxisTime(date) {
-            if (selectedSpan === "days") {
+            if (trendWindowMs >= 3 * 24 * 60 * 60 * 1000) {
                 return date.toLocaleDateString("no-NO", { day: "2-digit", month: "2-digit", timeZone: osloTimeZone });
             }
             return date.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit", timeZone: osloTimeZone });
@@ -487,9 +569,9 @@
             });
         }
 
-        function renderAxes(points, width, height, minValue, maxValue) {
+        function renderAxes(points, width, height, minValue, maxValue, rangeStartMs, rangeEndMs) {
             const yTicks = 4;
-            const xTicks = Math.min(4, points.length);
+            const xTicks = 4;
             const valueSpread = maxValue - minValue || 1;
             const bounds = chartBounds(width, height);
 
@@ -511,24 +593,15 @@
 
             yAxisParts.push(`<line x1="${bounds.right}" y1="${bounds.top}" x2="${bounds.right}" y2="${bounds.bottom}" stroke="rgba(161,171,162,0.18)" stroke-width="1"></line>`);
 
-            if (points.length === 1) {
-                const date = new Date(points[0].recorded_at);
-                const centerX = (bounds.left + bounds.right) / 2;
+            for (let index = 0; index < xTicks; index += 1) {
+                const ratio = xTicks === 1 ? 0 : index / (xTicks - 1);
+                const x = bounds.left + ratio * (bounds.right - bounds.left);
+                const tickMs = rangeStartMs + ((rangeEndMs - rangeStartMs) * ratio);
+                const date = new Date(tickMs);
                 xAxisParts.push(
-                    `<line x1="${centerX.toFixed(2)}" y1="${bounds.bottom}" x2="${centerX.toFixed(2)}" y2="${(bounds.bottom + 7).toFixed(2)}" stroke="rgba(161,171,162,0.28)" stroke-width="1"></line>` +
-                    `<text x="${centerX.toFixed(2)}" y="${(height - 8).toFixed(2)}" text-anchor="middle" fill="#a1aba2">${formatAxisTime(date)}</text>`
+                    `<line x1="${x.toFixed(2)}" y1="${bounds.bottom}" x2="${x.toFixed(2)}" y2="${(bounds.bottom + 7).toFixed(2)}" stroke="rgba(161,171,162,0.28)" stroke-width="1"></line>` +
+                    `<text x="${x.toFixed(2)}" y="${(height - 8).toFixed(2)}" text-anchor="${index === 0 ? "start" : index === xTicks - 1 ? "end" : "middle"}" fill="#a1aba2">${formatAxisTime(date)}</text>`
                 );
-            } else {
-                for (let index = 0; index < xTicks; index += 1) {
-                    const ratio = xTicks === 1 ? 0 : index / (xTicks - 1);
-                    const pointIndex = Math.min(points.length - 1, Math.round(ratio * (points.length - 1)));
-                    const x = bounds.left + ratio * (bounds.right - bounds.left);
-                    const date = new Date(points[pointIndex].recorded_at);
-                    xAxisParts.push(
-                        `<line x1="${x.toFixed(2)}" y1="${bounds.bottom}" x2="${x.toFixed(2)}" y2="${(bounds.bottom + 7).toFixed(2)}" stroke="rgba(161,171,162,0.28)" stroke-width="1"></line>` +
-                        `<text x="${x.toFixed(2)}" y="${(height - 8).toFixed(2)}" text-anchor="${index === 0 ? "start" : index === xTicks - 1 ? "end" : "middle"}" fill="#a1aba2">${formatAxisTime(date)}</text>`
-                    );
-                }
             }
 
             xAxisParts.push(`<line x1="${bounds.left}" y1="${bounds.bottom}" x2="${bounds.right}" y2="${bounds.bottom}" stroke="rgba(161,171,162,0.18)" stroke-width="1"></line>`);
@@ -538,22 +611,14 @@
             trendXAxis.innerHTML = xAxisParts.join("");
         }
 
-        function visiblePoints(points) {
-            if (!points.length) {
-                return points;
+        function historySpanForWindow() {
+            if (trendWindowMs <= 2 * 24 * 60 * 60 * 1000) {
+                return "minutes";
             }
-            const visibleCount = Math.max(12, Math.floor(points.length / zoomLevel));
-            return points.slice(-visibleCount);
-        }
-
-        function spanLabel() {
-            if (selectedSpan === "minutes") {
-                return "minuttvisning siste døgn";
+            if (trendWindowMs <= 14 * 24 * 60 * 60 * 1000) {
+                return "hours";
             }
-            if (selectedSpan === "days") {
-                return "dager";
-            }
-            return "timer";
+            return "days";
         }
 
         function formatMetricValue(value, metric, unit) {
@@ -574,15 +639,28 @@
             trendFillStopBottom.setAttribute("stop-color", theme.fillBottom);
         }
 
+        function updateTrendInsight(metric) {
+            const insight = metricInsightMap[metric];
+            if (!insight) {
+                trendInsight.hidden = true;
+                return;
+            }
+            trendInsightMeaning.textContent = insight.meaning;
+            trendInsightLow.textContent = insight.low;
+            trendInsightHigh.textContent = insight.high;
+            trendInsightAction.textContent = insight.action;
+            trendInsight.hidden = false;
+        }
+
         function renderTrend(metric, payload) {
             const card = currentCard();
             const unit = card?.dataset.unit || "";
             const label = card?.dataset.label || metric;
             const allPoints = payload.points || [];
-            const points = visiblePoints(allPoints);
+            const points = allPoints;
 
             trendTitle.textContent = label;
-            trendPoints.textContent = `${points.length} av ${allPoints.length} punkter`;
+            updateTrendInsight(metric);
 
             if (!allPoints.length || !points.length) {
                 trendSummary.textContent = "Ingen historikk ennå";
@@ -598,22 +676,34 @@
             const values = points.map((point) => Number(point.value));
             const minValue = Math.min(...values);
             const maxValue = Math.max(...values);
+            const firstPointMs = new Date(points[0].recorded_at).getTime();
+            const lastPointMs = new Date(points[points.length - 1].recorded_at).getTime();
+            let rangeStartMs = customRangeStart ? new Date(customRangeStart).getTime() : Math.max(firstPointMs, lastPointMs - trendWindowMs);
+            let rangeEndMs = customRangeEnd ? new Date(customRangeEnd).getTime() : lastPointMs;
+            if (!customRangeStart && lastPointMs - firstPointMs < trendWindowMs) {
+                rangeStartMs = firstPointMs;
+                rangeEndMs = lastPointMs;
+            }
+            if (rangeEndMs <= rangeStartMs) {
+                rangeEndMs = rangeStartMs + (60 * 60 * 1000);
+            }
             const latestValue = values[values.length - 1];
             const previousValue = values.length > 1 ? values[values.length - 2] : latestValue;
             const delta = latestValue - previousValue;
             const deltaDecimals = ["air_temperature", "air_humidity", "temperature", "humidity", "ph", "lux"].includes(metric) ? 1 : 0;
             const deltaText = `${delta >= 0 ? "+" : ""}${delta.toFixed(deltaDecimals)}${unit ? ` ${unit}` : ""}`;
-            const rangeLabel = payload.date_from && payload.date_to
-                ? `${formatOsloDateTime(payload.date_from)} → ${formatOsloDateTime(payload.date_to)}`
-                : `siste ${spanLabel()}`;
-            trendSummary.textContent = `${rangeLabel} · nå ${formatMetricValue(latestValue, metric, unit)} · endring ${deltaText}`;
+            const lastUpdatedText = points.length
+                ? formatOsloDateTime(points[points.length - 1].recorded_at)
+                : "-";
+            const visibleWindowHours = Math.max(1, Math.round((rangeEndMs - rangeStartMs) / (60 * 60 * 1000)));
+            trendSummary.textContent = `Sist oppdatert: ${lastUpdatedText} · Endring: ${deltaText} · Vindu: ${visibleWindowHours} t`;
 
             const width = 800;
             const height = 260;
-            const linePath = buildChartPath(values, width, height, minValue, maxValue);
+            const linePath = buildChartPath(points, width, height, minValue, maxValue, rangeStartMs, rangeEndMs);
             const bounds = chartBounds(width, height);
             const areaPath = `${linePath} L ${bounds.right} ${bounds.bottom} L ${bounds.left} ${bounds.bottom} Z`;
-            const coordinates = pointCoordinates(values, width, height, minValue, maxValue);
+            const coordinates = pointCoordinates(points, width, height, minValue, maxValue, rangeStartMs, rangeEndMs);
             const lastPointCoords = coordinates[coordinates.length - 1];
 
             trendLine.setAttribute("d", linePath);
@@ -630,7 +720,7 @@
             trendHoverLine.setAttribute("y2", "0");
             trendHoverPoint.setAttribute("r", "0");
             trendTooltip.hidden = true;
-            renderAxes(points, width, height, minValue, maxValue);
+            renderAxes(points, width, height, minValue, maxValue, rangeStartMs, rangeEndMs);
             trendEmpty.hidden = true;
             latestRenderedPoints = points.map((point, index) => ({
                 x: coordinates[index].x,
@@ -689,9 +779,7 @@
 
             trendTooltipValue.textContent = formatMetricValue(point.value, point.metric, point.unit);
             const pointDate = new Date(point.recorded_at);
-            trendTooltipTime.textContent = selectedSpan === "days"
-                ? formatOsloDate(pointDate)
-                : formatOsloDateTime(pointDate);
+            trendTooltipTime.textContent = formatOsloDateTime(pointDate);
             positionTooltip(point);
             trendTooltip.hidden = false;
         }
@@ -709,7 +797,7 @@
             updateSelectedCard(metric);
             const params = new URLSearchParams({
                 metric,
-                span: selectedSpan,
+                span: historySpanForWindow(),
                 limit: "480"
             });
             if (customRangeStart) {
@@ -725,6 +813,25 @@
             }
             latestTrendPayload = payload;
             renderTrend(metric, payload);
+        }
+
+        async function jumpTrendToStart() {
+            try {
+                const response = await fetch(`/api/history-start?metric=${encodeURIComponent(selectedMetric)}`, { cache: "no-store" });
+                const payload = await response.json();
+                if (!payload.ok) {
+                    throw new Error(payload.error || "history_start_failed");
+                }
+                if (!payload.recorded_at) {
+                    throw new Error("ingen_historikk_for_denne_sensoren");
+                }
+                const start = new Date(payload.recorded_at);
+                const end = new Date(start.getTime() + trendWindowMs);
+                applyRangeWindow(start, end);
+                await fetchTrend(selectedMetric);
+            } catch (error) {
+                trendSummary.textContent = error.message;
+            }
         }
 
         async function fetchSensor() {
@@ -777,88 +884,93 @@
             card.addEventListener("click", () => {
                 customRangeStart = "";
                 customRangeEnd = "";
-                zoomLevel = 1;
+                trendWindowMs = defaultTrendWindowMs;
                 setTrendModalOpen(true);
                 fetchTrend(card.dataset.metric).catch((error) => {
                     trendSummary.textContent = error.message;
                 });
             });
         });
-        spanButtons.forEach((button) => {
-            button.addEventListener("click", () => {
-                zoomLevel = 1;
-                customRangeStart = "";
-                customRangeEnd = "";
-                updateSelectedSpan(button.dataset.span);
-                fetchTrend(selectedMetric).catch((error) => {
-                    trendSummary.textContent = error.message;
-                });
-            });
-        });
         zoomInButton.addEventListener("click", () => {
-            zoomLevel = Math.min(16, zoomLevel * 2);
-            if (latestTrendPayload) {
-                renderTrend(selectedMetric, latestTrendPayload);
-            }
-        });
-        zoomOutButton.addEventListener("click", () => {
-            zoomLevel = Math.max(1, zoomLevel / 2);
-            if (latestTrendPayload) {
-                renderTrend(selectedMetric, latestTrendPayload);
-            }
-        });
-        zoomResetButton.addEventListener("click", () => {
-            zoomLevel = 1;
-            if (latestTrendPayload) {
-                renderTrend(selectedMetric, latestTrendPayload);
-            }
-        });
-        trendRangeClearButton.addEventListener("click", () => {
+            trendWindowMs = Math.max(minTrendWindowMs, trendWindowMs - trendZoomStepMs);
             customRangeStart = "";
             customRangeEnd = "";
-            zoomLevel = 1;
             fetchTrend(selectedMetric).catch((error) => {
                 trendSummary.textContent = error.message;
             });
         });
-        trendPrevButton.addEventListener("click", () => {
-            const { start, end } = currentRangeWindow();
-            const duration = end.getTime() - start.getTime();
-            shiftTrendWindow(-(duration * 0.7));
+        zoomOutButton.addEventListener("click", () => {
+            trendWindowMs = Math.min(maxTrendWindowMs, trendWindowMs + trendZoomStepMs);
+            customRangeStart = "";
+            customRangeEnd = "";
+            fetchTrend(selectedMetric).catch((error) => {
+                trendSummary.textContent = error.message;
+            });
         });
-        trendNextButton.addEventListener("click", () => {
-            const { start, end } = currentRangeWindow();
-            const duration = end.getTime() - start.getTime();
-            shiftTrendWindow(duration * 0.7);
+        zoomResetButton.addEventListener("click", () => {
+            customRangeStart = "";
+            customRangeEnd = "";
+            trendWindowMs = defaultTrendWindowMs;
+            fetchTrend(selectedMetric).catch((error) => {
+                trendSummary.textContent = error.message;
+            });
         });
         trendHitbox.addEventListener("mousemove", (event) => {
+            if (trendDragX !== null) {
+                return;
+            }
             showHover(nearestPoint(event.clientX));
         });
         trendHitbox.addEventListener("mouseleave", clearHover);
-        let dragStartX = null;
         trendHitbox.addEventListener("pointerdown", (event) => {
-            dragStartX = event.clientX;
+            trendDragX = event.clientX;
+            trendDragLastPanAt = 0;
+            clearHover();
+            trendModal.classList.add("is-dragging");
             trendHitbox.setPointerCapture?.(event.pointerId);
         });
-        trendHitbox.addEventListener("pointerup", (event) => {
-            if (dragStartX === null) {
+        trendHitbox.addEventListener("pointermove", (event) => {
+            if (trendDragX === null) {
                 return;
             }
-            const deltaX = event.clientX - dragStartX;
-            dragStartX = null;
+            const deltaX = event.clientX - trendDragX;
             const chartRect = document.getElementById("trend-chart").getBoundingClientRect();
             const chartWidth = Math.max(chartRect.width, 1);
             const dragRatio = deltaX / chartWidth;
-            if (Math.abs(dragRatio) < 0.04) {
+            const now = Date.now();
+            if (Math.abs(dragRatio) < 0.03 || now - trendDragLastPanAt < 140) {
+                return;
+            }
+            trendDragX = event.clientX;
+            trendDragLastPanAt = now;
+            const { start, end } = currentRangeWindow();
+            const duration = end.getTime() - start.getTime();
+            shiftTrendWindow(duration * dragRatio);
+        });
+        trendHitbox.addEventListener("pointerup", () => {
+            trendDragX = null;
+            trendDragLastPanAt = 0;
+            trendModal.classList.remove("is-dragging");
+        });
+        trendHitbox.addEventListener("pointercancel", () => {
+            trendDragX = null;
+            trendDragLastPanAt = 0;
+            trendModal.classList.remove("is-dragging");
+        });
+        trendHitbox.addEventListener("wheel", (event) => {
+            if (!trendModalOpen) {
+                return;
+            }
+            event.preventDefault();
+            const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+            if (Math.abs(delta) < 2) {
                 return;
             }
             const { start, end } = currentRangeWindow();
             const duration = end.getTime() - start.getTime();
-            shiftTrendWindow(-(duration * dragRatio));
-        });
-        trendHitbox.addEventListener("pointercancel", () => {
-            dragStartX = null;
-        });
+            const direction = delta > 0 ? 1 : -1;
+            shiftTrendWindow(duration * 0.16 * direction);
+        }, { passive: false });
         trendCloseButton.addEventListener("click", closeTrendModal);
         trendEmptyCloseButton.addEventListener("click", closeTrendModal);
         trendModalBackdrop.addEventListener("click", closeTrendModal);
@@ -867,7 +979,6 @@
                 closeTrendModal();
             }
         });
-        updateSelectedSpan(selectedSpan);
         applyMetricTheme(selectedMetric);
         async function loadRuntimeSettings() {
             try {

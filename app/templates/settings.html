@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Growly Innstillinger</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260327-light-5">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260328-storage-1">
 </head>
 <body>
     <main class="dashboard-shell">
@@ -30,6 +30,22 @@
                 <h1>System og tilgang</h1>
                 <p class="lead">Administrer sensoradresse, intervaller, datastart og brukere på ett sted.</p>
             </div>
+        </section>
+
+        <section class="panel settings-card storage-card {% if storage_status.persistent %}storage-card-ok{% else %}storage-card-warning{% endif %}">
+            <h2 class="settings-subtitle">Lagringsstatus</h2>
+            <p class="helper-text">{{ storage_status.message }}</p>
+            <div class="detail-row">
+                <span>Status</span>
+                <strong>{{ "Varig lagring aktiv" if storage_status.persistent else "Midlertidig lagring aktiv" }}</strong>
+            </div>
+            <div class="detail-row">
+                <span>Aktiv databaseplassering</span>
+                <strong>{{ storage_status.active_path }}</strong>
+            </div>
+            {% if not storage_status.persistent %}
+            <p class="helper-text">For Render bør persistent disk være koblet til <strong>{{ storage_status.preferred_path }}</strong>. Hvis ikke vil brukere og innstillinger forsvinne når appen deployes på nytt.</p>
+            {% endif %}
         </section>
 
         <section class="panel control-panel settings-card">
