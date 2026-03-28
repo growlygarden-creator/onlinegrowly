@@ -31,6 +31,8 @@ APP_USERNAME = os.getenv("APP_USERNAME", "growly")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "growly-view")
 SETTINGS_PASSWORD = os.getenv("SETTINGS_PASSWORD", "growly-settings")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "growly-local-session-secret")
+DEFAULT_VIEWER_USERNAME = os.getenv("DEFAULT_VIEWER_USERNAME", "Testuser")
+DEFAULT_VIEWER_PASSWORD = os.getenv("DEFAULT_VIEWER_PASSWORD", "Growly2026")
 SUPABASE_REST_ENDPOINT = os.getenv(
     "SUPABASE_REST_ENDPOINT",
     "https://ffxkxsclgiojrzmxvyuk.supabase.co/rest/v1/sensor_data",
@@ -64,7 +66,7 @@ METRIC_KEYS = (
 )
 SPAN_CONFIG = {
     "minutes": {
-        "window": timedelta(hours=6),
+        "window": timedelta(days=1),
         "bucket_seconds": 60,
     },
     "hours": {
@@ -118,6 +120,23 @@ def ensure_data_dir() -> None:
         FALLBACK_DATA_DIR.mkdir(parents=True, exist_ok=True)
         DATA_DIR = FALLBACK_DATA_DIR
     DB_PATH = DATA_DIR / "growly.db"
+
+
+def storage_status() -> dict[str, Any]:
+    preferred_path = str(PREFERRED_DATA_DIR)
+    active_path = str(DATA_DIR)
+    persistent = DATA_DIR == PREFERRED_DATA_DIR
+    return {
+        "persistent": persistent,
+        "active_path": active_path,
+        "preferred_path": preferred_path,
+        "mode": "persistent" if persistent else "temporary",
+        "message": (
+            "Brukere og innstillinger lagres varig."
+            if persistent
+            else "Appen bruker midlertidig lagring nå. Brukere og innstillinger kan forsvinne ved deploy eller restart."
+        ),
+    }
 
 
 def init_db() -> None:
@@ -222,6 +241,32 @@ def init_db() -> None:
                 WHERE username = ?
                 """,
                 (utc_now_iso(), APP_USERNAME),
+            )
+        existing_viewer = connection.execute(
+            """
+            SELECT username
+            FROM app_users
+            WHERE username = ?
+            """,
+            (DEFAULT_VIEWER_USERNAME,),
+        ).fetchone()
+        if not existing_viewer:
+            now = utc_now_iso()
+            connection.execute(
+                """
+                INSERT INTO app_users (username, password_hash, is_active, is_admin, created_at, updated_at)
+                VALUES (?, ?, 1, 0, ?, ?)
+                """,
+                (DEFAULT_VIEWER_USERNAME, hash_password(DEFAULT_VIEWER_PASSWORD), now, now),
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE app_users
+                SET is_active = 1, is_admin = 0, updated_at = ?
+                WHERE username = ?
+                """,
+                (utc_now_iso(), DEFAULT_VIEWER_USERNAME),
             )
         connection.commit()
 
@@ -1026,6 +1071,7 @@ async def settings(request: Request):
             "request": request,
             "default_sensor_url": settings_payload["sensor_url"],
             "sample_settings": settings_payload,
+            "storage_status": storage_status(),
             **template_auth_context(request),
         },
     )
