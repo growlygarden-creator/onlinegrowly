@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Growly</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260328-trend-slider-1">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260328-compact-cards-1">
 </head>
 <body>
     <main class="dashboard-shell">
@@ -199,6 +199,12 @@
                         <span id="trend-slider-start">Start</span>
                         <span id="trend-slider-end">Nå</span>
                     </div>
+                    <div class="trend-slider-window">
+                        <span class="trend-slider-window-label">Viser:</span>
+                        <span id="trend-slider-window-start">-</span>
+                        <span class="trend-slider-window-separator">→</span>
+                        <span id="trend-slider-window-end">-</span>
+                    </div>
                 </div>
                 <section id="trend-insight" class="trend-insight" hidden>
                     <div class="trend-insight-grid">
@@ -265,6 +271,8 @@
         const trendSlider = document.getElementById("trend-slider");
         const trendSliderStart = document.getElementById("trend-slider-start");
         const trendSliderEnd = document.getElementById("trend-slider-end");
+        const trendSliderWindowStart = document.getElementById("trend-slider-window-start");
+        const trendSliderWindowEnd = document.getElementById("trend-slider-window-end");
 
         const osloTimeZone = "Europe/Oslo";
 
@@ -675,6 +683,8 @@
             trendSliderShell.hidden = false;
             trendSliderStart.textContent = formatSliderTime(trendHistoryStartMs);
             trendSliderEnd.textContent = formatSliderTime(trendHistoryLatestMs);
+            trendSliderWindowStart.textContent = formatSliderTime(rangeStartMs);
+            trendSliderWindowEnd.textContent = formatSliderTime(rangeEndMs);
 
             const currentShift = Math.min(
                 availableShift,

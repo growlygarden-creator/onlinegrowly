@@ -1107,6 +1107,22 @@ async def home(request: Request):
     )
 
 
+@app.get("/monitor-test")
+async def monitor_test(request: Request):
+    redirect = require_viewer_page(request)
+    if redirect:
+        return redirect
+    settings = app_settings()
+    return templates.TemplateResponse(
+        "monitor_test.html",
+        {
+            "request": request,
+            "default_sensor_url": settings["sensor_url"],
+            **template_auth_context(request),
+        },
+    )
+
+
 @app.get("/settings")
 async def settings(request: Request):
     redirect = require_settings_page(request)

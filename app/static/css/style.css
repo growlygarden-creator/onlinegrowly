@@ -719,9 +719,9 @@ select {
     display: flex;
     flex-wrap: wrap;
     justify-content: space-between;
-    gap: 10px;
+    gap: 8px;
     align-items: end;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 
 .zone-kicker {
@@ -763,20 +763,26 @@ select {
     grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.sensor-zone .stats-grid {
+    gap: 8px;
+}
+
 .metric-card {
     position: relative;
-    padding: 14px;
+    min-height: 92px;
+    padding: 10px 12px;
     text-align: left;
     color: inherit;
     cursor: pointer;
     transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease;
+    border-radius: 18px;
 }
 
 .metric-card p {
     max-width: calc(100% - 92px);
     margin: 0;
-    font-size: 0.9rem;
-    line-height: 1.25;
+    font-size: 0.82rem;
+    line-height: 1.15;
     font-weight: 500;
 }
 
@@ -815,8 +821,8 @@ select {
 
 .metric-card strong {
     display: block;
-    margin-top: 18px;
-    font-size: clamp(1.2rem, 2.2vw, 1.7rem);
+    margin-top: 10px;
+    font-size: clamp(1.02rem, 1.6vw, 1.34rem);
     letter-spacing: -0.04em;
     line-height: 1.06;
     font-weight: 650;
@@ -824,10 +830,26 @@ select {
 
 .metric-footnote {
     display: inline-flex;
-    margin-top: 7px;
+    margin-top: 4px;
     color: var(--muted);
-    font-size: 0.74rem;
-    line-height: 1.35;
+    font-size: 0.68rem;
+    line-height: 1.22;
+}
+
+.metric-range {
+    top: 8px;
+    right: 8px;
+    gap: 5px;
+    padding: 3px 6px;
+}
+
+.metric-range-label {
+    font-size: 0.42rem;
+}
+
+.metric-range-value,
+.metric-range .metric-range-value {
+    font-size: 0.52rem;
 }
 
 .trend-panel {
@@ -984,6 +1006,21 @@ select {
     line-height: 1.35;
 }
 
+.trend-slider-window {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    color: var(--text);
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+.trend-slider-window-label,
+.trend-slider-window-separator {
+    color: var(--muted);
+}
+
 .chart-empty {
     position: absolute;
     inset: 0;
@@ -1133,6 +1170,124 @@ select {
 .storage-card-ok {
     border-color: rgba(134, 201, 150, 0.28);
     box-shadow: 0 0 0 1px rgba(134, 201, 150, 0.08) inset;
+}
+
+.compact-shell {
+    width: min(100%, 1180px);
+}
+
+.compact-hero {
+    margin-bottom: 10px;
+}
+
+.compact-zone {
+    margin-bottom: 14px;
+}
+
+.compact-zone-header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: end;
+    margin-bottom: 8px;
+}
+
+.compact-zone-header h2 {
+    margin: 0;
+    font-size: clamp(1.05rem, 1.5vw, 1.35rem);
+    letter-spacing: -0.03em;
+}
+
+.compact-zone-note {
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.35;
+}
+
+.compact-card-grid {
+    display: grid;
+    gap: 8px;
+}
+
+.compact-card-grid-air {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.compact-card-grid-soil {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.compact-card {
+    min-height: 82px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(12, 18, 14, 0.92) 0%, rgba(9, 14, 11, 0.96) 100%);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.14);
+}
+
+.compact-card-air {
+    background:
+        radial-gradient(circle at top right, rgba(118, 199, 242, 0.10), transparent 42%),
+        linear-gradient(180deg, rgba(14, 23, 28, 0.96) 0%, rgba(10, 16, 19, 0.92) 100%);
+}
+
+.compact-card-soil {
+    background:
+        radial-gradient(circle at top right, rgba(134, 201, 150, 0.08), transparent 42%),
+        linear-gradient(180deg, rgba(12, 18, 14, 0.92) 0%, rgba(9, 14, 11, 0.96) 100%);
+}
+
+.compact-card-wide {
+    grid-column: span 2;
+}
+
+.compact-card-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: start;
+}
+
+.compact-card-top p {
+    margin: 0;
+    color: var(--text);
+    font-size: 0.8rem;
+    line-height: 1.15;
+    font-weight: 500;
+}
+
+.compact-card strong {
+    display: block;
+    margin-top: 10px;
+    font-size: clamp(1.08rem, 1.45vw, 1.38rem);
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-weight: 650;
+}
+
+.compact-footnote {
+    display: inline-flex;
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 0.66rem;
+    line-height: 1.2;
+}
+
+.compact-range {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-height: 20px;
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: rgba(6, 11, 8, 0.32);
+    border: 1px solid rgba(169, 198, 173, 0.06);
+    color: var(--muted);
+    font-size: 0.52rem;
+    line-height: 1.1;
+    white-space: nowrap;
 }
 
 .raw-json {
