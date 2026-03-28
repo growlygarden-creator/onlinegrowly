@@ -528,9 +528,10 @@
             const timeSpread = rangeEndMs - rangeStartMs;
             return points.map((point) => {
                 const recordedAtMs = new Date(point.recorded_at).getTime();
+                const numericValue = Number(point.value);
                 const ratio = Math.min(1, Math.max(0, (recordedAtMs - rangeStartMs) / timeSpread));
                 const x = bounds.left + ratio * (bounds.right - bounds.left);
-                const y = bounds.bottom - ((point - minValue) / spread) * (bounds.bottom - bounds.top);
+                const y = bounds.bottom - ((numericValue - minValue) / spread) * (bounds.bottom - bounds.top);
                 return { x, y };
             });
         }
