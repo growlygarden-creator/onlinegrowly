@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Growly</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260328-trend-clean-1">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260328-trend-slider-1">
 </head>
 <body>
     <main class="dashboard-shell">
@@ -139,7 +139,7 @@
                     </div>
                 </div>
                 <div class="trend-toolbar">
-                    <span class="trend-swipe-hint">Viser 24 timer som standard. Sveip eller scroll i grafen for å bla bakover i historikken.</span>
+                    <span class="trend-swipe-hint">Viser 24 timer som standard. Bruk slideren under grafen for å bla bakover i historikken.</span>
                     <div class="zoom-controls">
                         <button type="button" class="zoom-button" id="zoom-out">Zoom ut</button>
                         <button type="button" class="zoom-button" id="zoom-in">Zoom inn</button>
@@ -182,6 +182,22 @@
                             <span>Prøv en annen periode, en annen sensor eller lukk trendvinduet igjen.</span>
                             <button type="button" id="trend-empty-close" class="button subtle-button">Lukk</button>
                         </div>
+                    </div>
+                </div>
+                <div id="trend-slider-shell" class="trend-slider-shell" hidden>
+                    <input
+                        id="trend-slider"
+                        class="trend-slider"
+                        type="range"
+                        min="0"
+                        max="1000"
+                        step="1"
+                        value="1000"
+                        aria-label="Bla i trendhistorikk"
+                    >
+                    <div class="trend-slider-labels">
+                        <span id="trend-slider-start">Start</span>
+                        <span id="trend-slider-end">Nå</span>
                     </div>
                 </div>
                 <section id="trend-insight" class="trend-insight" hidden>
@@ -245,6 +261,10 @@
         const trendInsightLow = document.getElementById("trend-insight-low");
         const trendInsightHigh = document.getElementById("trend-insight-high");
         const trendInsightAction = document.getElementById("trend-insight-action");
+        const trendSliderShell = document.getElementById("trend-slider-shell");
+        const trendSlider = document.getElementById("trend-slider");
+        const trendSliderStart = document.getElementById("trend-slider-start");
+        const trendSliderEnd = document.getElementById("trend-slider-end");
 
         const osloTimeZone = "Europe/Oslo";
 
@@ -378,8 +398,10 @@
         let customRangeEnd = "";
         let trendModalOpen = false;
         let trendFetchInFlight = false;
-        let trendDragX = null;
-        let trendDragLastPanAt = 0;
+        let trendHistoryStartMs = null;
+        let trendHistoryLatestMs = null;
+        let trendSliderSyncing = false;
+        let trendSliderDebounce = null;
 
         const defaultTrendWindowMs = 24 * 60 * 60 * 1000;
         const trendZoomStepMs = 6 * 60 * 60 * 1000;
@@ -485,30 +507,6 @@
             customRangeEnd = end.toISOString();
         }
 
-        async function shiftTrendWindow(deltaMs) {
-            if (trendFetchInFlight) {
-                return;
-            }
-            const { start, end } = currentRangeWindow();
-            const duration = end.getTime() - start.getTime();
-            let nextStart = new Date(start.getTime() + deltaMs);
-            let nextEnd = new Date(end.getTime() + deltaMs);
-            const now = new Date();
-
-            if (nextEnd > now) {
-                nextEnd = now;
-                nextStart = new Date(now.getTime() - duration);
-            }
-
-            applyRangeWindow(nextStart, nextEnd);
-            trendFetchInFlight = true;
-            return fetchTrend(selectedMetric).catch((error) => {
-                trendSummary.textContent = error.message;
-            }).finally(() => {
-                trendFetchInFlight = false;
-            });
-        }
-
         function chartBounds(width, height) {
             return {
                 left: 18,
@@ -566,6 +564,16 @@
                 day: "2-digit",
                 month: "2-digit",
                 year: "numeric",
+                timeZone: osloTimeZone
+            });
+        }
+
+        function formatSliderTime(value) {
+            return new Date(value).toLocaleString("no-NO", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
                 timeZone: osloTimeZone
             });
         }
@@ -653,6 +661,32 @@
             trendInsight.hidden = false;
         }
 
+        function updateTrendSlider(rangeStartMs, rangeEndMs) {
+            const hasBounds = Number.isFinite(trendHistoryStartMs) && Number.isFinite(trendHistoryLatestMs);
+            const visibleDuration = rangeEndMs - rangeStartMs;
+            const totalDuration = hasBounds ? trendHistoryLatestMs - trendHistoryStartMs : 0;
+            const availableShift = totalDuration - visibleDuration;
+
+            if (!hasBounds || availableShift <= 0) {
+                trendSliderShell.hidden = true;
+                return;
+            }
+
+            trendSliderShell.hidden = false;
+            trendSliderStart.textContent = formatSliderTime(trendHistoryStartMs);
+            trendSliderEnd.textContent = formatSliderTime(trendHistoryLatestMs);
+
+            const currentShift = Math.min(
+                availableShift,
+                Math.max(0, rangeStartMs - trendHistoryStartMs)
+            );
+            const ratio = availableShift === 0 ? 1 : currentShift / availableShift;
+
+            trendSliderSyncing = true;
+            trendSlider.value = String(Math.round(ratio * 1000));
+            trendSliderSyncing = false;
+        }
+
         function renderTrend(metric, payload) {
             const card = currentCard();
             const unit = card?.dataset.unit || "";
@@ -670,6 +704,7 @@
                 trendGrid.innerHTML = "";
                 trendYAxis.innerHTML = "";
                 trendXAxis.innerHTML = "";
+                trendSliderShell.hidden = true;
                 trendEmpty.hidden = false;
                 return;
             }
@@ -679,6 +714,9 @@
             const maxValue = Math.max(...values);
             const firstPointMs = new Date(points[0].recorded_at).getTime();
             const lastPointMs = new Date(points[points.length - 1].recorded_at).getTime();
+            if (!customRangeStart) {
+                trendHistoryLatestMs = lastPointMs;
+            }
             let rangeStartMs = customRangeStart ? new Date(customRangeStart).getTime() : Math.max(firstPointMs, lastPointMs - trendWindowMs);
             let rangeEndMs = customRangeEnd ? new Date(customRangeEnd).getTime() : lastPointMs;
             if (!customRangeStart && lastPointMs - firstPointMs < trendWindowMs) {
@@ -723,6 +761,7 @@
             trendTooltip.hidden = true;
             renderAxes(points, width, height, minValue, maxValue, rangeStartMs, rangeEndMs);
             trendEmpty.hidden = true;
+            updateTrendSlider(rangeStartMs, rangeEndMs);
             latestRenderedPoints = points.map((point, index) => ({
                 x: coordinates[index].x,
                 y: coordinates[index].y,
@@ -816,22 +855,20 @@
             renderTrend(metric, payload);
         }
 
-        async function jumpTrendToStart() {
+        async function fetchTrendBounds(metric = selectedMetric) {
             try {
-                const response = await fetch(`/api/history-start?metric=${encodeURIComponent(selectedMetric)}`, { cache: "no-store" });
+                const response = await fetch(`/api/history-start?metric=${encodeURIComponent(metric)}`, { cache: "no-store" });
                 const payload = await response.json();
                 if (!payload.ok) {
                     throw new Error(payload.error || "history_start_failed");
                 }
                 if (!payload.recorded_at) {
-                    throw new Error("ingen_historikk_for_denne_sensoren");
+                    trendHistoryStartMs = null;
+                    return;
                 }
-                const start = new Date(payload.recorded_at);
-                const end = new Date(start.getTime() + trendWindowMs);
-                applyRangeWindow(start, end);
-                await fetchTrend(selectedMetric);
+                trendHistoryStartMs = new Date(payload.recorded_at).getTime();
             } catch (error) {
-                trendSummary.textContent = error.message;
+                trendHistoryStartMs = null;
             }
         }
 
@@ -882,11 +919,12 @@
         }
 
         cards.forEach((card) => {
-            card.addEventListener("click", () => {
+            card.addEventListener("click", async () => {
                 customRangeStart = "";
                 customRangeEnd = "";
                 trendWindowMs = defaultTrendWindowMs;
                 setTrendModalOpen(true);
+                await fetchTrendBounds(card.dataset.metric);
                 fetchTrend(card.dataset.metric).catch((error) => {
                     trendSummary.textContent = error.message;
                 });
@@ -916,62 +954,35 @@
                 trendSummary.textContent = error.message;
             });
         });
-        trendHitbox.addEventListener("mousemove", (event) => {
-            if (trendDragX !== null) {
+        trendSlider.addEventListener("input", () => {
+            if (trendSliderSyncing || !Number.isFinite(trendHistoryStartMs) || !Number.isFinite(trendHistoryLatestMs)) {
                 return;
             }
+
+            const maxStartMs = trendHistoryLatestMs - trendWindowMs;
+            if (maxStartMs <= trendHistoryStartMs) {
+                return;
+            }
+
+            const ratio = Number(trendSlider.value) / 1000;
+            const nextStartMs = trendHistoryStartMs + ((maxStartMs - trendHistoryStartMs) * ratio);
+            const nextStart = new Date(nextStartMs);
+            const nextEnd = new Date(nextStartMs + trendWindowMs);
+            applyRangeWindow(nextStart, nextEnd);
+
+            if (trendSliderDebounce) {
+                window.clearTimeout(trendSliderDebounce);
+            }
+            trendSliderDebounce = window.setTimeout(() => {
+                fetchTrend(selectedMetric).catch((error) => {
+                    trendSummary.textContent = error.message;
+                });
+            }, 120);
+        });
+        trendHitbox.addEventListener("mousemove", (event) => {
             showHover(nearestPoint(event.clientX));
         });
         trendHitbox.addEventListener("mouseleave", clearHover);
-        trendHitbox.addEventListener("pointerdown", (event) => {
-            trendDragX = event.clientX;
-            trendDragLastPanAt = 0;
-            clearHover();
-            trendModal.classList.add("is-dragging");
-            trendHitbox.setPointerCapture?.(event.pointerId);
-        });
-        trendHitbox.addEventListener("pointermove", (event) => {
-            if (trendDragX === null) {
-                return;
-            }
-            const deltaX = event.clientX - trendDragX;
-            const chartRect = document.getElementById("trend-chart").getBoundingClientRect();
-            const chartWidth = Math.max(chartRect.width, 1);
-            const dragRatio = deltaX / chartWidth;
-            const now = Date.now();
-            if (Math.abs(dragRatio) < 0.03 || now - trendDragLastPanAt < 140) {
-                return;
-            }
-            trendDragX = event.clientX;
-            trendDragLastPanAt = now;
-            const { start, end } = currentRangeWindow();
-            const duration = end.getTime() - start.getTime();
-            shiftTrendWindow(duration * dragRatio);
-        });
-        trendHitbox.addEventListener("pointerup", () => {
-            trendDragX = null;
-            trendDragLastPanAt = 0;
-            trendModal.classList.remove("is-dragging");
-        });
-        trendHitbox.addEventListener("pointercancel", () => {
-            trendDragX = null;
-            trendDragLastPanAt = 0;
-            trendModal.classList.remove("is-dragging");
-        });
-        trendHitbox.addEventListener("wheel", (event) => {
-            if (!trendModalOpen) {
-                return;
-            }
-            event.preventDefault();
-            const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-            if (Math.abs(delta) < 2) {
-                return;
-            }
-            const { start, end } = currentRangeWindow();
-            const duration = end.getTime() - start.getTime();
-            const direction = delta > 0 ? 1 : -1;
-            shiftTrendWindow(duration * 0.16 * direction);
-        }, { passive: false });
         trendCloseButton.addEventListener("click", closeTrendModal);
         trendEmptyCloseButton.addEventListener("click", closeTrendModal);
         trendModalBackdrop.addEventListener("click", closeTrendModal);
