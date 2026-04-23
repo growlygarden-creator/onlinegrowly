@@ -378,6 +378,7 @@ må dele felles jord</pre>
                     <div class="user-card-actions">
                         <input type="password" data-user-password="${user.username}" placeholder="Nytt passord">
                         <button type="button" class="button subtle-button" data-user-save="${user.username}">Lagre</button>
+                        <button type="button" class="button danger-button" data-user-delete="${user.username}">Slett</button>
                     </div>
                 </article>
             `).join("");
@@ -447,6 +448,28 @@ må dele felles jord</pre>
                 }
                 renderUsers(result.users || []);
                 setUserStatus(`Oppdatert ${username}`, "online");
+            } catch (error) {
+                setUserStatus(`Feil: ${error.message || error}`, "offline");
+            }
+        }
+
+        async function deleteUser(username) {
+            if (!window.confirm(`Slette bruker ${username}? Dette fjerner også hub, pairing og sensordata som tilhører brukeren.`)) {
+                return;
+            }
+
+            setUserStatus(`Sletter ${username}...`, "warning");
+
+            try {
+                const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+                    method: "DELETE"
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "user_delete_failed");
+                }
+                renderUsers(result.users || []);
+                setUserStatus(`Slettet ${username}`, "online");
             } catch (error) {
                 setUserStatus(`Feil: ${error.message || error}`, "offline");
             }
@@ -584,6 +607,11 @@ må dele felles jord</pre>
         saveHistoryStartButton.addEventListener("click", saveHistoryStart);
         addUserButton.addEventListener("click", addUser);
         userList.addEventListener("click", (event) => {
+            const deleteButton = event.target.closest("[data-user-delete]");
+            if (deleteButton) {
+                deleteUser(deleteButton.dataset.userDelete);
+                return;
+            }
             const button = event.target.closest("[data-user-save]");
             if (!button) {
                 return;

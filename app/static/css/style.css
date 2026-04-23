@@ -3916,6 +3916,13 @@ select {
     color: var(--muted);
 }
 
+.danger-button {
+    border: 1px solid rgba(189, 85, 72, 0.22);
+    background: rgba(189, 85, 72, 0.12);
+    color: var(--danger);
+    box-shadow: none;
+}
+
 .span-button.active,
 .zoom-button.active {
     background: #ffffff;

@@ -36,8 +36,11 @@ export function RegisterPage() {
     setStatus("Oppretter konto...");
     try {
       await registerAccount(form);
-      setStatus("Konto opprettet.");
-      navigate("/");
+      setStatus("Konto opprettet. Logg inn for å fortsette.");
+      navigate("/login", {
+        replace: true,
+        state: { registrationSuccess: true, username: form.username },
+      });
     } catch (error) {
       const code = error instanceof Error ? error.message : "unknown_error";
       setStatus(errorMap[code] ?? "Kunne ikke opprette konto akkurat nå.");

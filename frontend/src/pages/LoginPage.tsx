@@ -1,12 +1,16 @@
 import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { login } from "../lib/api";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const location = useLocation();
+  const locationState = location.state as { registrationSuccess?: boolean; username?: string } | null;
+  const [username, setUsername] = useState(locationState?.username ?? "");
   const [password, setPassword] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(
+    locationState?.registrationSuccess ? "Konto opprettet. Logg inn for å fortsette." : "",
+  );
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {

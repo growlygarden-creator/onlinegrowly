@@ -1087,6 +1087,76 @@ def update_app_user(
     }
 
 
+def delete_app_user(username: str, acting_username: str) -> None:
+    user = find_app_user(username)
+    if not user:
+        raise ValueError("user_not_found")
+    if username == acting_username:
+        raise ValueError("cannot_delete_self")
+
+    with db_connection() as connection:
+        if int(user.get("is_admin") or 0):
+            admin_count_row = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM app_users
+                WHERE is_admin = 1
+                """
+            ).fetchone()
+            admin_count = int(admin_count_row["count"]) if admin_count_row else 0
+            if admin_count <= 1:
+                raise ValueError("cannot_delete_last_admin")
+
+        hub = connection.execute(
+            """
+            SELECT hub_id
+            FROM hubs
+            WHERE owner_username = ?
+            """,
+            (username,),
+        ).fetchone()
+        hub_id = str(hub["hub_id"]) if hub and hub["hub_id"] else ""
+
+        if hub_id:
+            connection.execute(
+                """
+                DELETE FROM sensor_samples
+                WHERE hub_id = ?
+                """,
+                (hub_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM hubs
+                WHERE hub_id = ?
+                """,
+                (hub_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM pairing_tokens
+                WHERE paired_hub_id = ?
+                """,
+                (hub_id,),
+            )
+
+        connection.execute(
+            """
+            DELETE FROM pairing_tokens
+            WHERE target_username = ?
+            """,
+            (username,),
+        )
+        connection.execute(
+            """
+            DELETE FROM app_users
+            WHERE username = ?
+            """,
+            (username,),
+        )
+        connection.commit()
+
+
 def normalized_sensor_payload(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = {
         "recorded_at": utc_now_iso(),
@@ -2426,6 +2496,18 @@ async def edit_user(request: Request, username: str, payload: dict[str, Any]):
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
     return {"ok": True, "user": user, "users": list_app_users()}
+
+
+@app.delete("/api/users/{username}")
+async def remove_user(request: Request, username: str):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        delete_app_user(username, current_username(request))
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "users": list_app_users()}
 
 
 @app.post("/api/settings")
