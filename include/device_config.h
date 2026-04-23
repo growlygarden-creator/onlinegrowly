@@ -1,21 +1,27 @@
 #pragma once
 
 namespace DeviceConfig {
+constexpr bool RGB_STATUS_LED_ENABLED = true;
 constexpr char DEVICE_NAME[] = "growly-esp32-s3";
 constexpr char AP_SSID[] = "Growly Garden";
 constexpr char PREFS_NAMESPACE[] = "growly_wifi";
 constexpr char PREFS_WIFI_SSID_KEY[] = "ssid";
 constexpr char PREFS_WIFI_PASSWORD_KEY[] = "password";
+constexpr char PREFS_PAIRING_CODE_KEY[] = "pair_code";
+constexpr char PREFS_HUB_ID_KEY[] = "hub_id";
 constexpr char PREFS_SAMPLE_SOIL_KEY[] = "soil_ms";
 constexpr char PREFS_SAMPLE_LIGHT_KEY[] = "light_ms";
 constexpr char PREFS_SAMPLE_AIR_KEY[] = "air_ms";
 constexpr char PREFS_SAMPLE_CLOUD_KEY[] = "cloud_ms";
+constexpr char BACKEND_BASE_URL[] = "https://onlinegrowly.onrender.com";
 constexpr char BACKEND_INGEST_URL[] = "";
 constexpr char SUPABASE_PROJECT_URL[] = "https://ffxkxsclgiojrzmxvyuk.supabase.co";
 constexpr char SUPABASE_REST_ENDPOINT[] = "https://ffxkxsclgiojrzmxvyuk.supabase.co/rest/v1/sensor_data";
 // Supabase REST works with the anon public JWT in the apikey/Bearer headers.
 constexpr char SUPABASE_API_KEY[] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZmeGt4c2NsZ2lvanJ6bXh2eXVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzOTI1MzYsImV4cCI6MjA4OTk2ODUzNn0.yOtn_wNGOje0QAEdWYll8XJkojFANCxpmWd5F1eoPzA";
+constexpr char HUB_PAIR_PATH[] = "/api/hubs/pair";
 constexpr int WIFI_RESET_BUTTON_PIN = 0;
+constexpr unsigned long WIFI_FORCE_SETUP_HOLD_MS = 2000;
 constexpr unsigned long WIFI_RESET_HOLD_MS = 10000;
 constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 20000;
 constexpr unsigned long WIFI_SCAN_REFRESH_MS = 30000;

@@ -23,6 +23,9 @@ Adafruit_BMP280 bmp280;
 
 String configuredWifiSsid;
 String configuredWifiPassword;
+String configuredPairingCode;
+String pairedHubId;
+String pairingStatusMessage = "Huben er ikke paret ennå.";
 bool captivePortalActive = false;
 unsigned long lastWifiScanAt = 0;
 bool wifiScanLoaded = false;
@@ -35,6 +38,8 @@ unsigned long lastSupabaseUploadAt = 0;
 unsigned long lastStatusLedUpdateAt = 0;
 unsigned long lastSoilPollAt = 0;
 unsigned long lastLightPollAt = 0;
+unsigned long lastPairingAttemptAt = 0;
+unsigned long wifiConnectedAt = 0;
 bool statusLedOn = false;
 unsigned long soilSampleIntervalMs = DeviceConfig::SENSOR_POLL_INTERVAL_MS;
 unsigned long lightSampleIntervalMs = DeviceConfig::SENSOR_POLL_INTERVAL_MS;
@@ -99,6 +104,33 @@ VisibleNetwork visibleNetworks[kMaxVisibleNetworks];
 size_t visibleNetworkCount = 0;
 
 void printSensorReading();
+bool ensureHubPairing(bool forceRetry = false);
+
+enum class StatusLedColor {
+    Off,
+    Orange,
+    Blue,
+    Green,
+    Red,
+};
+
+enum class BootAction {
+    None,
+    ForceSetup,
+    FactoryReset,
+};
+
+String backendUrl(const char* path) {
+    String base = DeviceConfig::BACKEND_BASE_URL;
+    base.trim();
+    if (base.length() == 0) {
+        return "";
+    }
+    if (base.endsWith("/")) {
+        base.remove(base.length() - 1);
+    }
+    return base + String(path);
+}
 
 unsigned long sanitizeSampleInterval(long value) {
     if (value < static_cast<long>(DeviceConfig::SAMPLE_INTERVAL_MIN_MS)) {
@@ -110,9 +142,41 @@ unsigned long sanitizeSampleInterval(long value) {
     return static_cast<unsigned long>(value);
 }
 
-void setStatusLed(bool on) {
-    statusLedOn = on;
-    digitalWrite(DeviceConfig::STATUS_LED_PIN, on ? HIGH : LOW);
+void setStatusLedColor(StatusLedColor color) {
+    statusLedOn = color != StatusLedColor::Off;
+#if defined(RGB_BUILTIN)
+    if (DeviceConfig::RGB_STATUS_LED_ENABLED) {
+        switch (color) {
+            case StatusLedColor::Orange:
+                neopixelWrite(RGB_BUILTIN, 64, 24, 0);
+                return;
+            case StatusLedColor::Blue:
+                neopixelWrite(RGB_BUILTIN, 0, 24, 64);
+                return;
+            case StatusLedColor::Green:
+                neopixelWrite(RGB_BUILTIN, 0, 64, 0);
+                return;
+            case StatusLedColor::Red:
+                neopixelWrite(RGB_BUILTIN, 64, 0, 0);
+                return;
+            case StatusLedColor::Off:
+            default:
+                neopixelWrite(RGB_BUILTIN, 0, 0, 0);
+                return;
+        }
+    }
+#endif
+
+    digitalWrite(DeviceConfig::STATUS_LED_PIN, color == StatusLedColor::Off ? LOW : HIGH);
+}
+
+void blinkStatusLed(StatusLedColor color, unsigned long intervalMs) {
+    const unsigned long now = millis();
+    if (now - lastStatusLedUpdateAt < intervalMs) {
+        return;
+    }
+    lastStatusLedUpdateAt = now;
+    setStatusLedColor(statusLedOn ? StatusLedColor::Off : color);
 }
 
 void loadSampleIntervals() {
@@ -145,6 +209,32 @@ void saveSampleIntervals() {
     preferences.end();
 }
 
+void loadPairingState() {
+    preferences.begin(DeviceConfig::PREFS_NAMESPACE, true);
+    configuredPairingCode = preferences.getString(DeviceConfig::PREFS_PAIRING_CODE_KEY, "");
+    pairedHubId = preferences.getString(DeviceConfig::PREFS_HUB_ID_KEY, "");
+    preferences.end();
+
+    configuredPairingCode.trim();
+    pairedHubId.trim();
+}
+
+void savePairingCode(const String& pairingCode) {
+    preferences.begin(DeviceConfig::PREFS_NAMESPACE, false);
+    preferences.putString(DeviceConfig::PREFS_PAIRING_CODE_KEY, pairingCode);
+    preferences.end();
+    configuredPairingCode = pairingCode;
+    configuredPairingCode.trim();
+}
+
+void savePairedHubId(const String& hubId) {
+    preferences.begin(DeviceConfig::PREFS_NAMESPACE, false);
+    preferences.putString(DeviceConfig::PREFS_HUB_ID_KEY, hubId);
+    preferences.end();
+    pairedHubId = hubId;
+    pairedHubId.trim();
+}
+
 String sampleIntervalsJson() {
     return String("{\"ok\":true,\"settings\":{") +
            "\"sample_time_soil_ms\":" + String(soilSampleIntervalMs) + "," +
@@ -155,8 +245,10 @@ String sampleIntervalsJson() {
 }
 
 void setupStatusLed() {
+#if !defined(RGB_BUILTIN)
     pinMode(DeviceConfig::STATUS_LED_PIN, OUTPUT);
-    setStatusLed(false);
+#endif
+    setStatusLedColor(StatusLedColor::Off);
 }
 
 bool systemHealthy() {
@@ -170,38 +262,41 @@ bool systemHealthy() {
 }
 
 void updateStatusLed() {
-    const unsigned long now = millis();
+    const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+    if (wifiConnected) {
+        if (wifiConnectedAt == 0) {
+            wifiConnectedAt = millis();
+        }
+    } else {
+        wifiConnectedAt = 0;
+    }
 
     if (captivePortalActive) {
-        if (now - lastStatusLedUpdateAt >= DeviceConfig::STATUS_LED_AP_BLINK_MS) {
-            lastStatusLedUpdateAt = now;
-            setStatusLed(!statusLedOn);
-        }
+        blinkStatusLed(StatusLedColor::Orange, DeviceConfig::STATUS_LED_AP_BLINK_MS);
         return;
     }
 
     if (systemHealthy()) {
-        setStatusLed(true);
+        setStatusLedColor(StatusLedColor::Green);
         return;
     }
 
-    if (WiFi.status() != WL_CONNECTED ||
+    if (wifiConnected && wifiConnectedAt != 0 && millis() - wifiConnectedAt < 15000) {
+        blinkStatusLed(StatusLedColor::Blue, DeviceConfig::STATUS_LED_WARN_BLINK_MS);
+        return;
+    }
+
+    if (!wifiConnected ||
         !bh1750State.available ||
         !bh1750State.valid ||
         !airSensorState.available ||
         !airSensorState.valid ||
         !latestReading.valid) {
-        if (now - lastStatusLedUpdateAt >= DeviceConfig::STATUS_LED_WARN_BLINK_MS) {
-            lastStatusLedUpdateAt = now;
-            setStatusLed(!statusLedOn);
-        }
+        blinkStatusLed(StatusLedColor::Red, DeviceConfig::STATUS_LED_WARN_BLINK_MS);
         return;
     }
 
-    if (now - lastStatusLedUpdateAt >= DeviceConfig::STATUS_LED_BOOT_BLINK_MS) {
-        lastStatusLedUpdateAt = now;
-        setStatusLed(!statusLedOn);
-    }
+    blinkStatusLed(StatusLedColor::Blue, DeviceConfig::STATUS_LED_BOOT_BLINK_MS);
 }
 
 bool writeBh1750Command(uint8_t address, uint8_t command) {
@@ -418,6 +513,21 @@ uint16_t modbusCrc(const uint8_t* data, size_t length) {
     return crc;
 }
 
+String hexDump(const uint8_t* data, size_t length) {
+    String dump;
+    for (size_t i = 0; i < length; ++i) {
+        if (i > 0) {
+            dump += ' ';
+        }
+        if (data[i] < 0x10) {
+            dump += '0';
+        }
+        dump += String(data[i], HEX);
+    }
+    dump.toUpperCase();
+    return dump;
+}
+
 void setReceiveMode() {
     digitalWrite(DeviceConfig::RS485_DIR_PIN, LOW);
 }
@@ -442,6 +552,13 @@ bool readHoldingRegisters(uint8_t slaveAddress, uint16_t startRegister, uint16_t
     const uint16_t crc = modbusCrc(frame, 6);
     frame[6] = static_cast<uint8_t>(crc & 0xFF);
     frame[7] = static_cast<uint8_t>((crc >> 8) & 0xFF);
+
+    Serial.printf(
+        "RS485 request | slave=%u start=%u count=%u frame=%s\n",
+        slaveAddress,
+        startRegister,
+        registerCount,
+        hexDump(frame, sizeof(frame)).c_str());
 
     while (rs485Serial.available() > 0) {
         rs485Serial.read();
@@ -468,21 +585,43 @@ bool readHoldingRegisters(uint8_t slaveAddress, uint16_t startRegister, uint16_t
     }
 
     if (responseLength < expectedLength) {
+        if (responseLength > 0) {
+            Serial.printf(
+                "RS485 timeout | expected=%u got=%u partial=%s\n",
+                static_cast<unsigned>(expectedLength),
+                static_cast<unsigned>(responseLength),
+                hexDump(response, responseLength).c_str());
+        } else {
+            Serial.printf(
+                "RS485 timeout | expected=%u got=0\n",
+                static_cast<unsigned>(expectedLength));
+        }
         error = "timeout";
         return false;
     }
 
     if (response[0] != slaveAddress) {
+        Serial.printf("RS485 invalid slave | expected=%u got=%u frame=%s\n",
+                      slaveAddress,
+                      response[0],
+                      hexDump(response, responseLength).c_str());
         error = "wrong_slave_address";
         return false;
     }
 
     if (response[1] != 0x03) {
+        Serial.printf("RS485 invalid function | expected=3 got=%u frame=%s\n",
+                      response[1],
+                      hexDump(response, responseLength).c_str());
         error = "wrong_function_code";
         return false;
     }
 
     if (response[2] != registerCount * 2) {
+        Serial.printf("RS485 invalid payload size | expected=%u got=%u frame=%s\n",
+                      registerCount * 2,
+                      response[2],
+                      hexDump(response, responseLength).c_str());
         error = "wrong_payload_size";
         return false;
     }
@@ -490,9 +629,15 @@ bool readHoldingRegisters(uint8_t slaveAddress, uint16_t startRegister, uint16_t
     const uint16_t responseCrc = static_cast<uint16_t>(response[responseLength - 1] << 8) | response[responseLength - 2];
     const uint16_t calculatedCrc = modbusCrc(response, responseLength - 2);
     if (responseCrc != calculatedCrc) {
+        Serial.printf("RS485 CRC mismatch | expected=%04X got=%04X frame=%s\n",
+                      calculatedCrc,
+                      responseCrc,
+                      hexDump(response, responseLength).c_str());
         error = "crc_mismatch";
         return false;
     }
+
+    Serial.printf("RS485 response OK | frame=%s\n", hexDump(response, responseLength).c_str());
 
     return true;
 }
@@ -638,6 +783,115 @@ String htmlEscape(const String& text) {
     return escaped;
 }
 
+String extractJsonStringValue(const String& payload, const char* key) {
+    const String quotedKey = String("\"") + key + "\":";
+    const int keyIndex = payload.indexOf(quotedKey);
+    if (keyIndex < 0) {
+        return "";
+    }
+
+    int valueIndex = keyIndex + quotedKey.length();
+    while (valueIndex < payload.length() && isspace(static_cast<unsigned char>(payload[valueIndex]))) {
+        ++valueIndex;
+    }
+    if (valueIndex >= payload.length() || payload[valueIndex] != '"') {
+        return "";
+    }
+
+    ++valueIndex;
+    String value;
+    bool escaped = false;
+    while (valueIndex < payload.length()) {
+        const char ch = payload[valueIndex++];
+        if (escaped) {
+            value += ch;
+            escaped = false;
+            continue;
+        }
+        if (ch == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (ch == '"') {
+            break;
+        }
+        value += ch;
+    }
+    return value;
+}
+
+bool ensureHubPairing(bool forceRetry) {
+    if (pairedHubId.length() > 0) {
+        pairingStatusMessage = "Huben er paret som " + pairedHubId + ".";
+        return true;
+    }
+
+    if (configuredPairingCode.length() == 0) {
+        pairingStatusMessage = "Skriv inn pairing-kode for å fullfore oppsettet.";
+        return false;
+    }
+
+    if (strlen(DeviceConfig::BACKEND_BASE_URL) == 0) {
+        pairingStatusMessage = "Manglende backend-adresse i firmware.";
+        return false;
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+        pairingStatusMessage = "Venter pa Wi-Fi for aa pare huben.";
+        return false;
+    }
+
+    const unsigned long now = millis();
+    if (!forceRetry && now - lastPairingAttemptAt < 5000) {
+        return false;
+    }
+    lastPairingAttemptAt = now;
+
+    const String pairUrl = backendUrl(DeviceConfig::HUB_PAIR_PATH);
+    if (pairUrl.length() == 0) {
+        pairingStatusMessage = "Kunne ikke bygge pairing-URL.";
+        return false;
+    }
+
+    String body = String("{\"pairing_token\":\"") + configuredPairingCode + "\"";
+    body += ",\"local_ip\":\"" + WiFi.localIP().toString() + "\"}";
+
+    HTTPClient http;
+    http.setTimeout(5000);
+    if (!http.begin(pairUrl)) {
+        pairingStatusMessage = "Kunne ikke kontakte Growly backend.";
+        return false;
+    }
+
+    http.addHeader("Content-Type", "application/json");
+    const int statusCode = http.POST(body);
+    const String responseBody = http.getString();
+    http.end();
+
+    if (statusCode <= 0) {
+        pairingStatusMessage = "Pairing feilet: " + String(statusCode);
+        return false;
+    }
+
+    if (statusCode < 200 || statusCode >= 300) {
+        const String backendError = extractJsonStringValue(responseBody, "error");
+        pairingStatusMessage = backendError.length() > 0 ? ("Pairing feilet: " + backendError) : ("Pairing feilet med HTTP " + String(statusCode));
+        return false;
+    }
+
+    const String hubId = extractJsonStringValue(responseBody, "hub_id");
+    if (hubId.length() == 0) {
+        pairingStatusMessage = "Pairing-svar manglet hub-ID.";
+        return false;
+    }
+
+    savePairedHubId(hubId);
+    savePairingCode("");
+    pairingStatusMessage = "Huben er paret som " + hubId + ".";
+    Serial.printf("Hub pairing completed: %s\n", hubId.c_str());
+    return true;
+}
+
 String authLabel(wifi_auth_mode_t authMode) {
     switch (authMode) {
         case WIFI_AUTH_OPEN:
@@ -686,6 +940,9 @@ void loadWifiCredentials() {
     configuredWifiSsid = preferences.getString(DeviceConfig::PREFS_WIFI_SSID_KEY, "");
     configuredWifiPassword = preferences.getString(DeviceConfig::PREFS_WIFI_PASSWORD_KEY, "");
     preferences.end();
+
+    configuredWifiSsid.trim();
+    configuredWifiPassword.trim();
 }
 
 void saveWifiCredentials(const String& ssid, const String& password) {
@@ -699,10 +956,16 @@ void saveWifiCredentials(const String& ssid, const String& password) {
 
 void clearWifiCredentials() {
     preferences.begin(DeviceConfig::PREFS_NAMESPACE, false);
-    preferences.clear();
+    preferences.remove(DeviceConfig::PREFS_WIFI_SSID_KEY);
+    preferences.remove(DeviceConfig::PREFS_WIFI_PASSWORD_KEY);
+    preferences.remove(DeviceConfig::PREFS_PAIRING_CODE_KEY);
+    preferences.remove(DeviceConfig::PREFS_HUB_ID_KEY);
     preferences.end();
     configuredWifiSsid = "";
     configuredWifiPassword = "";
+    configuredPairingCode = "";
+    pairedHubId = "";
+    pairingStatusMessage = "Huben ble nullstilt. Klar for nytt oppsett.";
 }
 
 void scanVisibleNetworks() {
@@ -775,6 +1038,10 @@ String captivePortalHtml(const String& message = "", bool error = false) {
         infoBanner += "'>" + htmlEscape(message) + "</div>";
     }
 
+    const String pairingValue = htmlEscape(configuredPairingCode);
+    const String pairedHubValue = htmlEscape(pairedHubId);
+    const String pairingStatus = htmlEscape(pairingStatusMessage);
+
     String html = R"rawliteral(
 <!DOCTYPE html>
 <html lang="no">
@@ -784,16 +1051,16 @@ String captivePortalHtml(const String& message = "", bool error = false) {
   <title>Growly Garden Setup</title>
   <style>
     :root {
-      --bg: #060806;
-      --bg-soft: #0b120d;
-      --panel: rgba(11, 17, 13, 0.88);
-      --panel-strong: rgba(14, 22, 17, 0.96);
-      --text: #f2f4ef;
-      --muted: #a1aba2;
-      --line: rgba(169, 198, 173, 0.12);
-      --accent: #86c996;
-      --accent-soft: rgba(134, 201, 150, 0.12);
-      --danger: #f08d74;
+      --bg: #f6f9f4;
+      --bg-soft: #eef6e9;
+      --panel: rgba(255, 255, 255, 0.78);
+      --panel-strong: rgba(255, 255, 255, 0.94);
+      --text: #183326;
+      --muted: #647469;
+      --line: rgba(72, 111, 82, 0.14);
+      --accent: #2f9d64;
+      --accent-soft: rgba(47, 157, 100, 0.12);
+      --danger: #bd5548;
     }
     * { box-sizing: border-box; }
     body {
@@ -815,8 +1082,35 @@ String captivePortalHtml(const String& message = "", bool error = false) {
       border: 1px solid var(--line);
       border-radius: 28px;
       background: linear-gradient(180deg, var(--panel-strong) 0%, var(--panel) 100%);
-      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
-      backdrop-filter: blur(14px);
+      box-shadow: 0 18px 48px rgba(35, 76, 48, 0.12);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .brand-mark {
+      width: 56px;
+      height: 56px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(47, 157, 100, 0.18) 0%, rgba(47, 157, 100, 0.06) 100%);
+      border: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+    }
+    .brand-copy strong {
+      display: block;
+      font-size: 1rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .brand-copy span {
+      display: block;
+      color: var(--muted);
+      margin-top: 4px;
+      font-size: 0.92rem;
     }
     h1 { margin: 0 0 10px; font-size: clamp(2rem, 4vw, 3rem); line-height: 0.98; }
     p { color: var(--muted); line-height: 1.6; }
@@ -853,7 +1147,7 @@ String captivePortalHtml(const String& message = "", bool error = false) {
       padding: 14px;
       border-radius: 18px;
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.03);
+      background: rgba(255, 255, 255, 0.62);
     }
     .network-option small {
       display: block;
@@ -872,9 +1166,39 @@ String captivePortalHtml(const String& message = "", bool error = false) {
       padding: 13px 14px;
       border-radius: 16px;
       border: 1px solid var(--line);
-      background: rgba(7, 12, 9, 0.84);
+      background: rgba(255, 255, 255, 0.92);
       color: var(--text);
       font: inherit;
+    }
+    .pairing-input {
+      font-size: 1.4rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      text-align: center;
+    }
+    .pairing-status {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .detail-list {
+      display: grid;
+      gap: 10px;
+      margin: 18px 0 0;
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.62);
+      color: var(--muted);
+    }
+    .detail-row strong {
+      color: var(--text);
+      text-align: right;
     }
     .actions {
       display: flex;
@@ -897,20 +1221,32 @@ String captivePortalHtml(const String& message = "", bool error = false) {
     }
     button {
       background: var(--accent);
-      color: #0a2514;
+      color: #f6f9f4;
     }
     .link-button {
       color: var(--text);
       border-color: var(--line);
-      background: rgba(255, 255, 255, 0.03);
+      background: rgba(255, 255, 255, 0.72);
     }
   </style>
 </head>
 <body>
   <main class="shell">
-    <p class="section-label">Growly Garden</p>
-    <h1>Koble Growly til Wi-Fi</h1>
-    <p>Velg nettverket du vil bruke. Like mesh-navn vises bare én gang, så listen blir ryddigere.</p>
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+          <path d="M6 15C6 10 9.5 6.5 15 6C15.5 11.5 12 15 7 15H6Z" stroke="#2F9D64" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 18C12 14.5 14.5 12 18 12C18 15.5 15.5 18 12 18Z" stroke="#2F9D64" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="brand-copy">
+        <strong>Growly Garden</strong>
+        <span>Sett opp huben din og koble den til kontoen din.</span>
+      </div>
+    </div>
+    <p class="section-label">Oppsett</p>
+    <h1>Koble Growly Hub til Wi-Fi</h1>
+    <p>Velg nettverket du vil bruke, og skriv inn pairing-koden fra Growly Garden-appen. Like mesh-navn vises bare én gang, så listen blir ryddigere.</p>
 )rawliteral";
 
     html += infoBanner;
@@ -918,31 +1254,41 @@ String captivePortalHtml(const String& message = "", bool error = false) {
     html += networkListHtml();
     html += "</div>";
     html += "<label class='field'><span>Passord</span><input type='password' name='password' placeholder='Skriv inn Wi-Fi-passord'></label>";
-    html += "<label class='field'><span>Hvis nettverket ikke vises</span><input type='text' name='manual_ssid' placeholder='Skriv SSID manuelt'></label>";
+    html += "<label class='field'><span>Pairing-kode</span><input class='pairing-input' type='text' name='pairing_code' inputmode='numeric' maxlength='6' placeholder='123456' value='" + pairingValue + "'></label>";
+    html += "<p class='pairing-status'>" + pairingStatus + "</p>";
+    html += "<div class='detail-list'>";
+    html += "<div class='detail-row'><span>Hub-ID</span><strong>" + (pairedHubValue.length() > 0 ? pairedHubValue : String("Tildeles automatisk")) + "</strong></div>";
+    html += "<div class='detail-row'><span>Enhetsnavn</span><strong>" + htmlEscape(DeviceConfig::DEVICE_NAME) + "</strong></div>";
+    html += "</div>";
     html += "<div class='actions'><button type='submit'>Koble til</button><a class='link-button' href='/refresh'>Oppdater liste</a></div></form>";
-    html += "<p>For å nullstille lagret Wi-Fi: hold BOOT-knappen inne i 10 sekunder i oppstartsfasen etter at boardet starter.</p>";
+    html += "<p>Tips: hold BOOT inne i ca. 2 sekunder under oppstart for setup-modus, eller i 10 sekunder for full nullstilling av Wi-Fi og pairing.</p>";
     html += "</main></body></html>";
     return html;
 }
 
-bool shouldFactoryResetWifi() {
+BootAction detectBootAction() {
     pinMode(DeviceConfig::WIFI_RESET_BUTTON_PIN, INPUT_PULLUP);
     if (digitalRead(DeviceConfig::WIFI_RESET_BUTTON_PIN) != LOW) {
-        return false;
+        return BootAction::None;
     }
 
-    Serial.println("Wi-Fi reset request detected. Hold button for 10 seconds to confirm.");
+    Serial.println("BOOT detected during startup. Hold for setup mode or keep holding for full reset.");
     const unsigned long startedAt = millis();
     while (millis() - startedAt < DeviceConfig::WIFI_RESET_HOLD_MS) {
         if (digitalRead(DeviceConfig::WIFI_RESET_BUTTON_PIN) != LOW) {
-            Serial.println("Wi-Fi reset cancelled.");
-            return false;
+            const unsigned long heldMs = millis() - startedAt;
+            if (heldMs >= DeviceConfig::WIFI_FORCE_SETUP_HOLD_MS) {
+                Serial.println("Force setup mode confirmed.");
+                return BootAction::ForceSetup;
+            }
+            Serial.println("BOOT released too early. Continuing normal startup.");
+            return BootAction::None;
         }
         delay(50);
     }
 
     Serial.println("Wi-Fi reset confirmed.");
-    return true;
+    return BootAction::FactoryReset;
 }
 
 void triggerWifiFactoryReset() {
@@ -1055,7 +1401,7 @@ void handleRoot() {
         return;
     }
 
-    server.send(200, "text/plain", "Growly ESP32-S3 is running");
+    server.send(200, "text/plain", "Growly ESP32-S3 is running\nHub: " + pairedHubId + "\nStatus: " + pairingStatusMessage);
 }
 
 void handleHealth() {
@@ -1063,7 +1409,9 @@ void handleHealth() {
         String("{\"status\":\"ok\",\"device\":\"") + DeviceConfig::DEVICE_NAME +
         "\",\"mode\":\"" + wifiModeLabel() +
         "\",\"ip\":\"" + activeIpAddress() +
-        "\",\"wifi_ssid\":\"" + configuredWifiSsid + "\"}";
+        "\",\"wifi_ssid\":\"" + configuredWifiSsid +
+        "\",\"hub_id\":\"" + pairedHubId +
+        "\",\"pairing_status\":\"" + pairingStatusMessage + "\"}";
     server.send(200, "application/json", json);
 }
 
@@ -1100,26 +1448,34 @@ void handleWifiScan() {
 
 void handleWifiConfigure() {
     String selectedSsid = server.arg("ssid");
-    const String manualSsid = server.arg("manual_ssid");
     const String password = server.arg("password");
-
-    if (manualSsid.length() > 0) {
-        selectedSsid = manualSsid;
-    }
+    String pairingCode = server.arg("pairing_code");
+    pairingCode.replace(" ", "");
+    pairingCode.trim();
 
     if (selectedSsid.length() == 0) {
-        server.send(200, "text/html", captivePortalHtml("Velg et nettverk eller skriv SSID manuelt.", true));
+        server.send(200, "text/html", captivePortalHtml("Velg et nettverk fra listen for aa fortsette.", true));
+        return;
+    }
+    if (pairingCode.length() != 6) {
+        server.send(200, "text/html", captivePortalHtml("Skriv inn den 6-sifrede pairing-koden fra Growly Garden-appen.", true));
         return;
     }
 
     saveWifiCredentials(selectedSsid, password);
-    server.send(200, "text/html", captivePortalHtml("Prøver å koble til " + selectedSsid + ". Growly bytter til dette nettverket hvis det lykkes."));
+    savePairingCode(pairingCode);
+    pairingStatusMessage = "Prøver aa koble til Wi-Fi og fullfore pairing.";
+    server.send(200, "text/html", captivePortalHtml("Prøver aa koble til " + selectedSsid + ". Growly fullforer pairing naar nettet er klart."));
     delay(600);
 
     if (connectToStoredWifi()) {
         stopCaptivePortal();
-        pollSensor(latestReading);
-        printSensorReading();
+        if (ensureHubPairing(true)) {
+            pollSensor(latestReading);
+            printSensorReading();
+            return;
+        }
+        pairingStatusMessage = "Wi-Fi er koblet til. Growly fortsetter pairing i bakgrunnen.";
         return;
     }
 
@@ -1186,6 +1542,9 @@ void uploadSensorReadingToBackend() {
     if (WiFi.status() != WL_CONNECTED || captivePortalActive || !latestReading.valid) {
         return;
     }
+    if (pairedHubId.length() == 0) {
+        return;
+    }
 
     if (millis() - lastBackendUploadAt < cloudSampleIntervalMs) {
         return;
@@ -1212,6 +1571,9 @@ void uploadSensorReadingToBackend() {
 
 void sendToSupabase() {
     if (WiFi.status() != WL_CONNECTED || captivePortalActive) {
+        return;
+    }
+    if (pairedHubId.length() == 0) {
         return;
     }
 
@@ -1272,14 +1634,21 @@ void setup() {
     Serial.println();
     Serial.println("Booting Growly ESP32-S3");
 
-    if (shouldFactoryResetWifi()) {
+    const BootAction bootAction = detectBootAction();
+    if (bootAction == BootAction::FactoryReset) {
         clearWifiCredentials();
     } else {
         loadWifiCredentials();
+        loadPairingState();
     }
     loadSampleIntervals();
 
-    if (!connectToStoredWifi()) {
+    if (bootAction == BootAction::ForceSetup) {
+        pairingStatusMessage = "Setup-modus aktivert fra BOOT-knappen.";
+        startCaptivePortal();
+    } else if (!connectToStoredWifi()) {
+        startCaptivePortal();
+    } else if (!ensureHubPairing(true) && configuredPairingCode.length() == 0) {
         startCaptivePortal();
     }
 
@@ -1319,6 +1688,10 @@ void loop() {
         lastSoilPollAt = millis();
         pollSensor(latestReading);
         printSensorReading();
+    }
+
+    if (WiFi.status() == WL_CONNECTED && pairedHubId.length() == 0 && configuredPairingCode.length() > 0) {
+        ensureHubPairing(false);
     }
 
     // Call Supabase upload from loop so the existing sensor-reading flow stays intact.

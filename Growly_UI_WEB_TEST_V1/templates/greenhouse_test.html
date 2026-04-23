@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Growly Drivhus Test</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260327-light-5">
+</head>
+<body>
+    <main class="dashboard-shell">
+        <header class="page-topbar">
+            <a class="landing-brand" href="/" aria-label="Growly Garden">
+                <img class="logo-mark small" src="{{ url_for('static', path='logo.png') }}" alt="Growly logo">
+                <span>Growly Garden</span>
+            </a>
+            <nav class="page-nav">
+                <a href="/">Hjem</a>
+                <a href="/monitor">Monitor</a>
+                <a href="/drivhus-test" class="active">Drivhus test</a>
+                <a href="/settings">{% if not current_user_is_admin %}<span class="nav-lock" aria-hidden="true">🔒</span>{% endif %}Innstillinger</a>
+                <form method="post" action="/logout" class="page-nav-form">
+                    <button type="submit" class="page-nav-button">Logg ut</button>
+                </form>
+            </nav>
+        </header>
+
+        <section class="hero page-hero">
+            <div class="hero-copy">
+                <p class="eyebrow">Drivhus test</p>
+                <h1>Optimal såing test</h1>
+                <p class="lead">Velg plante og se om dagens sensorverdier er innenfor gode forhold for såing.</p>
+            </div>
+        </section>
+
+        <section class="panel greenhouse-panel">
+            <div class="greenhouse-topbar">
+                <div class="field greenhouse-select">
+                    <span>Velg plante</span>
+                    <select id="plant-select" class="greenhouse-select-input">
+                        <optgroup label="Varmeelskende">
+                            <option value="tomato">Tomat</option>
+                            <option value="cucumber">Agurk</option>
+                            <option value="pepper">Paprika</option>
+                            <option value="basil">Basilikum</option>
+                        </optgroup>
+                        <optgroup label="Kjølig start">
+                            <option value="lettuce">Salat</option>
+                            <option value="spinach">Spinat</option>
+                            <option value="radish">Reddik</option>
+                            <option value="kale">Grønnkål</option>
+                        </optgroup>
+                        <optgroup label="Rot og bær">
+                            <option value="carrot">Gulrot</option>
+                            <option value="strawberry">Jordbær</option>
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="greenhouse-summary">
+                    <span id="overall-status" class="status-pill greenhouse-pill" data-mode="warning">Venter på data</span>
+                    <span id="profile-note" class="helper-text">Starterprofil for test. Justeres etter behov.</span>
+                </div>
+            </div>
+
+            <div class="greenhouse-grid" id="traffic-grid">
+                <article class="traffic-card">
+                    <span class="traffic-dot traffic-dot-neutral"></span>
+                    <div>
+                        <p>Venter på data</p>
+                        <strong>Ingen avlesning enda</strong>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="panel greenhouse-trend-panel">
+            <div class="trend-header">
+                <div>
+                    <p class="eyebrow trend-kicker">Sonesjekk</p>
+                    <h2 id="greenhouse-trend-title">Jordtemperatur</h2>
+                </div>
+                <div class="trend-meta">
+                    <span id="greenhouse-trend-summary">Velg plante for å se anbefalte soner</span>
+                    <span id="greenhouse-trend-range" class="status-pill">Starterprofil</span>
+                </div>
+            </div>
+
+            <div class="segmented-control greenhouse-metric-tabs">
+                <button type="button" class="span-button greenhouse-metric-button" data-metric="air_temperature">Lufttemp</button>
+                <button type="button" class="span-button greenhouse-metric-button" data-metric="air_pressure">Lufttrykk</button>
+                <button type="button" class="span-button active greenhouse-metric-button" data-metric="soil_temperature">Jordtemp</button>
+                <button type="button" class="span-button greenhouse-metric-button" data-metric="soil_humidity">Jordfukt</button>
+                <button type="button" class="span-button greenhouse-metric-button" data-metric="ph">pH</button>
+                <button type="button" class="span-button greenhouse-metric-button" data-metric="lux">Lys</button>
+            </div>
+
+            <div class="trend-toolbar greenhouse-trend-toolbar">
+                <div class="segmented-control" id="greenhouse-span-control">
+                    <button type="button" class="span-button greenhouse-span-button active" data-span="minutes">Minutter</button>
+                    <button type="button" class="span-button greenhouse-span-button" data-span="hours">Timer</button>
+                    <button type="button" class="span-button greenhouse-span-button" data-span="days">Dager</button>
+                </div>
+                <div class="zoom-controls">
+                    <button type="button" class="zoom-button" id="greenhouse-prev">Forrige</button>
+                    <button type="button" class="zoom-button" id="greenhouse-next">Neste</button>
+                    <button type="button" class="zoom-button" id="greenhouse-range-clear">Siste vindu</button>
+                </div>
+            </div>
+            <div class="trend-swipe-hint greenhouse-swipe-hint">Sveip i grafen eller bruk knappene for å bla i perioden.</div>
+
+            <div class="chart-shell greenhouse-chart-shell">
+                <svg id="greenhouse-chart" class="trend-chart" viewBox="0 0 800 260" preserveAspectRatio="none" aria-label="Plant condition chart">
+                    <g id="greenhouse-bands"></g>
+                    <g id="greenhouse-grid" class="trend-grid"></g>
+                    <path id="greenhouse-area" class="trend-area" d=""></path>
+                    <path id="greenhouse-line" class="trend-line" d=""></path>
+                    <g id="greenhouse-y-axis" class="trend-axis"></g>
+                    <g id="greenhouse-x-axis" class="trend-axis"></g>
+                    <rect id="greenhouse-hitbox" class="trend-hitbox" x="0" y="0" width="800" height="260"></rect>
+                </svg>
+                <div id="greenhouse-empty" class="chart-empty">Historikk vises her når backend har lagret noen målinger.</div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const defaultSensorUrl = "{{ default_sensor_url }}";
+        const storageKey = "growly.sensorUrl";
+
+        const plantProfiles = {
+            tomato: {
+                name: "Tomat",
+                note: "Tomat liker varm jord, jevn fukt og god lysmengde ved spiring. Lufttrykk brukes her som ekstra værindikator i testen.",
+                metrics: {
+                    air_temperature: { label: "Lufttemperatur", sensorKey: "air_temperature", unit: "C", optimal: [20, 26], caution: [16, 30] },
+                    air_pressure: { label: "Lufttrykk", sensorKey: "air_pressure", unit: "hPa", optimal: [995, 1018], caution: [985, 1028] },
+                    soil_temperature: { label: "Jordtemperatur", sensorKey: "temperature", unit: "C", optimal: [20, 26], caution: [16, 30] },
+                    soil_humidity: { label: "Jordfukt", sensorKey: "humidity", unit: "%", optimal: [55, 75], caution: [45, 85] },
+                    ph: { label: "pH", sensorKey: "ph", unit: "", optimal: [6.0, 6.8], caution: [5.5, 7.2] },
+                    lux: { label: "Lys", sensorKey: "lux", unit: "lx", optimal: [5000, 25000], caution: [2000, 40000] }
+                }
+            },
+            cucumber: {
+                name: "Agurk",
+                note: "Agurk vil ha varm jord og mye lys i startfasen. Lufttrykk brukes her som ekstra værindikator i testen.",
+                metrics: {
+                    air_temperature: { label: "Lufttemperatur", sensorKey: "air_temperature", unit: "C", optimal: [22, 28], caution: [18, 31] },
+                    air_pressure: { label: "Lufttrykk", sensorKey: "air_pressure", unit: "hPa", optimal: [995, 1018], caution: [985, 1028] },
+                    soil_temperature: { label: "Jordtemperatur", sensorKey: "temperature", unit: "C", optimal: [22, 28], caution: [18, 31] },
+                    soil_humidity: { label: "Jordfukt", sensorKey: "humidity", unit: "%", optimal: [60, 80], caution: [50, 90] },
+                    ph: { label: "pH", sensorKey: "ph", unit: "", optimal: [6.0, 7.0], caution: [5.5, 7.5] },
+                    lux: { label: "Lys", sensorKey: "lux", unit: "lx", optimal: [6000, 30000], caution: [2500, 45000] }
+                }
+            },
+            lettuce: {
+                name: "Salat",
+                note: "Salat trives med svalere temperatur og jevn fukt gjennom spireperioden.",
+                metrics: {
+                    air_temperature: { label: "Lufttemperatur", sensorKey: "air_temperature", unit: "C", optimal: [10, 18], caution: [6, 24] },
+                    air_pressure: { label: "Lufttrykk", sensorKey: "air_pressure", unit: "hPa", optimal: [995, 1018], caution: [985, 1028] },
+                    soil_temperature: { label: "Jordtemperatur", sensorKey: "temperature", unit: "C", optimal: [10, 18], caution: [6, 22] },
+                    soil_humidity: { label: "Jordfukt", sensorKey: "humidity", unit: "%", optimal: [55, 75], caution: [45, 85] },
+                    ph: { label: "pH", sensorKey: "ph", unit: "", optimal: [6.0, 7.0], caution: [5.5, 7.5] },
+                    lux: { label: "Lys", sensorKey: "lux", unit: "lx", optimal: [3000, 18000], caution: [1500, 30000] }
+                }
+            },
+            basil: {
+                name: "Basilikum",
+                note: "Basilikum vil ha jevnt varmt miljø og god lysmengde. Lufttrykk brukes her som ekstra værindikator i testen.",
+                metrics: {
+                    air_temperature: { label: "Lufttemperatur", sensorKey: "air_temperature", unit: "C", optimal: [20, 26], caution: [18, 30] },
+                    air_pressure: { label: "Lufttrykk", sensorKey: "air_pressure", unit: "hPa", optimal: [995, 1018], caution: [985, 1028] },
+                    soil_temperature: { label: "Jordtemperatur", sensorKey: "temperature", unit: "C", optimal: [20, 26], caution: [18, 30] },
+                    soil_humidity: { label: "Jordfukt", sensorKey: "humidity", unit: "%", optimal: [50, 70], caution: [40, 80] },
+                    ph: { label: "pH", sensorKey: "ph", unit: "", optimal: [6.0, 7.0], caution: [5.5, 7.5] },
+                    lux: { label: "Lys", sensorKey: "lux", unit: "lx", optimal: [5000, 22000], caution: [2500, 35000] }
+                }
+            },
+            pepper: {
+                name: "Paprika",
+                note: "Paprika vil ha varme og stabile forhold fra start. Den er litt mer følsom for kald jord enn tomat.",
+                metrics: {
+                    air_temperature: { label: "Lufttemperatur", sensorKey: "air_temperature", unit: "C", optimal: [21, 28], caution: [18, 31] },
+                    air_pressure: { label: "Lufttrykk", sensorKey: "air_pressure", unit: "hPa", optimal: [995, 1018], caution: [985, 1028] },
+                    soil_temperature: { label: "Jordtemperatur", sensorKey: "temperature", unit: "C", optimal: [22, 29], caution: [18, 32] },
+                    soil_humidity: { label: "Jordfukt", sensorKey: "humidity", unit: "%", optimal: [55, 72], caution: [45, 82] },
+                    ph: { label: "pH", sensorKey: "ph", unit: "", optimal: [6.0, 6.8], caution: [5.5, 7.2] },
+                    lux: { label: "Lys", sensorKey: "lux", unit: "lx", optimal: [6000, 26000], caution: [3000, 42000] }
+                }
+            },
+            spinach: {
+                name: "Spinat",
+                note: "Spinat foretrekker kjøligere såforhold og jevn fukt. For varm jord kan gi treg eller ujevn spiring.",
+                metrics: {
+                    air_temperature: { label: "Lufttemperatur", sensorKey: "air_temperature", unit: "C", optimal: [8, 16], caution: [4, 22] },
+                    air_pressure: { label: "Lufttrykk", sensorKey: "air_pressure", unit: "hPa", optimal: [995, 1018], caution: [985, 1028] },
+                    soil_temperature: { label: "Jordtemperatur", sensorKey: "temperature", unit: "C", optimal: [8, 16], caution: [4, 20] },
+                    soil_humidity: { label: "Jordfukt", sensorKey: "humidity", unit: "%", optimal: [58, 78], caution: [48, 86] },
+                    ph: { label: "pH", sensorKey: "ph", unit: "", optimal: [6.5, 7.2], caution: [6.0, 7.5] },
+                    lux: { label: "Lys", sensorKey: "lux", unit: "lx", optimal: [2500, 15000], caution: [1200, 26000] }
+                }
+            },
+            carrot: {
+                name: "Gulrot",
+                note: "Gulrot liker moderat jordtemperatur og jevn, men ikke tung, fukt i overflaten under spiring.",
+                metrics: {
+                    air_temperature: { label: "Lufttemperatur", sensorKey: "air_temperature", unit: "C", optimal: [12, 20], caution: [8, 26] },
+                    air_pressure: { label: "Lufttrykk", sensorKey: "air_pressure", unit: "hPa", optimal: [995, 1018], caution: [985, 1028] },
+                    soil_temperature: { label: "Jordtemperatur", sensorKey: "temperature", unit: "C", optimal: [12, 20], caution: [8, 24] },
+                    soil_humidity: { label: "Jordfukt", sensorKey: "humidity", unit: "%", optimal: [50, 68], caution: [42, 78] },
+                    ph: { label: "pH", sensorKey: "ph", unit: "", optimal: [6.0, 6.8], caution: [5.5, 7.2] },
+                    lux: { label: "Lys", sensorKey: "lux", unit: "lx", optimal: [3500, 18000], caution: [1500, 30000] }
+                }
+            },
+            strawberry: {
+                name: "Jordbær",
+                note: "Jordbærfrø liker jevn fukt og godt lys, men ikke ekstrem varme i spiringsfasen.",
+                metrics: {
+                    air_temperature: { label: "Lufttemperatur", sensorKey: "air_temperature", unit: "C", optimal: [16, 22], caution: [12, 28] },
+                    air_pressure: { label: "Lufttrykk", sensorKey: "air_pressure", unit: "hPa", optimal: [995, 1018], caution: [985, 1028] },
+                    soil_temperature: { label: "Jordtemperatur", sensorKey: "temperature", unit: "C", optimal: [16, 22], caution: [12, 26] },
+                    soil_humidity: { label: "Jordfukt", sensorKey: "humidity", unit: "%", optimal: [58, 74], caution: [48, 84] },
+                    ph: { label: "pH", sensorKey: "ph", unit: "", optimal: [5.5, 6.5], caution: [5.2, 6.9] },
+                    lux: { label: "Lys", sensorKey: "lux", unit: "lx", optimal: [4000, 20000], caution: [1800, 32000] }
+                }
+            },
+            radish: {
+                name: "Reddik",
+                note: "Reddik spirer raskt i sval til moderat jord og liker ikke at det blir for varmt eller for vått.",
+                metrics: {
+                    air_temperature: { label: "Lufttemperatur", sensorKey: "air_temperature", unit: "C", optimal: [10, 18], caution: [6, 24] },
+                    air_pressure: { label: "Lufttrykk", sensorKey: "air_pressure", unit: "hPa", optimal: [995, 1018], caution: [985, 1028] },
+                    soil_temperature: { label: "Jordtemperatur", sensorKey: "temperature", unit: "C", optimal: [10, 18], caution: [6, 22] },
+                    soil_humidity: { label: "Jordfukt", sensorKey: "humidity", unit: "%", optimal: [50, 68], caution: [42, 78] },
+                    ph: { label: "pH", sensorKey: "ph", unit: "", optimal: [6.0, 7.0], caution: [5.5, 7.4] },
+                    lux: { label: "Lys", sensorKey: "lux", unit: "lx", optimal: [3000, 17000], caution: [1200, 28000] }
+                }
+            },
+            kale: {
+                name: "Grønnkål",
+                note: "Grønnkål tåler kjøligere forhold enn varmeelskende planter og er fin for å vise lavere temperaturprofiler i testen.",
+                metrics: {
+                    air_temperature: { label: "Lufttemperatur", sensorKey: "air_temperature", unit: "C", optimal: [9, 17], caution: [5, 23] },
+                    air_pressure: { label: "Lufttrykk", sensorKey: "air_pressure", unit: "hPa", optimal: [995, 1018], caution: [985, 1028] },
+                    soil_temperature: { label: "Jordtemperatur", sensorKey: "temperature", unit: "C", optimal: [9, 17], caution: [5, 21] },
+                    soil_humidity: { label: "Jordfukt", sensorKey: "humidity", unit: "%", optimal: [56, 76], caution: [46, 86] },
+                    ph: { label: "pH", sensorKey: "ph", unit: "", optimal: [6.0, 7.2], caution: [5.5, 7.6] },
+                    lux: { label: "Lys", sensorKey: "lux", unit: "lx", optimal: [3500, 19000], caution: [1500, 30000] }
+                }
+            }
+        };
+
+        const trafficGrid = document.getElementById("traffic-grid");
+        const plantSelect = document.getElementById("plant-select");
+        const overallStatus = document.getElementById("overall-status");
+        const profileNote = document.getElementById("profile-note");
+        const chartTitle = document.getElementById("greenhouse-trend-title");
+        const chartSummary = document.getElementById("greenhouse-trend-summary");
+        const chartRange = document.getElementById("greenhouse-trend-range");
+        const chartBands = document.getElementById("greenhouse-bands");
+        const chartGrid = document.getElementById("greenhouse-grid");
+        const chartArea = document.getElementById("greenhouse-area");
+        const chartLine = document.getElementById("greenhouse-line");
+        const chartXAxis = document.getElementById("greenhouse-x-axis");
+        const chartYAxis = document.getElementById("greenhouse-y-axis");
+        const chartEmpty = document.getElementById("greenhouse-empty");
+        const greenhouseHitbox = document.getElementById("greenhouse-hitbox");
+        const metricButtons = Array.from(document.querySelectorAll(".greenhouse-metric-button"));
+        const greenhouseSpanButtons = Array.from(document.querySelectorAll(".greenhouse-span-button"));
+        const greenhousePrevButton = document.getElementById("greenhouse-prev");
+        const greenhouseNextButton = document.getElementById("greenhouse-next");
+        const greenhouseRangeClearButton = document.getElementById("greenhouse-range-clear");
+
+        let currentPlant = plantSelect.value;
+        let currentMetric = "soil_temperature";
+        let currentSpan = "hours";
+        let refreshIntervalMs = 60000;
+        const osloTimeZone = "Europe/Oslo";
+        let refreshTimer = null;
+        let customRangeStart = "";
+        let customRangeEnd = "";
+
+        const spanWindowMs = {
+            minutes: 6 * 60 * 60 * 1000,
+            hours: 3 * 24 * 60 * 60 * 1000,
+            days: 30 * 24 * 60 * 60 * 1000
+        };
+
+        function currentTarget() {
+            return window.localStorage.getItem(storageKey) || defaultSensorUrl;
+        }
+
+        function currentProfile() {
+            return plantProfiles[currentPlant];
+        }
+
+        function currentMetricProfile() {
+            return currentProfile().metrics[currentMetric];
+        }
+
+        function currentRangeWindow() {
+            if (customRangeStart && customRangeEnd) {
+                return {
+                    start: new Date(customRangeStart),
+                    end: new Date(customRangeEnd)
+                };
+            }
+            const end = new Date();
+            const start = new Date(end.getTime() - (spanWindowMs[currentSpan] || spanWindowMs.hours));
+            return { start, end };
+        }
+
+        function applyRangeWindow(start, end) {
+            customRangeStart = start.toISOString();
+            customRangeEnd = end.toISOString();
+        }
+
+        function clearRangeWindow() {
+            customRangeStart = "";
+            customRangeEnd = "";
+        }
+
+        function updateGreenhouseSpan(span) {
+            currentSpan = span;
+            greenhouseSpanButtons.forEach((button) => {
+                button.classList.toggle("active", button.dataset.span === span);
+            });
+        }
+
+        function metricValueFromSensor(sensor, metricProfile) {
+            const value = sensor?.[metricProfile.sensorKey];
+            return value === null || value === undefined ? null : Number(value);
+        }
+
+        function statusForValue(value, metricProfile) {
+            if (value === null || Number.isNaN(value)) {
+                return "neutral";
+            }
+            if (value < metricProfile.caution[0] || value > metricProfile.caution[1]) {
+                return "danger";
+            }
+            if (value < metricProfile.optimal[0] || value > metricProfile.optimal[1]) {
+                return "warning";
+            }
+            return "online";
+        }
+
+        function statusText(status) {
+            if (status === "online") return "Bra";
+            if (status === "warning") return "Pass på";
+            if (status === "danger") return "Tiltak nå";
+            return "Ingen data";
+        }
+
+        function directionForValue(value, metricProfile) {
+            if (value === null || Number.isNaN(value)) {
+                return "missing";
+            }
+            if (value < metricProfile.optimal[0]) {
+                return "low";
+            }
+            if (value > metricProfile.optimal[1]) {
+                return "high";
+            }
+            return "ok";
+        }
+
+        function adviceForMetric(metricProfile, value) {
+            const status = statusForValue(value, metricProfile);
+            const direction = directionForValue(value, metricProfile);
+            const label = metricProfile.label;
+
+            if (status === "neutral") {
+                return `Ingen avlesning fra ${label.toLowerCase()} nå. Sjekk sensor og tilkobling før du stoler på vurderingen.`;
+            }
+
+            if (status === "online") {
+                return `${label} er innenfor god sone. Hold samme oppsett og følg bare med at trenden holder seg stabil.`;
+            }
+
+            const adviceMap = {
+                air_temperature: {
+                    low: {
+                        warning: "Lufttemperaturen er på vei ned. Lukk litt mer på lufting eller flytt såbrettet varmere før spiringen stopper opp.",
+                        danger: "Lufttemperaturen er for lav. Gi varme nå med varmematte eller varmere plassering, ellers kan spiringen bli treg eller stoppe helt."
+                    },
+                    high: {
+                        warning: "Lufttemperaturen er på vei opp. Luft ut litt mer eller flytt brettet bort fra direkte varme.",
+                        danger: "Lufttemperaturen er for høy. Luft ut og senk varmen med en gang, ellers kan frø og små spirer stresses raskt."
+                    }
+                },
+                air_pressure: {
+                    low: {
+                        warning: "Lufttrykket er lavere enn normalen. Følg ekstra med på raske væromslag og se om temperatur og lys endrer seg i samme retning.",
+                        danger: "Lufttrykket har falt tydelig. Følg med på værskifte og beskytt testoppsettet hvis forholdene ute blir mer ustabile."
+                    },
+                    high: {
+                        warning: "Lufttrykket er høyt. Det er vanligvis ikke akutt, men følg med på om temperatur og lys driver bort fra ønsket nivå.",
+                        danger: "Lufttrykket er uvanlig høyt. Dette er sjelden kritisk alene, men bruk det som signal til å følge ekstra nøye med på resten av miljøet."
+                    }
+                },
+                temperature: {
+                    low: {
+                        warning: "Jordtemperaturen er i ferd med å bli lav. Flytt såbrettet varmere eller bruk undervarme for å holde spiringen i gang.",
+                        danger: "Jordtemperaturen er for lav. Gi undervarme eller flytt såingen straks, ellers kan spiring og rotutvikling stoppe opp."
+                    },
+                    high: {
+                        warning: "Jordtemperaturen er på vei opp. Demp varme og unngå at brettet står i for sterk sol midt på dagen.",
+                        danger: "Jordtemperaturen er for høy. Avkjøl såingen nå med skygge eller mindre undervarme, ellers kan frø og røtter ta skade."
+                    }
+                },
+                humidity: {
+                    low: {
+                        warning: "Jordfuktigheten er på vei ned. Vann lett og jevnt før toppen tørker helt ut.",
+                        danger: "Jordfuktigheten er for lav. Vann nå, ellers kan frøene tørke ut og spiringen bli svak eller stoppe."
+                    },
+                    high: {
+                        warning: "Jordfuktigheten er høy. Vent litt med neste vanning og følg med på om jorden tørker tilbake.",
+                        danger: "Jordfuktigheten er for høy. Stopp vanning og gi mer luft, ellers øker risikoen for råte og svak rotutvikling."
+                    }
+                },
+                ph: {
+                    low: {
+                        warning: "pH er litt lav. Følg med og vurder mild justering hvis trenden fortsetter nedover.",
+                        danger: "pH er for lav. Juster med et mildt basisk jordtiltak, ellers blir næringsopptaket vanskeligere for spirene."
+                    },
+                    high: {
+                        warning: "pH er litt høy. Følg med og vurder justering hvis dette vedvarer.",
+                        danger: "pH er for høy. Juster ned pH, ellers kan planten få problemer med tilgjengelige næringsstoffer."
+                    }
+                },
+                lux: {
+                    low: {
+                        warning: "Lysnivået er litt lavt. Gi lengre lysperiode eller flytt såingen lysere før spirene blir svake.",
+                        danger: "Lysnivået er for lavt. Øk lysmengden nå, ellers kan spirene bli lange, svake og ustabile."
+                    },
+                    high: {
+                        warning: "Lysnivået er høyt. Følg med på temperatur og uttørking hvis dette varer.",
+                        danger: "Lysnivået er for høyt. Skjerm litt eller øk avstanden til lyskilden, ellers kan såingen tørke for raskt ut."
+                    }
+                }
+            };
+
+            const metricAdvice = adviceMap[metricProfile.sensorKey];
+            if (!metricAdvice || direction === "ok" || direction === "missing") {
+                return `${label} trenger oppfølging. Se på trenden og juster oppsettet før forholdene blir mer ekstreme.`;
+            }
+
+            return metricAdvice[direction][status] || `${label} er ute av anbefalt sone. Gjør et tiltak nå og se om verdien går tilbake.`;
+        }
+
+        function formatValue(value, metricProfile) {
+            if (value === null || Number.isNaN(value)) {
+                return "-";
+            }
+            const decimals = metricProfile.sensorKey === "ph" ? 1 : metricProfile.sensorKey === "lux" ? 0 : 1;
+            return `${value.toFixed(decimals)}${metricProfile.unit ? ` ${metricProfile.unit}` : ""}`;
+        }
+
+        function renderTrafficCards(sensor) {
+            const profile = currentProfile();
+            profileNote.textContent = profile.note;
+
+            const cards = Object.entries(profile.metrics).map(([metricKey, metricProfile]) => {
+                const value = metricValueFromSensor(sensor, metricProfile);
+                const status = statusForValue(value, metricProfile);
+                return `
+                    <article class="traffic-card traffic-card-${status}">
+                        <span class="traffic-dot traffic-dot-${status}"></span>
+                        <div>
+                            <p>${metricProfile.label}</p>
+                            <strong>${formatValue(value, metricProfile)}</strong>
+                            <span class="metric-footnote">Optimalt ${metricProfile.optimal[0]}-${metricProfile.optimal[1]}${metricProfile.unit ? ` ${metricProfile.unit}` : ""}</span>
+                            <span class="greenhouse-advice">${adviceForMetric(metricProfile, value)}</span>
+                        </div>
+                    </article>
+                `;
+            });
+
+            trafficGrid.innerHTML = cards.join("");
+
+            const statuses = Object.values(profile.metrics).map((metricProfile) => statusForValue(metricValueFromSensor(sensor, metricProfile), metricProfile));
+            let overallMode = "online";
+            let overallText = "Alle forhold er gode";
+            if (statuses.includes("danger")) {
+                overallMode = "offline";
+                overallText = "Rødt lys: tiltak trengs nå";
+            } else if (statuses.includes("warning")) {
+                overallMode = "warning";
+                overallText = "Gult lys: følg med";
+            } else if (statuses.includes("neutral")) {
+                overallMode = "warning";
+                overallText = "Mangler noen målinger";
+            }
+
+            overallStatus.dataset.mode = overallMode;
+            overallStatus.textContent = overallText;
+        }
+
+        function chartBounds(width, height) {
+            return { left: 18, right: width - 70, top: 14, bottom: height - 34 };
+        }
+
+        function buildLine(points, bounds, minValue, maxValue) {
+            const spread = Math.max(1, maxValue - minValue);
+            return points.map((point, index) => {
+                const x = points.length === 1
+                    ? (bounds.left + bounds.right) / 2
+                    : bounds.left + (index / (points.length - 1)) * (bounds.right - bounds.left);
+                const y = bounds.bottom - ((Number(point.value) - minValue) / spread) * (bounds.bottom - bounds.top);
+                return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+            }).join(" ");
+        }
+
+        function renderBands(metricProfile, minValue, maxValue, bounds) {
+            const chartMin = Math.min(minValue, metricProfile.caution[0]);
+            const chartMax = Math.max(maxValue, metricProfile.caution[1]);
+            const spread = Math.max(1, chartMax - chartMin);
+            const valueToY = (value) => bounds.bottom - ((value - chartMin) / spread) * (bounds.bottom - bounds.top);
+            const clampY = (value) => Math.min(bounds.bottom, Math.max(bounds.top, valueToY(value)));
+
+            const redLowTop = bounds.bottom;
+            const redLowBottom = clampY(metricProfile.caution[0]);
+            const yellowLowTop = clampY(metricProfile.caution[0]);
+            const yellowLowBottom = clampY(metricProfile.optimal[0]);
+            const greenTop = clampY(metricProfile.optimal[0]);
+            const greenBottom = clampY(metricProfile.optimal[1]);
+            const yellowHighTop = clampY(metricProfile.optimal[1]);
+            const yellowHighBottom = clampY(metricProfile.caution[1]);
+            const redHighTop = clampY(metricProfile.caution[1]);
+            const redHighBottom = bounds.top;
+
+            chartBands.innerHTML = `
+                <rect x="${bounds.left}" y="${redHighBottom}" width="${bounds.right - bounds.left}" height="${Math.max(0, redHighTop - redHighBottom)}" fill="rgba(240,141,116,0.30)"></rect>
+                <rect x="${bounds.left}" y="${yellowHighBottom}" width="${bounds.right - bounds.left}" height="${Math.max(0, yellowHighTop - yellowHighBottom)}" fill="rgba(246,200,110,0.28)"></rect>
+                <rect x="${bounds.left}" y="${greenBottom}" width="${bounds.right - bounds.left}" height="${Math.max(0, greenTop - greenBottom)}" fill="rgba(134,201,150,0.28)"></rect>
+                <rect x="${bounds.left}" y="${yellowLowBottom}" width="${bounds.right - bounds.left}" height="${Math.max(0, yellowLowTop - yellowLowBottom)}" fill="rgba(246,200,110,0.28)"></rect>
+                <rect x="${bounds.left}" y="${redLowBottom}" width="${bounds.right - bounds.left}" height="${Math.max(0, redLowTop - redLowBottom)}" fill="rgba(240,141,116,0.30)"></rect>
+            `;
+        }
+
+        function renderAxes(points, minValue, maxValue, bounds) {
+            const chartMin = Math.min(minValue, currentMetricProfile().caution[0]);
+            const chartMax = Math.max(maxValue, currentMetricProfile().caution[1]);
+            const spread = Math.max(1, chartMax - chartMin);
+            const yTicks = 4;
+            const xTicks = Math.min(4, points.length);
+
+            const grid = [];
+            const yAxis = [];
+            const xAxis = [];
+
+            for (let index = 0; index <= yTicks; index += 1) {
+                const ratio = index / yTicks;
+                const y = bounds.bottom - ratio * (bounds.bottom - bounds.top);
+                const value = chartMin + ratio * spread;
+                grid.push(`<line x1="${bounds.left}" y1="${y.toFixed(2)}" x2="${bounds.right}" y2="${y.toFixed(2)}"></line>`);
+                yAxis.push(`<text x="792" y="${(y + 4).toFixed(2)}" text-anchor="end">${value.toFixed(currentMetric === "lux" ? 0 : 1)}</text>`);
+            }
+
+            for (let index = 0; index < xTicks; index += 1) {
+                const ratio = xTicks === 1 ? 0 : index / (xTicks - 1);
+                const pointIndex = Math.min(points.length - 1, Math.round(ratio * (points.length - 1)));
+                const x = bounds.left + ratio * (bounds.right - bounds.left);
+                const date = new Date(points[pointIndex].recorded_at);
+                xAxis.push(`<text x="${x.toFixed(2)}" y="252" text-anchor="${index === 0 ? "start" : index === xTicks - 1 ? "end" : "middle"}">${date.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit", timeZone: osloTimeZone })}</text>`);
+            }
+
+            chartGrid.innerHTML = grid.join("");
+            chartYAxis.innerHTML = yAxis.join("");
+            chartXAxis.innerHTML = xAxis.join("");
+        }
+
+        async function renderTrend() {
+            const metricProfile = currentMetricProfile();
+            chartTitle.textContent = metricProfile.label;
+            chartRange.textContent = `Optimalt ${metricProfile.optimal[0]}-${metricProfile.optimal[1]}${metricProfile.unit ? ` ${metricProfile.unit}` : ""}`;
+            const params = new URLSearchParams({
+                metric: metricProfile.sensorKey,
+                span: currentSpan,
+                limit: "240"
+            });
+            if (customRangeStart) {
+                params.set("date_from", customRangeStart);
+            }
+            if (customRangeEnd) {
+                params.set("date_to", customRangeEnd);
+            }
+            const response = await fetch(`/api/history?${params.toString()}`, { cache: "no-store" });
+            const payload = await response.json();
+            const points = payload.points || [];
+
+            if (!points.length) {
+                chartLine.setAttribute("d", "");
+                chartArea.setAttribute("d", "");
+                chartBands.innerHTML = "";
+                chartGrid.innerHTML = "";
+                chartXAxis.innerHTML = "";
+                chartYAxis.innerHTML = "";
+                chartSummary.textContent = "Ingen historikk enda";
+                chartEmpty.hidden = false;
+                return;
+            }
+
+            const values = points.map((point) => Number(point.value));
+            const minValue = Math.min(...values);
+            const maxValue = Math.max(...values);
+            const latestValue = values[values.length - 1];
+            const status = statusForValue(latestValue, metricProfile);
+            const bounds = chartBounds(800, 260);
+            const linePath = buildLine(points, bounds, Math.min(minValue, metricProfile.caution[0]), Math.max(maxValue, metricProfile.caution[1]));
+            const areaPath = `${linePath} L ${bounds.right} ${bounds.bottom} L ${bounds.left} ${bounds.bottom} Z`;
+
+            chartLine.setAttribute("d", linePath);
+            chartArea.setAttribute("d", areaPath);
+            renderBands(metricProfile, minValue, maxValue, bounds);
+            renderAxes(points, minValue, maxValue, bounds);
+            const rangeLabel = payload.date_from && payload.date_to
+                ? `${new Date(payload.date_from).toLocaleString("no-NO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: osloTimeZone })} → ${new Date(payload.date_to).toLocaleString("no-NO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: osloTimeZone })}`
+                : `siste ${currentSpan === "minutes" ? "minutter" : currentSpan === "days" ? "dager" : "timer"}`;
+            chartSummary.textContent = `${rangeLabel} · ${statusText(status).toLowerCase()} · nå ${formatValue(latestValue, metricProfile)}`;
+            chartEmpty.hidden = true;
+        }
+
+        async function refreshGreenhouse() {
+            const response = await fetch("/api/latest", { cache: "no-store" });
+            const payload = await response.json();
+            const sensor = payload.ok ? payload.sample : null;
+            renderTrafficCards(sensor);
+            await renderTrend();
+        }
+
+        async function loadRuntimeSettings() {
+            try {
+                const response = await fetch("/api/settings", { cache: "no-store" });
+                const payload = await response.json();
+                if (payload.ok && payload.settings?.sample_time_cloud_ms) {
+                    refreshIntervalMs = Number(payload.settings.sample_time_cloud_ms) || 60000;
+                }
+            } catch (error) {
+                refreshIntervalMs = 60000;
+            }
+        }
+
+        function startRefreshLoop() {
+            if (refreshTimer) {
+                window.clearInterval(refreshTimer);
+            }
+            refreshTimer = window.setInterval(refreshGreenhouse, refreshIntervalMs);
+        }
+
+        plantSelect.addEventListener("change", async () => {
+            currentPlant = plantSelect.value;
+            await refreshGreenhouse();
+        });
+
+        metricButtons.forEach((button) => {
+            button.addEventListener("click", async () => {
+                metricButtons.forEach((item) => item.classList.remove("active"));
+                button.classList.add("active");
+                currentMetric = button.dataset.metric;
+                await renderTrend();
+            });
+        });
+
+        greenhouseSpanButtons.forEach((button) => {
+            button.addEventListener("click", async () => {
+                updateGreenhouseSpan(button.dataset.span);
+                clearRangeWindow();
+                await renderTrend();
+            });
+        });
+
+        greenhouseRangeClearButton.addEventListener("click", async () => {
+            clearRangeWindow();
+            await renderTrend();
+        });
+
+        greenhousePrevButton.addEventListener("click", async () => {
+            const { start, end } = currentRangeWindow();
+            const duration = end.getTime() - start.getTime();
+            applyRangeWindow(new Date(start.getTime() - duration), new Date(end.getTime() - duration));
+            await renderTrend();
+        });
+
+        greenhouseNextButton.addEventListener("click", async () => {
+            const { start, end } = currentRangeWindow();
+            const duration = end.getTime() - start.getTime();
+            let nextStart = new Date(start.getTime() + duration);
+            let nextEnd = new Date(end.getTime() + duration);
+            const now = new Date();
+            if (nextEnd > now) {
+                nextEnd = now;
+                nextStart = new Date(now.getTime() - duration);
+            }
+            applyRangeWindow(nextStart, nextEnd);
+            await renderTrend();
+        });
+
+        let swipeStartX = null;
+        greenhouseHitbox.addEventListener("pointerdown", (event) => {
+            swipeStartX = event.clientX;
+        });
+        greenhouseHitbox.addEventListener("pointerup", async (event) => {
+            if (swipeStartX === null) {
+                return;
+            }
+            const deltaX = event.clientX - swipeStartX;
+            swipeStartX = null;
+            if (Math.abs(deltaX) < 40) {
+                return;
+            }
+            if (deltaX < 0) {
+                greenhousePrevButton.click();
+            } else {
+                greenhouseNextButton.click();
+            }
+        });
+        greenhouseHitbox.addEventListener("pointerleave", () => {
+            swipeStartX = null;
+        });
+
+        async function bootGreenhouse() {
+            await loadRuntimeSettings();
+            await refreshGreenhouse();
+            startRefreshLoop();
+        }
+
+        bootGreenhouse();
+    </script>
+</body>
+</html>

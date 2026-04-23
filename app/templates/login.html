@@ -1,41 +1,40 @@
-<!DOCTYPE html>
-<html lang="no">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ title }} · Growly</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260327-light-5">
-</head>
-<body>
-    <main class="login-shell">
-        <section class="login-card">
-            <img class="logo-mark login-logo" src="{{ url_for('static', path='logo.png') }}" alt="Growly logo">
-            <div class="login-copy">
-                <p class="eyebrow">Growly Garden</p>
-                <h1>{{ heading }}</h1>
-                <p class="lead">{{ helper_text }}</p>
-            </div>
+{% extends "base.html" %}
 
-            <form class="login-form" method="post" action="{{ action }}">
-                {% if show_username %}
-                <label class="field">
-                    <span>Brukernavn</span>
-                    <input name="username" type="text" autocomplete="username" required>
-                </label>
-                {% endif %}
+{% block title %}{{ title }} · Growly Garden{% endblock %}
+{% block body_class %}auth-body{% endblock %}
 
-                <label class="field">
-                    <span>Passord</span>
-                    <input name="password" type="password" autocomplete="current-password" required>
-                </label>
+{% block content %}
+<main class="auth-shell">
+    <section class="auth-panel">
+        <div class="auth-copy">
+            <p class="eyebrow">Growly Garden</p>
+            <h1>{{ heading }}</h1>
+            <p class="lead">{{ helper_text }}</p>
+        </div>
 
-                <button class="button" type="submit">{{ submit_label }}</button>
-            </form>
-
-            {% if error %}
-            <p class="login-error">{{ error }}</p>
+        <form class="auth-form" method="post" action="{{ action }}">
+            {% if show_username %}
+            <label class="field">
+                <span>Brukernavn</span>
+                <input name="username" type="text" autocomplete="username" required>
+            </label>
             {% endif %}
-        </section>
-    </main>
-</body>
-</html>
+
+            <label class="field">
+                <span>Passord</span>
+                <input name="password" type="password" autocomplete="current-password" required>
+            </label>
+
+            <button class="button" type="submit">{{ submit_label }}</button>
+        </form>
+
+        {% if error %}
+        <p class="form-error">{{ error }}</p>
+        {% endif %}
+
+        {% if show_username %}
+        <p class="auth-footer">Ny her? <a href="/register">Opprett konto</a>.</p>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Registrer konto · Growly Garden{% endblock %}
+{% block body_class %}auth-body{% endblock %}
+
+{% block content %}
+<main class="auth-shell">
+    <section class="auth-panel">
+        <div class="auth-copy">
+            <p class="eyebrow">Kom i gang</p>
+            <h1>Lag din Growly-konto</h1>
+            <p class="lead">Opprett konto, logg inn, hent pairing-koden din og koble huben til riktig bruker.</p>
+        </div>
+
+        <form class="auth-form" method="post" action="/register">
+            <label class="field">
+                <span>Navn</span>
+                <input name="full_name" type="text" autocomplete="name" value="{{ prefill_full_name }}" required>
+            </label>
+
+            <label class="field">
+                <span>Telefon</span>
+                <input name="phone" type="tel" autocomplete="tel" value="{{ prefill_phone }}" required>
+            </label>
+
+            <label class="field">
+                <span>E-post</span>
+                <input name="email" type="email" autocomplete="email" value="{{ prefill_email }}" required>
+            </label>
+
+            <label class="field">
+                <span>Brukernavn</span>
+                <input name="username" type="text" autocomplete="username" value="{{ prefill_username }}" required>
+            </label>
+
+            <label class="field">
+                <span>Passord</span>
+                <input name="password" type="password" autocomplete="new-password" minlength="6" required>
+            </label>
+
+            <label class="field">
+                <span>Gjenta passord</span>
+                <input name="password_confirm" type="password" autocomplete="new-password" minlength="6" required>
+            </label>
+
+            <button class="button" type="submit">Opprett konto</button>
+        </form>
+
+        {% if error %}
+        <p class="form-error">{{ error }}</p>
+        {% endif %}
+
+        <p class="auth-footer">Har du allerede konto? <a href="/login">Logg inn her</a>.</p>
+    </section>
+</main>
+{% endblock %}

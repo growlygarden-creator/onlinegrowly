@@ -1,296 +1,177 @@
-<!DOCTYPE html>
-<html lang="no">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Growly Garden</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260327-light-5">
-</head>
-<body class="landing-body">
-    <main class="landing-shell">
-        <header class="landing-topbar">
-            <a class="landing-brand" href="/" aria-label="Growly Garden">
-                <img class="logo-mark small" src="{{ url_for('static', path='logo.png') }}" alt="Growly Garden logo">
-                <span>Growly Garden</span>
-            </a>
-            <nav class="page-nav" aria-label="Hovednavigasjon">
-                <a href="/" class="active">Hjem</a>
-                <a href="/monitor">Monitor</a>
-                <a href="/drivhus-test">Drivhus test</a>
-                <a href="/settings">{% if not current_user_is_admin %}<span class="nav-lock" aria-hidden="true">🔒</span>{% endif %}Innstillinger</a>
-                <form method="post" action="/logout" class="page-nav-form">
-                    <button type="submit" class="page-nav-button">Logg ut</button>
-                </form>
-            </nav>
-        </header>
+{% extends "base.html" %}
 
-        <section class="landing-hero">
-            <div class="landing-hero-copy">
-                <p class="eyebrow">Oversikt for inviterte brukere</p>
-                <h1>Growly Garden</h1>
-                <p class="landing-pitch">En smart dyrkeassistent som gir deg kontroll på plantene dine med hjelp av sanntidsdata, historikk og innsikt.</p>
-                <p class="landing-lead">
-                    Growly Garden kombinerer sensorer, datainnsamling og analyse for å gjøre dyrking enklere, mer presist og mer forutsigbart.
-                    Målet er å gi brukeren full oversikt over hva som skjer i jord og omgivelser, uten gjetting.
-                </p>
-                <div class="landing-actions">
-                    <a href="/monitor" class="button landing-cta">Gå til monitor</a>
-                    <a href="#inviterte" class="landing-secondary-link">Se hva du får tilgang til</a>
+{% block title %}Growly Garden{% endblock %}
+
+{% block content %}
+<main class="page-shell">
+    {% if not user_is_authenticated %}
+    <section class="hero-grid">
+        <div class="hero-card hero-card-primary">
+            <p class="eyebrow">Growly Garden</p>
+            <h1>En ryddig vei fra sensor til innsikt.</h1>
+            <p class="lead">Registrer konto, hent pairing-kode og koble huben til brukeren som faktisk eier den.</p>
+            <div class="hero-actions">
+                <a href="/register" class="button">Opprett konto</a>
+                <a href="/login" class="button secondary-button">Logg inn</a>
+            </div>
+        </div>
+
+        <aside class="hero-card hero-card-secondary">
+            <h2>Slik kommer du i gang</h2>
+            <ol class="check-list">
+                <li>Lag bruker i Growly Garden</li>
+                <li>Logg inn og generer pairing-kode</li>
+                <li>Koble Growly Hub til Wi-Fi</li>
+                <li>Følg dataene dine i monitoren</li>
+            </ol>
+        </aside>
+    </section>
+
+    <section class="section-grid section-grid-three">
+        <article class="info-card">
+            <h3>Eget eierskap</h3>
+            <p>Hver hub knyttes til riktig bruker. Admin kan fortsatt ha oversikt, men vanlige brukere ser bare sine egne enheter.</p>
+        </article>
+        <article class="info-card">
+            <h3>Tilgjengelig overalt</h3>
+            <p>Backend og historikk er bygget for å fungere uten at du må være på samme lokale nettverk som huben.</p>
+        </article>
+        <article class="info-card">
+            <h3>Klart for skalering</h3>
+            <p>Hubber, brukere og pairing er nå egne deler av systemet, så vi kan bygge videre på en mye renere base.</p>
+        </article>
+    </section>
+    {% else %}
+    <section class="hero-grid">
+        <div class="hero-card hero-card-primary">
+            <p class="eyebrow">Oversikt</p>
+            <h1>Hei, {{ current_username }}.</h1>
+            <p class="lead">Herfra ser du status på kontoen din, pairing og huben som er knyttet til deg.</p>
+            <div class="hero-actions">
+                <a href="/monitor" class="button">Åpne monitor</a>
+                <a href="/settings" class="button secondary-button">Åpne innstillinger</a>
+            </div>
+        </div>
+
+        <aside class="hero-card hero-card-secondary">
+            <h2>Systemstatus</h2>
+            <dl class="summary-list">
+                <div><dt>Bruker</dt><dd>{{ current_username }}</dd></div>
+                <div><dt>Rolle</dt><dd>{{ "Admin" if current_user_is_admin else "Bruker" }}</dd></div>
+                <div><dt>Hubber</dt><dd>{{ hub_count }}</dd></div>
+                {% if current_user_is_admin %}
+                <div><dt>Brukere</dt><dd>{{ user_count }}</dd></div>
+                {% endif %}
+            </dl>
+        </aside>
+    </section>
+
+    <section class="section-grid">
+        <article class="panel-card">
+            <div class="panel-head">
+                <div>
+                    <p class="eyebrow">Min hub</p>
+                    <h2>{% if active_hub %}{{ active_hub.hub_id }}{% else %}Ingen hub koblet ennå{% endif %}</h2>
+                </div>
+                <span class="status-badge {% if active_hub %}status-ok{% else %}status-muted{% endif %}">
+                    {% if active_hub %}Klar{% else %}Venter på pairing{% endif %}
+                </span>
+            </div>
+
+            {% if active_hub %}
+            <div class="detail-grid">
+                <div><span>Hub-navn</span><strong>{{ active_hub.hub_name }}</strong></div>
+                <div><span>Eier</span><strong>{{ active_hub.owner_username }}</strong></div>
+                <div><span>Lokal IP</span><strong>{{ active_hub.local_ip or "Ikke rapportert ennå" }}</strong></div>
+                <div><span>Sensor-endepunkt</span><strong>{{ active_hub.sensor_url }}</strong></div>
+            </div>
+            {% else %}
+            <p class="helper-text">Når huben er slått på, går du til oppsettsnettet dens og skriver inn pairing-koden under.</p>
+            {% endif %}
+        </article>
+
+        <article class="panel-card">
+            <div class="panel-head">
+                <div>
+                    <p class="eyebrow">Pairing</p>
+                    <h2>Legg til hub</h2>
                 </div>
             </div>
-            <aside class="landing-hero-panel">
-                <div class="landing-hero-badge">Prototype live</div>
-                <h2>Oversikt uten gjetting</h2>
-                <p>
-                    Ett system som samler data fra jord, lys og omgivelser, bygger historikk og gjør det enklere å forstå hva plantene faktisk trenger.
-                </p>
-                <ul class="landing-hero-list">
-                    <li>Sanntidsverdier</li>
-                    <li>Skyhistorikk</li>
-                    <li>Trender og innsikt</li>
-                    <li>Ulike tilgangsnivåer</li>
-                </ul>
-                <p class="landing-note">Denne siden er laget for deg som allerede er invitert inn i systemet.</p>
-            </aside>
-        </section>
+            <p class="helper-text">Koden varer i 10 minutter og brukes i Growly Hub-oppsettet etter at Wi-Fi er valgt.</p>
+            <div class="pairing-code-card">
+                <span class="pairing-label">Aktiv kode</span>
+                <strong id="pairing-code-value">{{ active_pairing.token if active_pairing else "------" }}</strong>
+                <span id="pairing-code-meta" class="helper-text">
+                    {% if active_pairing %}
+                    Utløper {{ active_pairing.expires_at }}
+                    {% else %}
+                    Ingen aktiv pairing-kode ennå
+                    {% endif %}
+                </span>
+            </div>
+            <div class="hero-actions">
+                <button id="pairing-generate-button" class="button" type="button">Generer pairing-kode</button>
+                <button id="pairing-refresh-button" class="button secondary-button" type="button">Oppdater status</button>
+            </div>
+            <p id="pairing-feedback" class="helper-text"></p>
+        </article>
+    </section>
+    {% endif %}
+</main>
 
-        <section id="hva-er-det" class="landing-section">
-            <div class="landing-section-head">
-                <p class="eyebrow">Hva er Growly Garden?</p>
-                <h2>Et rolig lag mellom deg og plantene dine</h2>
-            </div>
-            <div class="landing-text-block">
-                <p>
-                    Growly Garden er en smart dyrkeassistent som kombinerer sensorer, datainnsamling og analyse for å gi deg full kontroll på plantene dine.
-                </p>
-                <p>
-                    Systemet samler inn sanntidsdata fra jord og omgivelser, lagrer det i skyen og presenterer det i et enkelt og intuitivt dashboard.
-                </p>
-                <p>
-                    Dette gjør dyrking mer forutsigbart, enklere og mer effektivt.
-                </p>
-            </div>
-        </section>
+{% if user_is_authenticated %}
+<script>
+    const pairingCodeValue = document.getElementById("pairing-code-value");
+    const pairingCodeMeta = document.getElementById("pairing-code-meta");
+    const pairingFeedback = document.getElementById("pairing-feedback");
+    const pairingGenerateButton = document.getElementById("pairing-generate-button");
+    const pairingRefreshButton = document.getElementById("pairing-refresh-button");
 
-        <section class="landing-section">
-            <div class="landing-section-head">
-                <p class="eyebrow">Hvorfor trenger vi dette?</p>
-                <h2>Fordi dyrking ofte skjer på følelse alene</h2>
-            </div>
-            <div class="landing-card-grid landing-card-grid-four">
-                <article class="landing-info-card">
-                    <span class="landing-icon">01</span>
-                    <h3>Når bør du vanne?</h3>
-                    <p>Det er lett å vanne for tidlig eller for sent når du ikke vet hva jorden faktisk holder på med.</p>
-                </article>
-                <article class="landing-info-card">
-                    <span class="landing-icon">02</span>
-                    <h3>Har planten riktig næring?</h3>
-                    <p>Næringsnivåer er vanskelige å lese med øyet alene, spesielt før problemene blir tydelige.</p>
-                </article>
-                <article class="landing-info-card">
-                    <span class="landing-icon">03</span>
-                    <h3>Hvorfor vokser den dårlig?</h3>
-                    <p>Uten målinger blir årsaken ofte et gjettverk mellom jord, lys, temperatur og omgivelser.</p>
-                </article>
-                <article class="landing-info-card">
-                    <span class="landing-icon">04</span>
-                    <h3>Fra magefølelse til innsikt</h3>
-                    <p>Growly Garden gjør dyrking datadrevet, slik at du ser hva som faktisk skjer.</p>
-                </article>
-            </div>
-        </section>
+    async function refreshPairing() {
+        pairingFeedback.textContent = "Henter pairing-status...";
+        const response = await fetch("/api/hubs/pairing-token");
+        const result = await response.json();
+        if (!result.ok) {
+            pairingFeedback.textContent = "Kunne ikke hente pairing-status.";
+            return;
+        }
+        const pairing = result.pairing;
+        if (!pairing) {
+            pairingCodeValue.textContent = "------";
+            pairingCodeMeta.textContent = "Ingen aktiv pairing-kode ennå";
+            pairingFeedback.textContent = "Ingen aktiv pairing-kode på brukeren nå.";
+            return;
+        }
+        pairingCodeValue.textContent = pairing.token;
+        pairingCodeMeta.textContent = `Utløper ${pairing.expires_at}`;
+        pairingFeedback.textContent = "Pairing-koden er oppdatert.";
+    }
 
-        <section class="landing-section">
-            <div class="landing-section-head">
-                <p class="eyebrow">Status nå</p>
-                <h2>Første prototype er allerede i drift</h2>
-            </div>
-            <div class="landing-card-grid landing-card-grid-three">
-                <article class="landing-feature-card">
-                    <h3>Sensorlag</h3>
-                    <p>Avanserte sensorer måler nøkkelverdier i jord og omgivelser og gir et oppdatert bilde av forholdene.</p>
-                </article>
-                <article class="landing-feature-card">
-                    <h3>Dataplattform</h3>
-                    <p>Sikker skylagring bygger historikk og legger grunnlaget for analyse, sammenligning og videre innsikt.</p>
-                </article>
-                <article class="landing-feature-card">
-                    <h3>Applikasjon</h3>
-                    <p>Et oversiktlig dashboard viser liveverdier, historikk, trender og tilgangsstyring for ulike brukere.</p>
-                </article>
-            </div>
-        </section>
+    async function createPairing() {
+        pairingFeedback.textContent = "Lager pairing-kode...";
+        const response = await fetch("/api/hubs/pairing-token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({})
+        });
+        const result = await response.json();
+        if (!result.ok) {
+            const errorMap = {
+                hub_already_assigned: "Denne brukeren har allerede en hub koblet til.",
+                user_not_found: "Brukeren finnes ikke.",
+                user_inactive: "Brukeren er deaktivert."
+            };
+            pairingFeedback.textContent = errorMap[result.error] || "Kunne ikke lage pairing-kode.";
+            return;
+        }
+        const pairing = result.pairing;
+        pairingCodeValue.textContent = pairing.token;
+        pairingCodeMeta.textContent = `Utløper ${pairing.expires_at}`;
+        pairingFeedback.textContent = "Pairing-koden er klar.";
+    }
 
-        <section id="hva-maler-vi" class="landing-section">
-            <div class="landing-section-head">
-                <p class="eyebrow">Hva måler vi?</p>
-                <h2>Data som gir et mer komplett bilde</h2>
-            </div>
-            <div class="landing-measure-grid">
-                <article class="landing-measure-card">
-                    <h3>Jord</h3>
-                    <ul>
-                        <li>Fuktighet</li>
-                        <li>Temperatur</li>
-                        <li>pH</li>
-                        <li>Næringsnivåer</li>
-                        <li>Salter og ledningsevne</li>
-                    </ul>
-                </article>
-                <article class="landing-measure-card">
-                    <h3>Lys</h3>
-                    <ul>
-                        <li>Lysintensitet</li>
-                    </ul>
-                </article>
-                <article class="landing-measure-card">
-                    <h3>Luft</h3>
-                    <ul>
-                        <li>Temperatur</li>
-                        <li>Trykk</li>
-                    </ul>
-                </article>
-            </div>
-            <p class="landing-supporting-text">Flere parametere er planlagt i neste versjon.</p>
-        </section>
-
-        <section class="landing-section">
-            <div class="landing-section-head">
-                <p class="eyebrow">Hva gjør systemet?</p>
-                <h2>Bygget for oversikt, ikke bare logging</h2>
-            </div>
-            <div class="landing-check-grid">
-                <article class="landing-check-item"><span>●</span><p>Leser sensordata kontinuerlig</p></article>
-                <article class="landing-check-item"><span>●</span><p>Sender data til skyen</p></article>
-                <article class="landing-check-item"><span>●</span><p>Visualiserer liveverdier</p></article>
-                <article class="landing-check-item"><span>●</span><p>Logger historikk</p></article>
-                <article class="landing-check-item"><span>●</span><p>Viser utvikling over tid</p></article>
-                <article class="landing-check-item"><span>●</span><p>Gir grunnlag for innsikt og bedre beslutninger</p></article>
-            </div>
-        </section>
-
-        <section id="visjon" class="landing-section landing-vision">
-            <div class="landing-section-head">
-                <p class="eyebrow">Visjon</p>
-                <h2>En personlig dyrkeassistent</h2>
-            </div>
-            <div class="landing-text-block">
-                <p>Growly Garden skal bli din personlige dyrkeassistent.</p>
-                <p>Ikke bare et verktøy som viser tall, men en løsning som forteller deg hva du bør gjøre.</p>
-            </div>
-            <div class="landing-card-grid landing-card-grid-four">
-                <article class="landing-info-card">
-                    <h3>Konkrete anbefalinger</h3>
-                    <p>Systemet skal hjelpe deg å vite hva du bør gjøre, ikke bare hva som har skjedd.</p>
-                </article>
-                <article class="landing-info-card">
-                    <h3>Oppdage problemer tidlig</h3>
-                    <p>Avvik skal fanges opp før de blir synlige på planten.</p>
-                </article>
-                <article class="landing-info-card">
-                    <h3>Lære av historikk</h3>
-                    <p>Tidligere målinger og resultater skal gi bedre beslutninger over tid.</p>
-                </article>
-                <article class="landing-info-card">
-                    <h3>Tilpasse seg forholdene</h3>
-                    <p>Systemet skal forstå plantene og miljøet ditt bedre jo mer det brukes.</p>
-                </article>
-            </div>
-            <p class="landing-closing-line">Målet er enkelt: Gjøre dyrking enkelt, presist og forutsigbart – for alle.</p>
-        </section>
-
-        <section class="landing-section">
-            <div class="landing-section-head">
-                <p class="eyebrow">Fremtidsplan</p>
-                <h2>Fra prototype til komplett plattform</h2>
-            </div>
-            <div class="landing-timeline">
-                <article class="landing-step">
-                    <span class="landing-step-label">Nå</span>
-                    <h3>Første prototype i drift</h3>
-                    <ul>
-                        <li>Dataflyt fungerer</li>
-                        <li>Dashboard er oppe</li>
-                    </ul>
-                </article>
-                <article class="landing-step">
-                    <span class="landing-step-label">Kort sikt</span>
-                    <h3>Bedre opplevelse</h3>
-                    <ul>
-                        <li>Forbedret brukeropplevelse</li>
-                        <li>Varslinger og anbefalinger</li>
-                        <li>Flere sensorer</li>
-                    </ul>
-                </article>
-                <article class="landing-step">
-                    <span class="landing-step-label">Neste steg</span>
-                    <h3>Mer innsikt</h3>
-                    <ul>
-                        <li>AI-basert analyse</li>
-                        <li>Automatisk innsikt og forslag</li>
-                        <li>Loggbok for dyrking</li>
-                    </ul>
-                </article>
-                <article class="landing-step">
-                    <span class="landing-step-label">Lang sikt</span>
-                    <h3>Full plattform</h3>
-                    <ul>
-                        <li>Automatisert styring</li>
-                        <li>Skalerbart system</li>
-                        <li>Passer alle nivåer</li>
-                    </ul>
-                </article>
-            </div>
-        </section>
-
-        <section class="landing-section">
-            <div class="landing-section-head">
-                <p class="eyebrow">Hvor er vi nå?</p>
-                <h2>Det fungerer allerede i ekte forhold</h2>
-            </div>
-            <div class="landing-text-block">
-                <p>Første prototype er live.</p>
-                <p>Data hentes fra ekte forhold og går hele veien fra innsamling til dashboard.</p>
-                <p>Vi samler nå innsikt som danner grunnlaget for neste fase.</p>
-            </div>
-            <p class="landing-closing-line">Dette er starten på Growly Garden.</p>
-        </section>
-
-        <section id="inviterte" class="landing-section landing-invite">
-            <div class="landing-section-head">
-                <p class="eyebrow">For deg som er invitert</p>
-                <h2>Du er blant de første som får se dette</h2>
-            </div>
-            <div class="landing-card-grid landing-card-grid-three">
-                <article class="landing-feature-card">
-                    <h3>Tilgang til løsningen</h3>
-                    <p>Du får se systemet i bruk mens det fortsatt formes og forbedres.</p>
-                </article>
-                <article class="landing-feature-card">
-                    <h3>Reell påvirkning</h3>
-                    <p>Tilbakemeldingene dine kan forme hvordan produktet utvikler seg videre.</p>
-                </article>
-                <article class="landing-feature-card">
-                    <h3>Være tett på utviklingen</h3>
-                    <p>Du får følge prosjektet mens grunnmuren fortsatt bygges og prioriteringene settes.</p>
-                </article>
-            </div>
-        </section>
-
-        <section class="landing-section landing-summary">
-            <div class="landing-summary-box">
-                <p class="eyebrow">Kort oppsummert</p>
-                <h2>Growly Garden handler om én ting</h2>
-                <p>Å gi deg kontroll på plantene dine – basert på data, ikke gjetting.</p>
-                <a href="/monitor" class="button landing-cta">Gå til monitor</a>
-            </div>
-        </section>
-    </main>
-
-    <footer class="landing-footer">
-        <span>Growly Garden</span>
-        <span>Bygget for roligere og mer presis dyrking.</span>
-    </footer>
-</body>
-</html>
+    pairingGenerateButton?.addEventListener("click", createPairing);
+    pairingRefreshButton?.addEventListener("click", refreshPairing);
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Growly Garden{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260423-ui-v2">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+    <div class="app-shell">
+        <header class="site-header">
+            <a class="brand" href="/" aria-label="Growly Garden">
+                <img class="brand-logo" src="{{ url_for('static', path='logo.png') }}" alt="Growly Garden logo">
+                <span class="brand-copy">
+                    <strong>Growly Garden</strong>
+                    <small>Smart hub for plantene dine</small>
+                </span>
+            </a>
+
+            {% if current_username|default('') %}
+            <nav class="site-nav" aria-label="Hovednavigasjon">
+                <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Oversikt</a>
+                <a href="/monitor" class="{% if request.url.path == '/monitor' %}active{% endif %}">Monitor</a>
+                <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}">Innstillinger</a>
+            </nav>
+            <div class="site-userbar">
+                <span class="user-chip">
+                    <strong>{{ current_username }}</strong>
+                    <small>{{ "Admin" if current_user_is_admin else "Bruker" }}</small>
+                </span>
+                <form method="post" action="/logout">
+                    <button class="button secondary-button" type="submit">Logg ut</button>
+                </form>
+            </div>
+            {% else %}
+            <nav class="site-nav site-nav-public" aria-label="Autentisering">
+                <a href="/login" class="{% if request.url.path == '/login' %}active{% endif %}">Logg inn</a>
+                <a href="/register" class="{% if request.url.path == '/register' %}active{% endif %}">Registrer</a>
+            </nav>
+            {% endif %}
+        </header>
+
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>
