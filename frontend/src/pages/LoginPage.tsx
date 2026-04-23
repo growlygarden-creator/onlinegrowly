@@ -1,8 +1,12 @@
 import { FormEvent, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { login } from "../lib/api";
+import { login, type AuthSession } from "../lib/api";
 
-export function LoginPage() {
+type LoginPageProps = {
+  setSession: (session: AuthSession | null) => void;
+};
+
+export function LoginPage({ setSession }: LoginPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const locationState = location.state as { registrationSuccess?: boolean; username?: string } | null;
@@ -18,12 +22,23 @@ export function LoginPage() {
     setSubmitting(true);
     setStatus("Logger inn...");
     try {
-      await login(username, password);
+      const session = await login(username, password);
+      setSession(session);
       setStatus("Innlogging vellykket.");
       navigate("/");
     } catch (error) {
       const code = error instanceof Error ? error.message : "unknown_error";
-      setStatus(code === "invalid_credentials" ? "Feil brukernavn eller passord." : "Kunne ikke logge inn.");
+      if (code === "invalid_credentials") {
+        setStatus("Feil brukernavn eller passord.");
+        return;
+      }
+
+      if (code === "backend_unavailable") {
+        setStatus("Backend svarer ikke akkurat nå. Du kan fortsatt teste app-designet i simulatoren.");
+        return;
+      }
+
+      setStatus("Kunne ikke logge inn.");
     } finally {
       setSubmitting(false);
     }
@@ -34,7 +49,7 @@ export function LoginPage() {
       <section className="auth-card">
         <p className="eyebrow">Innlogging</p>
         <h1>Logg inn i Growly Garden.</h1>
-        <p className="lead">Denne flyten bruker nå frontend-appen direkte, men autentiserer fortsatt mot FastAPI-backenden.</p>
+        <p className="lead">Denne flyten bruker frontend-appen direkte, men autentiserer fortsatt mot FastAPI-backenden.</p>
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field">

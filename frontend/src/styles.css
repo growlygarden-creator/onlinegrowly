@@ -8,13 +8,11 @@
   --line: rgba(72, 111, 82, 0.14);
   --accent: #2f9d64;
   --accent-soft: rgba(47, 157, 100, 0.12);
-  --shadow: 0 18px 48px rgba(35, 76, 48, 0.12);
+  --shadow: 0 12px 32px rgba(35, 76, 48, 0.1);
+  --bottom-nav-height: 72px;
   font-family: "Avenir Next", "Segoe UI", Arial, sans-serif;
   color: var(--text);
-  background:
-    radial-gradient(circle at 12% 18%, rgba(52, 103, 62, 0.22), transparent 24%),
-    radial-gradient(circle at 84% 78%, rgba(52, 103, 62, 0.16), transparent 22%),
-    linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 100%);
+  background: linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 100%);
 }
 
 * {
@@ -39,7 +37,55 @@ input {
 .app-shell {
   width: min(100%, 1180px);
   margin: 0 auto;
-  padding: 24px 18px 40px;
+  padding: 18px 18px calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 18px);
+}
+
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.88);
+  border-top: 1px solid rgba(72, 111, 82, 0.18);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  z-index: 50;
+}
+
+.bottom-nav__item {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 4px;
+  padding: 8px 6px;
+  border-radius: 14px;
+  color: rgba(24, 51, 38, 0.74);
+  border: 1px solid transparent;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bottom-nav__item.is-active {
+  background: var(--accent-soft);
+  border-color: rgba(47, 157, 100, 0.22);
+  color: var(--accent);
+}
+
+.bottom-nav__icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.bottom-nav__label {
+  font-size: 0.76rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
 }
 
 .site-header {
@@ -93,12 +139,12 @@ input {
 
 .page-shell {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .content-grid {
   display: grid;
-  gap: 18px;
+  gap: 14px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -106,7 +152,7 @@ input {
 .panel-card,
 .auth-card {
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 16px;
   background: linear-gradient(180deg, var(--panel-strong) 0%, var(--panel) 100%);
   box-shadow: var(--shadow);
 }
@@ -114,14 +160,15 @@ input {
 .hero-card,
 .panel-card,
 .auth-card {
-  padding: 24px;
+  padding: 20px;
 }
 
 .hero-card-primary h1,
+.hero-card h1,
 .auth-card h1 {
   margin: 0 0 10px;
-  font-size: clamp(2rem, 4.6vw, 3.8rem);
-  line-height: 0.96;
+  font-size: clamp(1.7rem, 5.2vw, 2.6rem);
+  line-height: 1.04;
 }
 
 .eyebrow {

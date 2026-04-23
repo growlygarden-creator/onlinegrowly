@@ -1,29 +1,29 @@
 import { useEffect, useState } from "react";
-import { createPairing, fetchActivePairing, fetchSession, logout, type AuthSession, type PairingInfo } from "../lib/api";
+import { createPairing, fetchActivePairing, type AuthSession, type PairingInfo } from "../lib/api";
 
-export function DashboardPage() {
-  const [session, setSession] = useState<AuthSession | null>(null);
+type DashboardPageProps = {
+  session: AuthSession | null;
+};
+
+export function DashboardPage({ session }: DashboardPageProps) {
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
   const [status, setStatus] = useState("Laster session...");
 
   useEffect(() => {
-    fetchSession().then((result) => {
-      setSession(result);
-      if (!result?.authenticated) {
-        setStatus("Logg inn for å hente pairing-kode og se hub-status.");
+    if (!session?.authenticated) {
+      setStatus("Logg inn for å hente pairing-kode og se hub-status.");
+      return;
+    }
+
+    fetchActivePairing().then((activePairing) => {
+      if (activePairing) {
+        setPairing(activePairing);
+        setStatus("Fant aktiv pairing-kode.");
         return;
       }
-
-      fetchActivePairing().then((activePairing) => {
-        if (activePairing) {
-          setPairing(activePairing);
-          setStatus("Fant aktiv pairing-kode.");
-          return;
-        }
-        setStatus("Ingen aktiv pairing-kode ennå.");
-      });
+      setStatus("Ingen aktiv pairing-kode ennå.");
     });
-  }, []);
+  }, [session?.authenticated]);
 
   async function handleCreatePairing() {
     if (!session?.authenticated) {
@@ -40,22 +40,12 @@ export function DashboardPage() {
     setStatus("Pairing-koden er klar.");
   }
 
-  async function handleLogout() {
-    await logout();
-    setSession(null);
-    setPairing(null);
-    setStatus("Du er logget ut.");
-  }
-
   return (
     <main className="page-shell">
       <section className="hero-card hero-card-primary">
-        <p className="eyebrow">Ny frontend-retning</p>
-        <h1>Growly Garden for web og iPhone.</h1>
-        <p className="lead">
-          Denne frontend-basen er laget for å kunne kjøres i nettleser nå og i Capacitor/Xcode senere,
-          mens FastAPI fortsetter som backend.
-        </p>
+        <p className="eyebrow">Start</p>
+        <h1>Oversikt</h1>
+        <p className="lead">Status for konto, hub og pairing.</p>
       </section>
 
       <section className="content-grid">
@@ -67,13 +57,7 @@ export function DashboardPage() {
             <li>E-post: {session?.user?.email ?? "-"}</li>
             <li>Hub: {session?.hub?.hub_id ?? "Ingen hub koblet ennå"}</li>
           </ul>
-          {session?.authenticated ? (
-            <div className="button-row">
-              <button className="button secondary-button" onClick={handleLogout} type="button">
-                Logg ut
-              </button>
-            </div>
-          ) : null}
+          <p className="helper-text">Logg ut finner du under Settings.</p>
         </article>
 
         <article className="panel-card">

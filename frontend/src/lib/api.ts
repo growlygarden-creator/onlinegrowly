@@ -3,6 +3,20 @@ export type PairingInfo = {
   expires_at: string;
 };
 
+const DEFAULT_NATIVE_API_BASE = "https://onlinegrowly.onrender.com";
+const API_BASE_URL = (() => {
+  const configuredBase = (import.meta.env.VITE_API_BASE_URL || "").trim();
+  if (configuredBase) {
+    return configuredBase.replace(/\/$/, "");
+  }
+
+  if (window.location.protocol === "capacitor:") {
+    return DEFAULT_NATIVE_API_BASE;
+  }
+
+  return "";
+})();
+
 export type AuthSession = {
   authenticated: boolean;
   username: string;
@@ -30,24 +44,59 @@ type ApiError = {
   error: string;
 };
 
+const REQUEST_TIMEOUT_MS = 3500;
+
 async function parseJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function apiUrl(path: string): string {
+  if (!API_BASE_URL) {
+    return path;
+  }
+
+  return `${API_BASE_URL}${path}`;
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("backend_unavailable");
+    }
+
+    throw new Error("backend_unavailable");
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export async function fetchSession(): Promise<AuthSession | null> {
-  const response = await fetch("/api/auth/session", {
-    credentials: "include",
-    cache: "no-store",
-  });
-  if (!response.ok) {
+  try {
+    const response = await fetchWithTimeout(apiUrl("/api/auth/session"), {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; session: AuthSession }>(response);
+    return result.session;
+  } catch {
     return null;
   }
-  const result = await parseJson<{ ok: true; session: AuthSession }>(response);
-  return result.session;
 }
 
 export async function login(username: string, password: string): Promise<AuthSession> {
-  const response = await fetch("/api/auth/login", {
+  const response = await fetchWithTimeout(apiUrl("/api/auth/login"), {
     method: "POST",
     credentials: "include",
     headers: {
@@ -73,7 +122,7 @@ export async function registerAccount(payload: {
   password: string;
   password_confirm: string;
 }): Promise<AuthSession> {
-  const response = await fetch("/api/auth/register", {
+  const response = await fetchWithTimeout(apiUrl("/api/auth/register"), {
     method: "POST",
     credentials: "include",
     headers: {
@@ -92,40 +141,46 @@ export async function registerAccount(payload: {
 }
 
 export async function logout(): Promise<void> {
-  await fetch("/logout", {
+  await fetchWithTimeout(apiUrl("/logout"), {
     method: "POST",
     credentials: "include",
   });
 }
 
 export async function fetchActivePairing(): Promise<PairingInfo | null> {
-  const response = await fetch("/api/hubs/pairing-token", {
-    credentials: "include",
-    cache: "no-store",
-  });
+  try {
+    const response = await fetchWithTimeout(apiUrl("/api/hubs/pairing-token"), {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
 
-  if (!response.ok) {
+    const result = await response.json();
+    return result.pairing ?? null;
+  } catch {
     return null;
   }
-
-  const result = await response.json();
-  return result.pairing ?? null;
 }
 
 export async function createPairing(): Promise<PairingInfo | null> {
-  const response = await fetch("/api/hubs/pairing-token", {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({}),
-  });
+  try {
+    const response = await fetchWithTimeout(apiUrl("/api/hubs/pairing-token"), {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) {
+      return null;
+    }
 
-  if (!response.ok) {
+    const result = await response.json();
+    return result.pairing ?? null;
+  } catch {
     return null;
   }
-
-  const result = await response.json();
-  return result.pairing ?? null;
 }

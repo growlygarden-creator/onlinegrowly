@@ -24,4 +24,30 @@ end
 
 post_install do |installer|
   assertDeploymentTarget(installer)
+
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
+      config.build_settings['CLANG_WARN_AT_IMPORT_IN_FRAMEWORK_HEADER'] = 'NO'
+    end
+  end
+
+  # Xcode 16+ can error on quoted includes in framework headers. Some CapacitorCordova
+  # public headers still use quotes, so rewrite them to angle-bracketed module imports.
+  cordova_public_headers = File.expand_path(
+    File.join(__dir__, "../../node_modules/@capacitor/ios/CapacitorCordova/CapacitorCordova/Classes/Public"),
+  )
+
+  if Dir.exist?(cordova_public_headers)
+    Dir.glob(File.join(cordova_public_headers, "*.h")).each do |header_path|
+      original = File.read(header_path)
+      updated = original
+        .gsub(/^(\s*#\s*(?:import|include)\s+)\"([A-Za-z0-9_+]+\.h)\"\s*$/, '\1<Cordova/\2>')
+        .gsub(/^(\s*#\s*import\s+)\"([A-Za-z0-9_+]+\.h)\"\s*$/, '\1<Cordova/\2>')
+
+      next if updated == original
+
+      File.write(header_path, updated)
+    end
+  end
 end

@@ -15,6 +15,7 @@ from urllib.request import Request as UrlRequest, urlopen
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Form, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -37,6 +38,16 @@ APP_USERNAME = os.getenv("APP_USERNAME", "growly")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "growly-view")
 SETTINGS_PASSWORD = os.getenv("SETTINGS_PASSWORD", "growly-settings")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "growly-local-session-secret")
+SESSION_SAME_SITE = os.getenv("SESSION_SAME_SITE", "lax").strip().lower() or "lax"
+SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "false").strip().lower() in {"1", "true", "yes", "on"}
+NATIVE_APP_ORIGINS = tuple(
+    origin.strip()
+    for origin in os.getenv(
+        "NATIVE_APP_ORIGINS",
+        "capacitor://localhost,http://localhost,http://127.0.0.1,ionic://localhost",
+    ).split(",")
+    if origin.strip()
+)
 DEFAULT_VIEWER_USERNAME = os.getenv("DEFAULT_VIEWER_USERNAME", "Testuser")
 DEFAULT_VIEWER_PASSWORD = os.getenv("DEFAULT_VIEWER_PASSWORD", "Growly2026")
 DEFAULT_PRIMARY_HUB_ID = "growly-hub-001"
@@ -1809,7 +1820,19 @@ app = FastAPI(
     description="Minimal Growly app shell for rebuilding from scratch.",
     lifespan=lifespan,
 )
-app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(NATIVE_APP_ORIGINS),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    same_site=SESSION_SAME_SITE,
+    https_only=SESSION_HTTPS_ONLY,
+)
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))

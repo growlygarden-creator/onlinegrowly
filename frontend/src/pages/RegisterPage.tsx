@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { registerAccount } from "../lib/api";
+import { registerAccount, type AuthSession } from "../lib/api";
 
 const errorMap: Record<string, string> = {
   password_mismatch: "Passordene er ikke like.",
@@ -17,7 +17,11 @@ const errorMap: Record<string, string> = {
   user_exists: "Dette brukernavnet er allerede i bruk.",
 };
 
-export function RegisterPage() {
+type RegisterPageProps = {
+  setSession: (session: AuthSession | null) => void;
+};
+
+export function RegisterPage({ setSession }: RegisterPageProps) {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     full_name: "",
@@ -35,14 +39,17 @@ export function RegisterPage() {
     setSubmitting(true);
     setStatus("Oppretter konto...");
     try {
-      await registerAccount(form);
-      setStatus("Konto opprettet. Logg inn for å fortsette.");
-      navigate("/login", {
-        replace: true,
-        state: { registrationSuccess: true, username: form.username },
-      });
+      const session = await registerAccount(form);
+      setSession(session);
+      setStatus("Konto opprettet.");
+      navigate("/", { replace: true });
     } catch (error) {
       const code = error instanceof Error ? error.message : "unknown_error";
+      if (code === "backend_unavailable") {
+        setStatus("Backend svarer ikke akkurat nå. Registrering virker når API-et er oppe igjen.");
+        return;
+      }
+
       setStatus(errorMap[code] ?? "Kunne ikke opprette konto akkurat nå.");
     } finally {
       setSubmitting(false);

@@ -19,6 +19,12 @@ services:
         sync: false
       - key: SESSION_SECRET
         sync: false
+      - key: SESSION_SAME_SITE
+        value: none
+      - key: SESSION_HTTPS_ONLY
+        value: "true"
+      - key: NATIVE_APP_ORIGINS
+        value: capacitor://localhost,http://localhost,http://127.0.0.1,ionic://localhost
       - key: SUPABASE_REST_ENDPOINT
         sync: false
       - key: SUPABASE_API_KEY

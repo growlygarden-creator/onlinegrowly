@@ -17,6 +17,9 @@ Sett egne verdier for:
 - `APP_PASSWORD`
 - `SETTINGS_PASSWORD`
 - `SESSION_SECRET`
+- `SESSION_SAME_SITE=none`
+- `SESSION_HTTPS_ONLY=true`
+- `NATIVE_APP_ORIGINS=capacitor://localhost,http://localhost,http://127.0.0.1,ionic://localhost`
 - `SUPABASE_REST_ENDPOINT`
 - `SUPABASE_API_KEY`
 
@@ -28,6 +31,16 @@ Sett egne verdier for:
 4. La Render lese `render.yaml`.
 5. Legg inn miljøvariablene i Render.
 6. Koble domenet ditt når appen er oppe.
+
+## iPhone / Capacitor-login
+
+For at session-cookie skal fungere fra iOS-appen til Render-backenden:
+
+- bruk `SESSION_SAME_SITE=none`
+- bruk `SESSION_HTTPS_ONLY=true`
+- tillat native origins via `NATIVE_APP_ORIGINS`
+
+Frontend-appen peker i native modus mot `https://onlinegrowly.onrender.com`, så Render-deployen må være oppdatert før login i Xcode fungerer.
 
 ## Hvorfor `GROWLY_DATA_DIR`
 
