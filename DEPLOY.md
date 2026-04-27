@@ -13,8 +13,10 @@ Appen er nå rigget for deploy med:
 
 Sett egne verdier for:
 
-- `APP_USERNAME`
-- `APP_PASSWORD`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
+- `DEFAULT_VIEWER_USERNAME`
+- `DEFAULT_VIEWER_PASSWORD`
 - `SETTINGS_PASSWORD`
 - `SESSION_SECRET`
 - `SESSION_SAME_SITE=none`
@@ -47,7 +49,7 @@ Frontend-appen peker i native modus mot `https://onlinegrowly.onrender.com`, så
 Appen bruker en lokal SQLite-fil for:
 
 - brukere
-- admin-status
+- admin-status og vanlige app-brukere
 - innstillinger
 
 På Render bør dette ligge på en disk, derfor brukes:
@@ -67,3 +69,6 @@ På Render bør dette ligge på en disk, derfor brukes:
 - `/monitor` er monitor
 - `/drivhus-test` er drivhus-test
 - `/settings` er innstillinger
+- `/management` peker til webflaten for Growly Management
+
+Admin-kontoen (`ADMIN_USERNAME`) er for web/management. Native app-login via `/api/auth/login` avviser admin-kontoer, slik at appen holdes som ren drivhusapp for vanlige brukere.

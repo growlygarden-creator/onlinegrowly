@@ -29,6 +29,21 @@ except ImportError:  # pragma: no cover - production environments may rely on sy
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
+
+
+def load_local_env(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_local_env(ROOT_DIR / ".env")
+
 PREFERRED_DATA_DIR = Path(os.getenv("GROWLY_DATA_DIR", str(ROOT_DIR / "data")))
 FALLBACK_DATA_DIR = Path("/tmp/growly-data")
 DATA_DIR = PREFERRED_DATA_DIR
@@ -36,6 +51,8 @@ DB_PATH = DATA_DIR / "growly.db"
 DEFAULT_SENSOR_URL = "http://192.168.0.133/sensor"
 APP_USERNAME = os.getenv("APP_USERNAME", "growly")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "growly-view")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Growly@Admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", APP_PASSWORD)
 SETTINGS_PASSWORD = os.getenv("SETTINGS_PASSWORD", "growly-settings")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "growly-local-session-secret")
 SESSION_SAME_SITE = os.getenv("SESSION_SAME_SITE", "lax").strip().lower() or "lax"
@@ -323,32 +340,50 @@ def init_db() -> None:
                 """,
                 (key, str(value)),
             )
-        existing_user = connection.execute(
+        existing_admin = connection.execute(
             """
             SELECT username
             FROM app_users
             WHERE username = ?
             """,
-            (APP_USERNAME,),
+            (ADMIN_USERNAME,),
         ).fetchone()
-        if not existing_user:
+        if not existing_admin:
             now = utc_now_iso()
             connection.execute(
                 """
                 INSERT INTO app_users (username, password_hash, is_active, is_admin, created_at, updated_at)
                 VALUES (?, ?, 1, 1, ?, ?)
                 """,
-                (APP_USERNAME, hash_password(APP_PASSWORD), now, now),
+                (ADMIN_USERNAME, hash_password(ADMIN_PASSWORD), now, now),
             )
         else:
             connection.execute(
                 """
                 UPDATE app_users
-                SET is_admin = 1, updated_at = ?
+                SET password_hash = ?, is_active = 1, is_admin = 1, updated_at = ?
                 WHERE username = ?
                 """,
-                (utc_now_iso(), APP_USERNAME),
+                (hash_password(ADMIN_PASSWORD), utc_now_iso(), ADMIN_USERNAME),
             )
+        if APP_USERNAME != ADMIN_USERNAME:
+            legacy_user = connection.execute(
+                """
+                SELECT username
+                FROM app_users
+                WHERE username = ?
+                """,
+                (APP_USERNAME,),
+            ).fetchone()
+            if legacy_user:
+                connection.execute(
+                    """
+                    UPDATE app_users
+                    SET is_active = 1, is_admin = 0, updated_at = ?
+                    WHERE username = ?
+                    """,
+                    (utc_now_iso(), APP_USERNAME),
+                )
         existing_viewer = connection.execute(
             """
             SELECT username
@@ -412,7 +447,7 @@ def init_db() -> None:
         primary_owner_username = (
             str(primary_owner_row["username"])
             if primary_owner_row and primary_owner_row["username"]
-            else APP_USERNAME
+            else DEFAULT_VIEWER_USERNAME
         )
 
         primary_hub = connection.execute(
@@ -2013,6 +2048,8 @@ async def auth_login(request: Request, payload: dict[str, Any]):
     user = find_app_user(username)
     if not user or not user["is_active"] or not verify_password(password, user["password_hash"]):
         return JSONResponse(status_code=401, content={"ok": False, "error": "invalid_credentials"})
+    if bool(user["is_admin"]):
+        return JSONResponse(status_code=403, content={"ok": False, "error": "admin_web_only"})
 
     request.session["viewer_authenticated"] = True
     request.session["settings_authenticated"] = False
@@ -2162,6 +2199,11 @@ async def settings(request: Request):
             **template_auth_context(request),
         },
     )
+
+
+@app.get("/management")
+async def management(request: Request):
+    return RedirectResponse(url="/settings", status_code=303)
 
 
 @app.get("/drivhus-test")

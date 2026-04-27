@@ -3,6 +3,34 @@ export type PairingInfo = {
   expires_at: string;
 };
 
+export type LatestSample = {
+  recorded_at?: string | null;
+  air_temperature?: number | null;
+  air_humidity?: number | null;
+  humidity?: number | null;
+  temperature?: number | null;
+  ph?: number | null;
+  conductivity?: number | null;
+  nitrogen?: number | null;
+  phosphorus?: number | null;
+  potassium?: number | null;
+  salinity?: number | null;
+  tds?: number | null;
+  lux?: number | null;
+  valid?: number | boolean | null;
+};
+
+export type HistoryPoint = {
+  recorded_at: string;
+  value: number;
+};
+
+export type HistoryResponse = {
+  ok: true;
+  metric: string;
+  points: HistoryPoint[];
+};
+
 const DEFAULT_NATIVE_API_BASE = "https://onlinegrowly.onrender.com";
 const API_BASE_URL = (() => {
   const configuredBase = (import.meta.env.VITE_API_BASE_URL || "").trim();
@@ -180,6 +208,60 @@ export async function createPairing(): Promise<PairingInfo | null> {
 
     const result = await response.json();
     return result.pairing ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchLatestSample(): Promise<LatestSample | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl("/api/latest"), {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; sample: LatestSample | null }>(response);
+    return result.sample ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchMetricHistory(params: {
+  metric: string;
+  span: "minutes" | "hours" | "days";
+  limit: number;
+  dateFrom?: string;
+  dateTo?: string;
+}): Promise<HistoryResponse | null> {
+  try {
+    const search = new URLSearchParams({
+      metric: params.metric,
+      span: params.span,
+      limit: String(params.limit),
+    });
+
+    if (params.dateFrom) {
+      search.set("date_from", params.dateFrom);
+    }
+
+    if (params.dateTo) {
+      search.set("date_to", params.dateTo);
+    }
+
+    const response = await fetchWithTimeout(apiUrl(`/api/history?${search.toString()}`), {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<HistoryResponse>(response);
+    return result.ok ? result : null;
   } catch {
     return null;
   }

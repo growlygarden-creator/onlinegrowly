@@ -11,9 +11,17 @@ services:
         value: 3.11.9
       - key: GROWLY_DATA_DIR
         value: /var/data
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
       - key: APP_USERNAME
         sync: false
       - key: APP_PASSWORD
+        sync: false
+      - key: DEFAULT_VIEWER_USERNAME
+        sync: false
+      - key: DEFAULT_VIEWER_PASSWORD
         sync: false
       - key: SETTINGS_PASSWORD
         sync: false

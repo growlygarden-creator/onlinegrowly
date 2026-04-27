@@ -61,11 +61,20 @@ export function RegisterPage({ setSession }: RegisterPageProps) {
   }
 
   return (
-    <main className="page-shell auth-shell">
-      <section className="auth-card">
-        <p className="eyebrow">Registrering</p>
-        <h1>Lag din Growly-konto.</h1>
-        <p className="lead">Denne siden brukes når du deler konto-oppsett direkte med en bruker. Kontoen opprettes her, og brukeren sendes videre inn i appen etterpå.</p>
+    <main className="page-shell auth-shell auth-page">
+      <section className="auth-hero">
+        <span className="section-kicker">Ny konto</span>
+        <h1>Kom i gang med Growly</h1>
+        <p>Opprett kontoen din og gjør appen klar for drivhuset ditt.</p>
+      </section>
+
+      <section className="settings-section">
+        <p className="section-kicker">Ny konto</p>
+        <section className="soft-card auth-card auth-card--settings auth-panel premium-section-card">
+        <div>
+          <h2>Ny Growly-konto</h2>
+          <p className="lead">Fyll inn det viktigste for å komme i gang.</p>
+        </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field">
@@ -115,7 +124,11 @@ export function RegisterPage({ setSession }: RegisterPageProps) {
           </button>
         </form>
 
-        <p className="helper-text">{status}</p>
+        <p className="auth-status">{status}</p>
+        <p className="auth-link-row">
+          Har du allerede konto? <a href="/login">Logg inn</a>
+        </p>
+        </section>
       </section>
     </main>
   );

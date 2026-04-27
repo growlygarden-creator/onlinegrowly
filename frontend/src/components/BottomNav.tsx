@@ -20,7 +20,7 @@ const tabs: Tab[] = [
     ),
   },
   {
-    label: "Drivhus",
+    label: "Planter",
     to: "/drivhus",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -33,7 +33,7 @@ const tabs: Tab[] = [
     ),
   },
   {
-    label: "Kalender",
+    label: "Dyrkelogg",
     to: "/kalender",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -46,7 +46,7 @@ const tabs: Tab[] = [
     ),
   },
   {
-    label: "Settings",
+    label: "Innstillinger",
     to: "/settings",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -76,4 +76,3 @@ export function BottomNav() {
     </nav>
   );
 }
-

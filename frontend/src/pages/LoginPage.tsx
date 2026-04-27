@@ -33,6 +33,11 @@ export function LoginPage({ setSession }: LoginPageProps) {
         return;
       }
 
+      if (code === "admin_web_only") {
+        setStatus("Admin-kontoen brukes i Growly Management på web.");
+        return;
+      }
+
       if (code === "backend_unavailable") {
         setStatus("Backend svarer ikke akkurat nå. Du kan fortsatt teste app-designet i simulatoren.");
         return;
@@ -45,11 +50,20 @@ export function LoginPage({ setSession }: LoginPageProps) {
   }
 
   return (
-    <main className="page-shell auth-shell">
-      <section className="auth-card">
-        <p className="eyebrow">Innlogging</p>
-        <h1>Logg inn i Growly Garden.</h1>
-        <p className="lead">Denne flyten bruker frontend-appen direkte, men autentiserer fortsatt mot FastAPI-backenden.</p>
+    <main className="page-shell auth-shell auth-page">
+      <section className="auth-hero">
+        <span className="section-kicker">Growly Garden</span>
+        <h1>Velkommen tilbake</h1>
+        <p>Logg inn for å åpne drivhuset ditt og se statusen på ett sted.</p>
+      </section>
+
+      <section className="settings-section">
+        <p className="section-kicker">Konto</p>
+        <section className="soft-card auth-card auth-card--settings auth-panel premium-section-card">
+        <div>
+          <h2>Growly Garden</h2>
+          <p className="lead">Bruk kontoen din for å åpne drivhuset.</p>
+        </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field">
@@ -73,7 +87,11 @@ export function LoginPage({ setSession }: LoginPageProps) {
           </button>
         </form>
 
-        <p className="helper-text">{status}</p>
+        <p className="auth-status">{status}</p>
+        <p className="auth-link-row">
+          Har du ikke konto ennå? <a href="/register">Opprett konto</a>
+        </p>
+        </section>
       </section>
     </main>
   );
