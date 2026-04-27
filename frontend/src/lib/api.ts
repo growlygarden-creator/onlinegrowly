@@ -146,7 +146,6 @@ export async function registerAccount(payload: {
   full_name: string;
   phone: string;
   email: string;
-  username: string;
   password: string;
   password_confirm: string;
 }): Promise<AuthSession> {

@@ -1929,7 +1929,6 @@ async def register_page(request: Request):
             "prefill_full_name": "",
             "prefill_phone": "",
             "prefill_email": "",
-            "prefill_username": "",
         },
     )
 
@@ -1940,14 +1939,13 @@ async def register_submit(
     full_name: str = Form(...),
     phone: str = Form(...),
     email: str = Form(...),
-    username: str = Form(...),
     password: str = Form(...),
     password_confirm: str = Form(...),
 ):
     normalized_full_name = full_name.strip()
     normalized_phone = phone.strip()
     normalized_email = email.strip().lower()
-    normalized_username = username.strip()
+    normalized_username = normalized_email
     if password != password_confirm:
         return templates.TemplateResponse(
             "register.html",
@@ -1957,7 +1955,6 @@ async def register_submit(
                 "prefill_full_name": normalized_full_name,
                 "prefill_phone": normalized_phone,
                 "prefill_email": normalized_email,
-                "prefill_username": normalized_username,
             },
             status_code=400,
         )
@@ -1974,8 +1971,8 @@ async def register_submit(
         )
     except ValueError as exc:
         error_map = {
-            "missing_username": "Skriv inn et brukernavn.",
-            "username_too_short": "Brukernavnet må være minst 3 tegn.",
+            "missing_username": "Skriv inn e-postadresse.",
+            "username_too_short": "E-postadressen virker for kort.",
             "missing_full_name": "Skriv inn navn.",
             "full_name_too_short": "Navnet må være minst 2 tegn.",
             "missing_phone": "Skriv inn telefonnummer.",
@@ -1984,7 +1981,7 @@ async def register_submit(
             "invalid_email": "Skriv inn en gyldig e-postadresse.",
             "email_exists": "Denne e-postadressen er allerede i bruk.",
             "password_too_short": "Passordet må være minst 6 tegn.",
-            "user_exists": "Dette brukernavnet er allerede i bruk.",
+            "user_exists": "Denne e-postadressen er allerede i bruk.",
         }
         return templates.TemplateResponse(
             "register.html",
@@ -1994,7 +1991,6 @@ async def register_submit(
                 "prefill_full_name": normalized_full_name,
                 "prefill_phone": normalized_phone,
                 "prefill_email": normalized_email,
-                "prefill_username": normalized_username,
             },
             status_code=400,
         )
@@ -2063,7 +2059,7 @@ async def auth_register(request: Request, payload: dict[str, Any]):
     full_name = str(payload.get("full_name", "")).strip()
     phone = str(payload.get("phone", "")).strip()
     email = str(payload.get("email", "")).strip().lower()
-    username = str(payload.get("username", "")).strip()
+    username = email
     password = str(payload.get("password", ""))
     password_confirm = str(payload.get("password_confirm", ""))
 

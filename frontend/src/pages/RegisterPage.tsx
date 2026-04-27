@@ -4,8 +4,6 @@ import { registerAccount, type AuthSession } from "../lib/api";
 
 const errorMap: Record<string, string> = {
   password_mismatch: "Passordene er ikke like.",
-  missing_username: "Skriv inn et brukernavn.",
-  username_too_short: "Brukernavnet må være minst 3 tegn.",
   missing_full_name: "Skriv inn navn.",
   full_name_too_short: "Navnet må være minst 2 tegn.",
   missing_phone: "Skriv inn telefonnummer.",
@@ -14,7 +12,7 @@ const errorMap: Record<string, string> = {
   invalid_email: "Skriv inn en gyldig e-postadresse.",
   email_exists: "Denne e-postadressen er allerede i bruk.",
   password_too_short: "Passordet må være minst 6 tegn.",
-  user_exists: "Dette brukernavnet er allerede i bruk.",
+  user_exists: "Denne e-postadressen er allerede i bruk.",
 };
 
 type RegisterPageProps = {
@@ -27,7 +25,6 @@ export function RegisterPage({ setSession }: RegisterPageProps) {
     full_name: "",
     phone: "",
     email: "",
-    username: "",
     password: "",
     password_confirm: "",
   });
@@ -90,11 +87,6 @@ export function RegisterPage({ setSession }: RegisterPageProps) {
           <label className="field">
             <span>E-post</span>
             <input type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} autoComplete="email" required />
-          </label>
-
-          <label className="field">
-            <span>Brukernavn</span>
-            <input value={form.username} onChange={(event) => updateField("username", event.target.value)} autoComplete="username" required />
           </label>
 
           <label className="field">
