@@ -22,6 +22,8 @@ Sett egne verdier for:
 - `SESSION_SAME_SITE=none`
 - `SESSION_HTTPS_ONLY=true`
 - `NATIVE_APP_ORIGINS=capacitor://localhost,http://localhost,http://127.0.0.1,ionic://localhost`
+- `ACTIVE_FIRMWARE_VERSION`
+- `ACTIVE_FIRMWARE_URL`
 - `SUPABASE_REST_ENDPOINT`
 - `SUPABASE_API_KEY`
 
@@ -72,3 +74,17 @@ På Render bør dette ligge på en disk, derfor brukes:
 - `/management` peker til webflaten for Growly Management
 
 Admin-kontoen (`ADMIN_USERNAME`) er for web/management. Native app-login via `/api/auth/login` avviser admin-kontoer, slik at appen holdes som ren drivhusapp for vanlige brukere.
+
+## OTA og intervaller for ESP-kort
+
+ESP-kortet poller Render selv via `/api/device/config`. Det betyr at du kan endre sample-intervaller i Management, og kortet henter dem automatisk omtrent hvert 5. minutt.
+
+For firmware-oppdatering:
+
+1. Øk `FIRMWARE_VERSION` i `include/device_config.h`.
+2. Bygg firmware med PlatformIO. Binærfilen ligger normalt i `.pio/build/<miljo>/firmware.bin`.
+3. Last opp `firmware.bin` til en offentlig HTTPS-adresse.
+4. Sett `ACTIVE_FIRMWARE_VERSION` og `ACTIVE_FIRMWARE_URL` i Render.
+5. Deploy Render på nytt.
+
+Når kortet ser en nyere `ACTIVE_FIRMWARE_VERSION`, laster det ned binærfilen, flasher seg selv og starter på nytt.

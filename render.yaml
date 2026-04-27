@@ -33,6 +33,10 @@ services:
         value: "true"
       - key: NATIVE_APP_ORIGINS
         value: capacitor://localhost,http://localhost,http://127.0.0.1,ionic://localhost
+      - key: ACTIVE_FIRMWARE_VERSION
+        sync: false
+      - key: ACTIVE_FIRMWARE_URL
+        sync: false
       - key: SUPABASE_REST_ENDPOINT
         sync: false
       - key: SUPABASE_API_KEY

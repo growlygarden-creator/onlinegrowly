@@ -53,6 +53,8 @@ APP_USERNAME = os.getenv("APP_USERNAME", "growly")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "growly-view")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Growly@Admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", APP_PASSWORD)
+ACTIVE_FIRMWARE_VERSION = os.getenv("ACTIVE_FIRMWARE_VERSION", "").strip()
+ACTIVE_FIRMWARE_URL = os.getenv("ACTIVE_FIRMWARE_URL", "").strip()
 SETTINGS_PASSWORD = os.getenv("SETTINGS_PASSWORD", "growly-settings")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "growly-local-session-secret")
 SESSION_SAME_SITE = os.getenv("SESSION_SAME_SITE", "lax").strip().lower() or "lax"
@@ -856,6 +858,52 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         connection.commit()
 
     return hub_settings(hub_id)
+
+
+def update_hub_local_ip(hub_id: str, local_ip: str | None) -> None:
+    clean_ip = str(local_ip or "").strip()
+    if not clean_ip:
+        return
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE hubs
+            SET local_ip = ?,
+                updated_at = ?
+            WHERE hub_id = ?
+            """,
+            (clean_ip, utc_now_iso(), hub_id),
+        )
+        connection.commit()
+
+
+def device_config_response(hub_id: str, current_version: str = "") -> dict[str, Any]:
+    settings = hub_settings(hub_id)
+    latest_version = ACTIVE_FIRMWARE_VERSION
+    firmware_url = ACTIVE_FIRMWARE_URL
+    update_available = (
+        bool(latest_version)
+        and bool(firmware_url)
+        and latest_version != str(current_version or "").strip()
+    )
+
+    return {
+        "ok": True,
+        "hub_id": settings["hub_id"],
+        "server_time": utc_now_iso(),
+        "settings": {
+            "sample_time_soil_ms": settings["sample_time_soil_ms"],
+            "sample_time_light_ms": settings["sample_time_light_ms"],
+            "sample_time_air_ms": settings["sample_time_air_ms"],
+            "sample_time_cloud_ms": settings["sample_time_cloud_ms"],
+        },
+        "firmware": {
+            "current_version": str(current_version or "").strip(),
+            "latest_version": latest_version,
+            "url": firmware_url,
+            "update_available": update_available,
+        },
+    }
 
 
 def history_start_iso(hub_id: str) -> str | None:
@@ -2514,6 +2562,31 @@ async def pair_hub(payload: dict[str, Any]):
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
     return {"ok": True, "hub": hub}
+
+
+@app.get("/api/device/config")
+async def get_device_config(hub_id: str = Query(""), version: str = Query("")):
+    hub_id = hub_id.strip()
+    if not hub_id:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "missing_hub_id"})
+    try:
+        return device_config_response(hub_id, version)
+    except ValueError as exc:
+        return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/device/status")
+async def update_device_status(payload: dict[str, Any]):
+    hub_id = str(payload.get("hub_id", "")).strip()
+    if not hub_id:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "missing_hub_id"})
+    try:
+        hub_settings(hub_id)
+    except ValueError as exc:
+        return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
+
+    update_hub_local_ip(hub_id, payload.get("local_ip"))
+    return {"ok": True, "server_time": utc_now_iso()}
 
 
 @app.post("/api/users")

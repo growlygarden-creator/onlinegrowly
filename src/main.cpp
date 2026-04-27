@@ -4,8 +4,10 @@
 #include <DNSServer.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
+#include <Update.h>
 #include <Wire.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <WebServer.h>
 
 #include "device_config.h"
@@ -26,6 +28,7 @@ String configuredWifiPassword;
 String configuredPairingCode;
 String pairedHubId;
 String pairingStatusMessage = "Huben er ikke paret ennå.";
+String firmwareStatusMessage = "Firmware OK";
 bool captivePortalActive = false;
 unsigned long lastWifiScanAt = 0;
 bool wifiScanLoaded = false;
@@ -34,6 +37,7 @@ bool wifiResetCounting = false;
 unsigned long wifiResetStartedAt = 0;
 unsigned long wifiResetLastNoticeAt = 0;
 unsigned long lastBackendUploadAt = 0;
+unsigned long lastDeviceConfigPollAt = 0;
 unsigned long lastSupabaseUploadAt = 0;
 unsigned long lastStatusLedUpdateAt = 0;
 unsigned long lastSoilPollAt = 0;
@@ -105,6 +109,7 @@ size_t visibleNetworkCount = 0;
 
 void printSensorReading();
 bool ensureHubPairing(bool forceRetry = false);
+void pollDeviceConfig(bool force = false);
 
 enum class StatusLedColor {
     Off,
@@ -130,6 +135,22 @@ String backendUrl(const char* path) {
         base.remove(base.length() - 1);
     }
     return base + String(path);
+}
+
+String urlEncode(const String& value) {
+    String encoded;
+    const char* hex = "0123456789ABCDEF";
+    for (size_t i = 0; i < value.length(); ++i) {
+        const uint8_t ch = static_cast<uint8_t>(value[i]);
+        if (isalnum(ch) || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
+            encoded += static_cast<char>(ch);
+        } else {
+            encoded += '%';
+            encoded += hex[(ch >> 4) & 0x0F];
+            encoded += hex[ch & 0x0F];
+        }
+    }
+    return encoded;
 }
 
 unsigned long sanitizeSampleInterval(long value) {
@@ -820,6 +841,82 @@ String extractJsonStringValue(const String& payload, const char* key) {
     return value;
 }
 
+long extractJsonLongValue(const String& payload, const char* key, long fallback) {
+    const String quotedKey = String("\"") + key + "\":";
+    const int keyIndex = payload.indexOf(quotedKey);
+    if (keyIndex < 0) {
+        return fallback;
+    }
+
+    int valueIndex = keyIndex + quotedKey.length();
+    while (valueIndex < payload.length() && isspace(static_cast<unsigned char>(payload[valueIndex]))) {
+        ++valueIndex;
+    }
+
+    bool negative = false;
+    if (valueIndex < payload.length() && payload[valueIndex] == '-') {
+        negative = true;
+        ++valueIndex;
+    }
+    if (valueIndex >= payload.length() || !isdigit(static_cast<unsigned char>(payload[valueIndex]))) {
+        return fallback;
+    }
+
+    long value = 0;
+    while (valueIndex < payload.length() && isdigit(static_cast<unsigned char>(payload[valueIndex]))) {
+        value = (value * 10) + (payload[valueIndex] - '0');
+        ++valueIndex;
+    }
+    return negative ? -value : value;
+}
+
+bool extractJsonBoolValue(const String& payload, const char* key, bool fallback) {
+    const String quotedKey = String("\"") + key + "\":";
+    const int keyIndex = payload.indexOf(quotedKey);
+    if (keyIndex < 0) {
+        return fallback;
+    }
+
+    int valueIndex = keyIndex + quotedKey.length();
+    while (valueIndex < payload.length() && isspace(static_cast<unsigned char>(payload[valueIndex]))) {
+        ++valueIndex;
+    }
+    if (payload.substring(valueIndex, valueIndex + 4) == "true") {
+        return true;
+    }
+    if (payload.substring(valueIndex, valueIndex + 5) == "false") {
+        return false;
+    }
+    return fallback;
+}
+
+bool applyRemoteSampleIntervals(const String& payload) {
+    const unsigned long oldSoil = soilSampleIntervalMs;
+    const unsigned long oldLight = lightSampleIntervalMs;
+    const unsigned long oldAir = airSampleIntervalMs;
+    const unsigned long oldCloud = cloudSampleIntervalMs;
+
+    soilSampleIntervalMs = sanitizeSampleInterval(extractJsonLongValue(payload, "sample_time_soil_ms", soilSampleIntervalMs));
+    lightSampleIntervalMs = sanitizeSampleInterval(extractJsonLongValue(payload, "sample_time_light_ms", lightSampleIntervalMs));
+    airSampleIntervalMs = sanitizeSampleInterval(extractJsonLongValue(payload, "sample_time_air_ms", airSampleIntervalMs));
+    cloudSampleIntervalMs = sanitizeSampleInterval(extractJsonLongValue(payload, "sample_time_cloud_ms", cloudSampleIntervalMs));
+
+    const bool changed = oldSoil != soilSampleIntervalMs ||
+                         oldLight != lightSampleIntervalMs ||
+                         oldAir != airSampleIntervalMs ||
+                         oldCloud != cloudSampleIntervalMs;
+    if (changed) {
+        saveSampleIntervals();
+        Serial.printf(
+            "Remote intervals applied: soil=%lu light=%lu air=%lu cloud=%lu\n",
+            soilSampleIntervalMs,
+            lightSampleIntervalMs,
+            airSampleIntervalMs,
+            cloudSampleIntervalMs);
+    }
+    return changed;
+}
+
 bool ensureHubPairing(bool forceRetry) {
     if (pairedHubId.length() > 0) {
         pairingStatusMessage = "Huben er paret som " + pairedHubId + ".";
@@ -890,6 +987,157 @@ bool ensureHubPairing(bool forceRetry) {
     pairingStatusMessage = "Huben er paret som " + hubId + ".";
     Serial.printf("Hub pairing completed: %s\n", hubId.c_str());
     return true;
+}
+
+void reportDeviceStatus(const String& event, const String& detail = "") {
+    if (WiFi.status() != WL_CONNECTED || captivePortalActive || pairedHubId.length() == 0) {
+        return;
+    }
+
+    const String statusUrl = backendUrl(DeviceConfig::DEVICE_STATUS_PATH);
+    if (statusUrl.length() == 0) {
+        return;
+    }
+
+    String body = String("{\"hub_id\":\"") + pairedHubId + "\"";
+    body += ",\"firmware_version\":\"" + String(DeviceConfig::FIRMWARE_VERSION) + "\"";
+    body += ",\"event\":\"" + event + "\"";
+    body += ",\"local_ip\":\"" + WiFi.localIP().toString() + "\"";
+    if (detail.length() > 0) {
+        body += ",\"detail\":\"" + detail + "\"";
+    }
+    body += "}";
+
+    HTTPClient http;
+    http.setTimeout(4000);
+    if (!http.begin(statusUrl)) {
+        return;
+    }
+    http.addHeader("Content-Type", "application/json");
+    http.POST(body);
+    http.end();
+}
+
+bool performFirmwareUpdate(const String& version, const String& firmwareUrl) {
+    if (firmwareUrl.length() == 0) {
+        firmwareStatusMessage = "OTA mangler firmware-URL.";
+        return false;
+    }
+
+    firmwareStatusMessage = "Starter OTA til " + version;
+    Serial.printf("OTA update available: %s -> %s\n", DeviceConfig::FIRMWARE_VERSION, version.c_str());
+    reportDeviceStatus("ota_start", version);
+
+    HTTPClient http;
+    http.setTimeout(20000);
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
+    bool began = false;
+    if (firmwareUrl.startsWith("https://")) {
+        secureClient.setInsecure();
+        began = http.begin(secureClient, firmwareUrl);
+    } else {
+        began = http.begin(plainClient, firmwareUrl);
+    }
+    if (!began) {
+        firmwareStatusMessage = "OTA feilet: ugyldig URL.";
+        reportDeviceStatus("ota_failed", "invalid_url");
+        return false;
+    }
+
+    const int statusCode = http.GET();
+    if (statusCode != HTTP_CODE_OK) {
+        firmwareStatusMessage = "OTA feilet HTTP " + String(statusCode);
+        reportDeviceStatus("ota_failed", "http_" + String(statusCode));
+        http.end();
+        return false;
+    }
+
+    const int contentLength = http.getSize();
+    if (contentLength <= 0) {
+        firmwareStatusMessage = "OTA feilet: mangler størrelse.";
+        reportDeviceStatus("ota_failed", "missing_content_length");
+        http.end();
+        return false;
+    }
+
+    if (!Update.begin(contentLength)) {
+        firmwareStatusMessage = "OTA feilet: ikke nok plass.";
+        reportDeviceStatus("ota_failed", "begin_failed");
+        http.end();
+        return false;
+    }
+
+    WiFiClient* stream = http.getStreamPtr();
+    const size_t written = Update.writeStream(*stream);
+    if (written != static_cast<size_t>(contentLength)) {
+        firmwareStatusMessage = "OTA feilet: ufullstendig nedlasting.";
+        reportDeviceStatus("ota_failed", "short_write");
+        Update.abort();
+        http.end();
+        return false;
+    }
+
+    if (!Update.end() || !Update.isFinished()) {
+        firmwareStatusMessage = "OTA feilet: kunne ikke fullføre.";
+        reportDeviceStatus("ota_failed", "end_failed");
+        http.end();
+        return false;
+    }
+
+    firmwareStatusMessage = "OTA fullført. Starter på nytt.";
+    reportDeviceStatus("ota_success", version);
+    http.end();
+    delay(800);
+    ESP.restart();
+    return true;
+}
+
+void pollDeviceConfig(bool force) {
+    if (WiFi.status() != WL_CONNECTED || captivePortalActive || pairedHubId.length() == 0) {
+        return;
+    }
+
+    const unsigned long now = millis();
+    if (!force && now - lastDeviceConfigPollAt < DeviceConfig::DEVICE_CONFIG_POLL_INTERVAL_MS) {
+        return;
+    }
+    lastDeviceConfigPollAt = now;
+
+    const String configBaseUrl = backendUrl(DeviceConfig::DEVICE_CONFIG_PATH);
+    if (configBaseUrl.length() == 0) {
+        return;
+    }
+    const String configUrl = configBaseUrl +
+                             "?hub_id=" + urlEncode(pairedHubId) +
+                             "&version=" + urlEncode(DeviceConfig::FIRMWARE_VERSION);
+
+    HTTPClient http;
+    http.setTimeout(7000);
+    if (!http.begin(configUrl)) {
+        firmwareStatusMessage = "Kunne ikke kontakte config.";
+        return;
+    }
+
+    const int statusCode = http.GET();
+    const String responseBody = http.getString();
+    http.end();
+
+    if (statusCode < 200 || statusCode >= 300) {
+        firmwareStatusMessage = "Config feilet HTTP " + String(statusCode);
+        return;
+    }
+
+    applyRemoteSampleIntervals(responseBody);
+    const bool updateAvailable = extractJsonBoolValue(responseBody, "update_available", false);
+    const String latestVersion = extractJsonStringValue(responseBody, "latest_version");
+    const String firmwareUrl = extractJsonStringValue(responseBody, "url");
+    if (updateAvailable && latestVersion.length() > 0 && firmwareUrl.length() > 0) {
+        performFirmwareUpdate(latestVersion, firmwareUrl);
+        return;
+    }
+
+    firmwareStatusMessage = "Firmware OK";
 }
 
 String authLabel(wifi_auth_mode_t authMode) {
@@ -1407,6 +1655,8 @@ void handleRoot() {
 void handleHealth() {
     const String json =
         String("{\"status\":\"ok\",\"device\":\"") + DeviceConfig::DEVICE_NAME +
+        "\",\"firmware_version\":\"" + String(DeviceConfig::FIRMWARE_VERSION) +
+        "\",\"firmware_status\":\"" + firmwareStatusMessage +
         "\",\"mode\":\"" + wifiModeLabel() +
         "\",\"ip\":\"" + activeIpAddress() +
         "\",\"wifi_ssid\":\"" + configuredWifiSsid +
@@ -1471,6 +1721,7 @@ void handleWifiConfigure() {
     if (connectToStoredWifi()) {
         stopCaptivePortal();
         if (ensureHubPairing(true)) {
+            pollDeviceConfig(true);
             pollSensor(latestReading);
             printSensorReading();
             return;
@@ -1651,6 +1902,7 @@ void setup() {
     } else if (!ensureHubPairing(true) && configuredPairingCode.length() == 0) {
         startCaptivePortal();
     }
+    pollDeviceConfig(true);
 
     setupBh1750();
     scanI2cDevices();
@@ -1691,8 +1943,12 @@ void loop() {
     }
 
     if (WiFi.status() == WL_CONNECTED && pairedHubId.length() == 0 && configuredPairingCode.length() > 0) {
-        ensureHubPairing(false);
+        if (ensureHubPairing(false)) {
+            pollDeviceConfig(true);
+        }
     }
+
+    pollDeviceConfig(false);
 
     // Call Supabase upload from loop so the existing sensor-reading flow stays intact.
     sendToSupabase();
