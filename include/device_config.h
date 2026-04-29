@@ -13,7 +13,7 @@ constexpr char PREFS_SAMPLE_SOIL_KEY[] = "soil_ms";
 constexpr char PREFS_SAMPLE_LIGHT_KEY[] = "light_ms";
 constexpr char PREFS_SAMPLE_AIR_KEY[] = "air_ms";
 constexpr char PREFS_SAMPLE_CLOUD_KEY[] = "cloud_ms";
-constexpr char FIRMWARE_VERSION[] = "0.1.1-dht22";
+constexpr char FIRMWARE_VERSION[] = "0.1.2-factory-reset";
 constexpr char BACKEND_BASE_URL[] = "https://onlinegrowly.onrender.com";
 constexpr char BACKEND_INGEST_URL[] = "";
 constexpr char SUPABASE_PROJECT_URL[] = "https://ffxkxsclgiojrzmxvyuk.supabase.co";
@@ -25,7 +25,7 @@ constexpr char DEVICE_CONFIG_PATH[] = "/api/device/config";
 constexpr char DEVICE_STATUS_PATH[] = "/api/device/status";
 constexpr int WIFI_RESET_BUTTON_PIN = 0;
 constexpr unsigned long WIFI_FORCE_SETUP_HOLD_MS = 2000;
-constexpr unsigned long WIFI_RESET_HOLD_MS = 10000;
+constexpr unsigned long WIFI_RESET_HOLD_MS = 20000;
 constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 20000;
 constexpr unsigned long WIFI_SCAN_REFRESH_MS = 30000;
 // Avoid GPIO19/GPIO20 on ESP32-S3 DevKitC because they are commonly used for native USB.

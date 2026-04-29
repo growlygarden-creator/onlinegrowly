@@ -38,6 +38,7 @@ bool wifiResetTriggered = false;
 bool wifiResetCounting = false;
 unsigned long wifiResetStartedAt = 0;
 unsigned long wifiResetLastNoticeAt = 0;
+volatile bool wifiFactoryResetInProgress = false;
 unsigned long lastBackendUploadAt = 0;
 unsigned long lastDeviceConfigPollAt = 0;
 unsigned long lastSupabaseUploadAt = 0;
@@ -1236,13 +1237,17 @@ void saveWifiCredentials(const String& ssid, const String& password) {
     configuredWifiPassword = password;
 }
 
-void clearWifiCredentials() {
+void clearStoredWifiAndPairing() {
     preferences.begin(DeviceConfig::PREFS_NAMESPACE, false);
     preferences.remove(DeviceConfig::PREFS_WIFI_SSID_KEY);
     preferences.remove(DeviceConfig::PREFS_WIFI_PASSWORD_KEY);
     preferences.remove(DeviceConfig::PREFS_PAIRING_CODE_KEY);
     preferences.remove(DeviceConfig::PREFS_HUB_ID_KEY);
     preferences.end();
+}
+
+void clearWifiCredentials() {
+    clearStoredWifiAndPairing();
     configuredWifiSsid = "";
     configuredWifiPassword = "";
     configuredPairingCode = "";
@@ -1543,7 +1548,7 @@ String captivePortalHtml(const String& message = "", bool error = false) {
     html += "<div class='detail-row'><span>Enhetsnavn</span><strong>" + htmlEscape(DeviceConfig::DEVICE_NAME) + "</strong></div>";
     html += "</div>";
     html += "<div class='actions'><button type='submit'>Koble til</button><a class='link-button' href='/refresh'>Oppdater liste</a></div></form>";
-    html += "<p>Tips: hold BOOT inne i ca. 2 sekunder under oppstart for setup-modus, eller i 10 sekunder for full nullstilling av Wi-Fi og pairing.</p>";
+    html += "<p>Tips: hold BOOT inne i ca. 2 sekunder under oppstart for setup-modus, eller hold BOOT i 20 sekunder når som helst for full nullstilling av Wi-Fi og pairing.</p>";
     html += "</main></body></html>";
     return html;
 }
@@ -1574,17 +1579,75 @@ BootAction detectBootAction() {
 }
 
 void triggerWifiFactoryReset() {
-    if (wifiResetTriggered) {
+    if (wifiResetTriggered || wifiFactoryResetInProgress) {
         return;
     }
 
     wifiResetTriggered = true;
+    wifiFactoryResetInProgress = true;
     Serial.println("Resetting saved Wi-Fi settings now.");
     clearWifiCredentials();
     delay(200);
     Serial.println("Restarting device...");
     delay(300);
     ESP.restart();
+}
+
+void wifiFactoryResetTask(void*) {
+    bool pressed = false;
+    unsigned long startedAt = 0;
+    unsigned long lastNoticeAt = 0;
+
+    for (;;) {
+        const bool isPressed = digitalRead(DeviceConfig::WIFI_RESET_BUTTON_PIN) == LOW;
+        const unsigned long now = millis();
+
+        if (!isPressed) {
+            pressed = false;
+            startedAt = 0;
+            lastNoticeAt = 0;
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
+        if (!pressed) {
+            pressed = true;
+            startedAt = now;
+            lastNoticeAt = 0;
+            Serial.println("BOOT hold detected. Hold 20 seconds for factory Wi-Fi setup.");
+        }
+
+        const unsigned long heldMs = now - startedAt;
+        if (now - lastNoticeAt >= 5000) {
+            lastNoticeAt = now;
+            const unsigned long secondsLeft =
+                (DeviceConfig::WIFI_RESET_HOLD_MS > heldMs)
+                    ? (DeviceConfig::WIFI_RESET_HOLD_MS - heldMs + 999) / 1000
+                    : 0;
+            Serial.printf("Factory reset hold: %lu second(s) left\n", secondsLeft);
+        }
+
+        if (heldMs >= DeviceConfig::WIFI_RESET_HOLD_MS && !wifiFactoryResetInProgress) {
+            wifiFactoryResetInProgress = true;
+            Serial.println("Factory reset confirmed from BOOT hold. Clearing Wi-Fi and pairing.");
+            clearStoredWifiAndPairing();
+            delay(300);
+            ESP.restart();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+void startWifiFactoryResetWatcher() {
+    xTaskCreatePinnedToCore(
+        wifiFactoryResetTask,
+        "wifi-reset-watch",
+        4096,
+        nullptr,
+        3,
+        nullptr,
+        0);
 }
 
 void handleWifiResetButton() {
@@ -1914,6 +1977,7 @@ void setup() {
     Serial.begin(115200);
     delay(1200);
     pinMode(DeviceConfig::WIFI_RESET_BUTTON_PIN, INPUT_PULLUP);
+    startWifiFactoryResetWatcher();
     setupStatusLed();
 
     Serial.println();
