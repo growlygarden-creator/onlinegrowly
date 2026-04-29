@@ -236,14 +236,13 @@
                 </article>
 
                 <article class="wiring-block">
-                    <h3>DHT22 luftfuktighet</h3>
+                    <h3>AM2302 luftfuktighet</h3>
                     <div class="wiring-list">
-                        <div class="wiring-line"><span>VCC</span><strong>3V3</strong></div>
-                        <div class="wiring-line"><span>GND</span><strong>GND</strong></div>
-                        <div class="wiring-line"><span>DATA</span><strong>GPIO10</strong></div>
-                        <div class="wiring-line"><span>DATA</span><strong>10k pullup til 3V3</strong></div>
+                        <div class="wiring-line"><span>Rød</span><strong>3V3</strong></div>
+                        <div class="wiring-line"><span>Svart</span><strong>GND</strong></div>
+                        <div class="wiring-line"><span>Gul</span><strong>GPIO10</strong></div>
                     </div>
-                    <p class="helper-text">DHT22 brukes midlertidig til luftfuktighet sammen med BMP280. Mange moduler har allerede pullup innebygd.</p>
+                    <p class="helper-text">AM2302 brukes midlertidig til luftfuktighet sammen med BMP280. Ikke bruk GPIO9 her, den er SCL på I2C-bussen.</p>
                 </article>
 
                 <article class="wiring-block">
