@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Adafruit_BME280.h>
 #include <Adafruit_BMP280.h>
+#include <DHT.h>
 #include <DNSServer.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
@@ -22,6 +23,7 @@ DNSServer dnsServer;
 Preferences preferences;
 Adafruit_BME280 bme280;
 Adafruit_BMP280 bmp280;
+DHT dht22(DeviceConfig::DHT22_DATA_PIN, DHT22);
 
 String configuredWifiSsid;
 String configuredWifiPassword;
@@ -70,6 +72,7 @@ struct AirSensorState {
     bool available = false;
     bool valid = false;
     bool humidityAvailable = false;
+    bool dhtAvailable = false;
     bool bmpOnly = false;
     uint8_t address = 0;
     uint8_t chipId = 0;
@@ -448,6 +451,10 @@ void setupAirSensor() {
     } else {
         Serial.println("BME280/BMP280 not found on 0x76 or 0x77");
     }
+
+    dht22.begin();
+    airSensorState.dhtAvailable = true;
+    Serial.printf("DHT22 enabled on GPIO%d for temporary air humidity\n", DeviceConfig::DHT22_DATA_PIN);
 }
 
 bool readBh1750Lux(float& lux) {
@@ -484,37 +491,64 @@ void pollBh1750() {
 }
 
 void pollAirSensor() {
-    if (!airSensorState.available) {
+    if (!airSensorState.available && !airSensorState.dhtAvailable) {
         return;
     }
 
-    const float temperature = airSensorState.bmpOnly ? bmp280.readTemperature() : bme280.readTemperature();
-    const float pressurePa = airSensorState.bmpOnly ? bmp280.readPressure() : bme280.readPressure();
-    const float humidity = airSensorState.humidityAvailable ? bme280.readHumidity() : NAN;
+    float temperature = NAN;
+    float pressurePa = NAN;
+    float humidity = NAN;
 
-    if (isnan(temperature) || isnan(pressurePa) || (airSensorState.humidityAvailable && isnan(humidity))) {
+    if (airSensorState.available) {
+        temperature = airSensorState.bmpOnly ? bmp280.readTemperature() : bme280.readTemperature();
+        pressurePa = airSensorState.bmpOnly ? bmp280.readPressure() : bme280.readPressure();
+        if (!airSensorState.bmpOnly) {
+            humidity = bme280.readHumidity();
+        }
+    }
+
+    if (airSensorState.dhtAvailable) {
+        const float dhtHumidity = dht22.readHumidity();
+        const float dhtTemperature = dht22.readTemperature();
+        if (!isnan(dhtHumidity)) {
+            humidity = dhtHumidity;
+        }
+        if (isnan(temperature) && !isnan(dhtTemperature)) {
+            temperature = dhtTemperature;
+        }
+    }
+
+    if (isnan(temperature) || (airSensorState.available && isnan(pressurePa))) {
         airSensorState.valid = false;
-        Serial.println("BME280/BMP280 read failed");
+        airSensorState.humidityAvailable = false;
+        Serial.println("Air sensor read failed");
         return;
     }
 
     airSensorState.temperature = temperature;
-    airSensorState.pressureHpa = pressurePa / 100.0f;
-    airSensorState.humidity = airSensorState.humidityAvailable ? humidity : NAN;
+    airSensorState.pressureHpa = isnan(pressurePa) ? NAN : pressurePa / 100.0f;
+    airSensorState.humidity = humidity;
+    airSensorState.humidityAvailable = !isnan(humidity);
     airSensorState.valid = true;
     airSensorState.lastReadAt = millis();
 
-    if (airSensorState.humidityAvailable) {
+    if (airSensorState.available && airSensorState.humidityAvailable) {
         Serial.printf(
-            "BME280 | air_temperature=%.2f air_humidity=%.2f air_pressure=%.2f hPa\n",
+            "%s + humidity | air_temperature=%.2f air_humidity=%.2f air_pressure=%.2f hPa\n",
+            airSensorState.bmpOnly ? "BMP280/DHT22" : "BME280",
             airSensorState.temperature,
             airSensorState.humidity,
             airSensorState.pressureHpa);
-    } else {
+    } else if (airSensorState.available) {
         Serial.printf(
             "BMP280 | air_temperature=%.2f air_pressure=%.2f hPa\n",
             airSensorState.temperature,
             airSensorState.pressureHpa);
+    } else {
+        Serial.printf(
+            "DHT22 | air_temperature=%.2f air_humidity=%.2f\n",
+            airSensorState.temperature,
+            airSensorState.humidity);
     }
 }
 
@@ -707,7 +741,7 @@ String sensorReadingJson() {
     json += ",\"last_read_ms\":" + String(latestReading.lastReadAt);
     json += ",\"device\":\"" + String(DeviceConfig::DEVICE_NAME) + "\"";
     json += ",\"air_temperature\":";
-    if (airSensorState.valid) {
+    if (airSensorState.valid && !isnan(airSensorState.temperature)) {
         json += String(airSensorState.temperature, 2);
     } else {
         json += "null";
@@ -719,7 +753,7 @@ String sensorReadingJson() {
         json += "null";
     }
     json += ",\"air_pressure\":";
-    if (airSensorState.valid) {
+    if (airSensorState.valid && !isnan(airSensorState.pressureHpa)) {
         json += String(airSensorState.pressureHpa, 2);
     } else {
         json += "null";
@@ -747,7 +781,7 @@ String sensorReadingJson() {
 String supabasePayloadJson() {
     String json = "{";
     json += "\"air_temperature\":";
-    if (airSensorState.valid) {
+    if (airSensorState.valid && !isnan(airSensorState.temperature)) {
         json += String(airSensorState.temperature, 2);
     } else {
         json += "null";
@@ -759,7 +793,7 @@ String supabasePayloadJson() {
         json += "null";
     }
     json += ",\"air_pressure\":";
-    if (airSensorState.valid) {
+    if (airSensorState.valid && !isnan(airSensorState.pressureHpa)) {
         json += String(airSensorState.pressureHpa, 2);
     } else {
         json += "null";

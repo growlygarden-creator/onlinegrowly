@@ -13,7 +13,7 @@ constexpr char PREFS_SAMPLE_SOIL_KEY[] = "soil_ms";
 constexpr char PREFS_SAMPLE_LIGHT_KEY[] = "light_ms";
 constexpr char PREFS_SAMPLE_AIR_KEY[] = "air_ms";
 constexpr char PREFS_SAMPLE_CLOUD_KEY[] = "cloud_ms";
-constexpr char FIRMWARE_VERSION[] = "0.1.0";
+constexpr char FIRMWARE_VERSION[] = "0.1.1-dht22";
 constexpr char BACKEND_BASE_URL[] = "https://onlinegrowly.onrender.com";
 constexpr char BACKEND_INGEST_URL[] = "";
 constexpr char SUPABASE_PROJECT_URL[] = "https://ffxkxsclgiojrzmxvyuk.supabase.co";
@@ -32,6 +32,7 @@ constexpr unsigned long WIFI_SCAN_REFRESH_MS = 30000;
 // Keeping BH1750 off the USB pins prevents the serial port from disappearing after boot.
 constexpr int I2C_SDA_PIN = 8;
 constexpr int I2C_SCL_PIN = 9;
+constexpr int DHT22_DATA_PIN = 10;
 #ifdef LED_BUILTIN
 constexpr int STATUS_LED_PIN = LED_BUILTIN;
 #else
