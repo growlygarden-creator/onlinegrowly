@@ -658,8 +658,6 @@ def create_pairing_token(target_username: str) -> dict[str, Any]:
         raise ValueError("user_not_found")
     if not user["is_active"]:
         raise ValueError("user_inactive")
-    if find_hub_by_owner(target_username):
-        raise ValueError("hub_already_assigned")
 
     existing_token = active_pairing_for_user(target_username)
     if existing_token:
@@ -705,38 +703,55 @@ def complete_pairing_token(
         raise ValueError("pairing_token_expired")
 
     target_username = str(pairing["target_username"])
-    if find_hub_by_owner(target_username):
-        raise ValueError("hub_already_assigned")
-
     now = utc_now_iso()
     effective_sensor_url = normalize_sensor_url(sensor_url or DEFAULT_APP_SETTINGS["sensor_url"])
     effective_local_ip = str(local_ip or "").strip()
+    existing_hub = find_hub_by_owner(target_username)
 
     with db_connection() as connection:
-        hub_id = next_hub_id(connection)
-        connection.execute(
-            """
-            INSERT INTO hubs (
-                hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
-                sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                sample_time_cloud_ms, history_start_at, created_at, updated_at
-            ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                hub_id,
-                target_username,
-                target_username,
-                effective_sensor_url,
-                effective_local_ip,
-                DEFAULT_APP_SETTINGS["sample_time_soil_ms"],
-                DEFAULT_APP_SETTINGS["sample_time_light_ms"],
-                DEFAULT_APP_SETTINGS["sample_time_air_ms"],
-                DEFAULT_APP_SETTINGS["sample_time_cloud_ms"],
-                DEFAULT_APP_SETTINGS["history_start_at"],
-                now,
-                now,
-            ),
-        )
+        if existing_hub:
+            hub_id = str(existing_hub["hub_id"])
+            connection.execute(
+                """
+                UPDATE hubs
+                SET is_active = 1,
+                    sensor_url = ?,
+                    local_ip = ?,
+                    updated_at = ?
+                WHERE hub_id = ?
+                """,
+                (
+                    effective_sensor_url,
+                    effective_local_ip or str(existing_hub.get("local_ip") or ""),
+                    now,
+                    hub_id,
+                ),
+            )
+        else:
+            hub_id = next_hub_id(connection)
+            connection.execute(
+                """
+                INSERT INTO hubs (
+                    hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
+                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
+                    sample_time_cloud_ms, history_start_at, created_at, updated_at
+                ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    hub_id,
+                    target_username,
+                    target_username,
+                    effective_sensor_url,
+                    effective_local_ip,
+                    DEFAULT_APP_SETTINGS["sample_time_soil_ms"],
+                    DEFAULT_APP_SETTINGS["sample_time_light_ms"],
+                    DEFAULT_APP_SETTINGS["sample_time_air_ms"],
+                    DEFAULT_APP_SETTINGS["sample_time_cloud_ms"],
+                    DEFAULT_APP_SETTINGS["history_start_at"],
+                    now,
+                    now,
+                ),
+            )
         connection.execute(
             """
             UPDATE pairing_tokens

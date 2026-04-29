@@ -157,7 +157,7 @@
         const result = await response.json();
         if (!result.ok) {
             const errorMap = {
-                hub_already_assigned: "Denne brukeren har allerede en hub koblet til.",
+                hub_already_assigned: "Brukeren har allerede en hub. Oppdater siden og prøv igjen.",
                 user_not_found: "Brukeren finnes ikke.",
                 user_inactive: "Brukeren er deaktivert."
             };

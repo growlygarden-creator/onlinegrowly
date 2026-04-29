@@ -141,6 +141,8 @@ Admin-kontoen skal brukes her, ikke i appen.
 
 Pairing kobler ESP-kortet til en bruker/hub i backend.
 
+Hvis brukeren allerede har en hub, kan du likevel generere ny pairing-kode. Da kobles ESP-kortet til samme eksisterende hub-id på nytt. Dette er laget for feilretting, nytt ESP-kort eller factory reset uten at historikk slettes.
+
 Normal flyt:
 
 1. Logg inn i appen som vanlig bruker.
@@ -583,4 +585,3 @@ Anbefalt rekkefølge når vi fortsetter:
 3. Bekrefte at trender i appen bruker nye målinger.
 4. Rydde OTA-flyten: hvor firmware-binær skal hostes.
 5. Når BME280 kommer, bytte fra BMP280 + AM2302 til BME280 alene, eller la AM2302 være backup.
-
