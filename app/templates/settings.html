@@ -177,61 +177,72 @@
             <div class="wiring-grid">
                 <article class="wiring-block">
                     <h3>ESP32 → MAX485</h3>
-                    <pre class="wiring-code">3V3    → VCC
-GPIO17 → DI
-GPIO18 → RO
-GPIO16 → DE
-GPIO16 → RE
-GND    → GND</pre>
+                    <div class="wiring-list">
+                        <div class="wiring-line"><span>3V3</span><strong>VCC</strong></div>
+                        <div class="wiring-line"><span>GPIO17</span><strong>DI</strong></div>
+                        <div class="wiring-line"><span>GPIO18</span><strong>RO</strong></div>
+                        <div class="wiring-line"><span>GPIO16</span><strong>DE</strong></div>
+                        <div class="wiring-line"><span>GPIO16</span><strong>RE</strong></div>
+                        <div class="wiring-line"><span>GND</span><strong>GND</strong></div>
+                    </div>
                     <p class="helper-text">DE og RE skal ligge på samme GPIO. Felles jord er helt nødvendig.</p>
                 </article>
 
                 <article class="wiring-block">
                     <h3>MAX485 → 7in1 jordsensor</h3>
-                    <pre class="wiring-code">A      → gul/grønn
-B      → blå
-Sensor brun  → +5V
-Sensor svart → GND</pre>
+                    <div class="wiring-list">
+                        <div class="wiring-line"><span>A</span><strong>gul/grønn</strong></div>
+                        <div class="wiring-line"><span>B</span><strong>blå</strong></div>
+                        <div class="wiring-line"><span>Sensor brun</span><strong>+5V</strong></div>
+                        <div class="wiring-line"><span>Sensor svart</span><strong>GND</strong></div>
+                    </div>
                     <p class="helper-text">Hvis jordsensoren gir timeout, er første test alltid å bytte A og B.</p>
                 </article>
 
                 <article class="wiring-block">
                     <h3>I2C-buss</h3>
-                    <pre class="wiring-code">GPIO8 → SDA
-GPIO9 → SCL
-3V3   → VCC
-GND   → GND</pre>
+                    <div class="wiring-list">
+                        <div class="wiring-line"><span>GPIO8</span><strong>SDA</strong></div>
+                        <div class="wiring-line"><span>GPIO9</span><strong>SCL</strong></div>
+                        <div class="wiring-line"><span>3V3</span><strong>VCC</strong></div>
+                        <div class="wiring-line"><span>GND</span><strong>GND</strong></div>
+                    </div>
                     <p class="helper-text">BH1750 og BMP280 deler samme SDA og SCL på denne bussen.</p>
                 </article>
 
                 <article class="wiring-block">
                     <h3>BH1750 lys</h3>
-                    <pre class="wiring-code">VCC → 3V3
-GND → GND
-SDA → GPIO8
-SCL → GPIO9
-ADDR → åpen</pre>
+                    <div class="wiring-list">
+                        <div class="wiring-line"><span>VCC</span><strong>3V3</strong></div>
+                        <div class="wiring-line"><span>GND</span><strong>GND</strong></div>
+                        <div class="wiring-line"><span>SDA</span><strong>GPIO8</strong></div>
+                        <div class="wiring-line"><span>SCL</span><strong>GPIO9</strong></div>
+                        <div class="wiring-line"><span>ADDR</span><strong>åpen</strong></div>
+                    </div>
                     <p class="helper-text">BH1750 blir funnet på 0x23 i dette oppsettet.</p>
                 </article>
 
                 <article class="wiring-block">
                     <h3>BMP280 luftsensor</h3>
-                    <pre class="wiring-code">VCC → 3V3
-GND → GND
-SDA → GPIO8
-SCL → GPIO9
-CSB → 3V3
-SDO → GND</pre>
+                    <div class="wiring-list">
+                        <div class="wiring-line"><span>VCC / VIN</span><strong>3V3</strong></div>
+                        <div class="wiring-line"><span>GND</span><strong>GND</strong></div>
+                        <div class="wiring-line"><span>SDA / SDI</span><strong>GPIO8</strong></div>
+                        <div class="wiring-line"><span>SCL / SCK</span><strong>GPIO9</strong></div>
+                        <div class="wiring-line"><span>CSB / CS</span><strong>3V3</strong></div>
+                        <div class="wiring-line"><span>SDO</span><strong>GND</strong></div>
+                    </div>
                     <p class="helper-text">Modulen du har nå svarer som BMP280 på 0x76. Den gir temperatur og lufttrykk, men ikke luftfuktighet.</p>
                 </article>
 
                 <article class="wiring-block">
                     <h3>Husk dette</h3>
-                    <pre class="wiring-code">ESP32 GND
-MAX485 GND
-Sensor GND
-I2C-sensor GND
-må dele felles jord</pre>
+                    <div class="wiring-list wiring-list-plain">
+                        <div class="wiring-line"><span>ESP32 GND</span><strong>felles jord</strong></div>
+                        <div class="wiring-line"><span>MAX485 GND</span><strong>felles jord</strong></div>
+                        <div class="wiring-line"><span>Sensor GND</span><strong>felles jord</strong></div>
+                        <div class="wiring-line"><span>I2C-sensor GND</span><strong>felles jord</strong></div>
+                    </div>
                     <p class="helper-text">Hvis noe plutselig ser dødt ut, sjekk strøm og jord før du begynner å mistenke firmware.</p>
                 </article>
             </div>

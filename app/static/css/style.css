@@ -1776,7 +1776,8 @@ select {
     padding: 16px;
     border: 1px solid var(--line);
     border-radius: 18px;
-    background: rgba(255, 255, 255, 0.03);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(244, 251, 243, 0.72));
+    box-shadow: 0 14px 34px rgba(22, 61, 42, 0.08);
 }
 
 .wiring-block h3 {
@@ -1794,6 +1795,57 @@ select {
     color: var(--text);
     font: 0.82rem/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     white-space: pre-wrap;
+}
+
+.wiring-list {
+    display: grid;
+    gap: 8px;
+    margin: 0 0 12px;
+}
+
+.wiring-line {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(92px, 0.9fr) 28px minmax(92px, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid rgba(22, 61, 42, 0.12);
+    border-radius: 12px;
+    background: #ffffff;
+    color: #143022;
+    box-shadow: 0 8px 18px rgba(22, 61, 42, 0.06);
+}
+
+.wiring-line::before {
+    content: "→";
+    grid-column: 2;
+    justify-self: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: #eef8ef;
+    color: #2f9d64;
+    font-weight: 900;
+}
+
+.wiring-line span,
+.wiring-line strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font: 0.9rem/1.25 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.wiring-line span {
+    color: #607268;
+}
+
+.wiring-line strong {
+    grid-column: 3;
+    color: #143022;
+    font-weight: 850;
 }
 
 @media (max-width: 760px) {
