@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
@@ -131,6 +132,33 @@ def hash_password(password: str, salt: str | None = None) -> str:
         200000,
     )
     return f"{salt_value}${derived.hex()}"
+
+
+def issue_api_token(username: str) -> str:
+    encoded_username = base64.urlsafe_b64encode(username.encode("utf-8")).decode("ascii").rstrip("=")
+    signature = hmac.new(SESSION_SECRET.encode("utf-8"), encoded_username.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{encoded_username}.{signature}"
+
+
+def username_from_api_token(token: str) -> str:
+    try:
+        encoded_username, signature = token.split(".", 1)
+    except ValueError:
+        return ""
+
+    expected_signature = hmac.new(
+        SESSION_SECRET.encode("utf-8"),
+        encoded_username.encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        return ""
+
+    padding = "=" * (-len(encoded_username) % 4)
+    try:
+        return base64.urlsafe_b64decode(f"{encoded_username}{padding}").decode("utf-8").strip()
+    except (ValueError, UnicodeDecodeError):
+        return ""
 
 
 def verify_password(password: str, password_hash: str) -> bool:
@@ -1791,7 +1819,10 @@ def push_device_settings(target: str, payload: dict[str, Any]) -> dict[str, Any]
 
 
 def is_viewer_authenticated(request: Request) -> bool:
-    return bool(request.session.get("viewer_authenticated"))
+    if bool(request.session.get("viewer_authenticated")):
+        return True
+    username = bearer_username(request)
+    return bool(username)
 
 
 def is_settings_authenticated(request: Request) -> bool:
@@ -1832,8 +1863,24 @@ def require_settings_api(request: Request) -> JSONResponse | None:
     return JSONResponse(status_code=403, content={"ok": False, "error": "settings_password_required"})
 
 
+def bearer_username(request: Request) -> str:
+    authorization = request.headers.get("authorization", "").strip()
+    if not authorization.lower().startswith("bearer "):
+        return ""
+    username = username_from_api_token(authorization[7:].strip())
+    if not username:
+        return ""
+    user = find_app_user(username)
+    if not user or not user["is_active"]:
+        return ""
+    return str(user["username"])
+
+
 def current_username(request: Request) -> str:
-    return str(request.session.get("username", "")).strip()
+    session_username = str(request.session.get("username", "")).strip()
+    if session_username:
+        return session_username
+    return bearer_username(request)
 
 
 def resolve_request_hub(request: Request) -> dict[str, Any]:
@@ -1904,6 +1951,7 @@ def session_auth_payload(request: Request) -> dict[str, Any]:
             "is_admin": user["is_admin"],
         } if user else None,
         "hub": hub,
+        "api_token": issue_api_token(username) if user and is_viewer_authenticated(request) and not bool(user["is_admin"]) else "",
     }
 
 

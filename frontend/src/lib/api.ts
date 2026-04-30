@@ -50,6 +50,7 @@ export type AuthSession = {
   username: string;
   is_admin: boolean;
   settings_unlocked: boolean;
+  api_token?: string;
   user: {
     username: string;
     full_name: string;
@@ -73,6 +74,7 @@ type ApiError = {
 };
 
 const REQUEST_TIMEOUT_MS = 3500;
+const API_AUTH_TOKEN_KEY = "growly.apiToken";
 
 async function parseJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
@@ -84,6 +86,38 @@ function apiUrl(path: string): string {
   }
 
   return `${API_BASE_URL}${path}`;
+}
+
+function storedApiToken(): string {
+  try {
+    return window.localStorage.getItem(API_AUTH_TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function persistApiToken(session: AuthSession | null): void {
+  try {
+    if (session?.api_token) {
+      window.localStorage.setItem(API_AUTH_TOKEN_KEY, session.api_token);
+      return;
+    }
+    window.localStorage.removeItem(API_AUTH_TOKEN_KEY);
+  } catch {
+    // localStorage can be unavailable in some embedded contexts.
+  }
+}
+
+function authHeaders(headers?: HeadersInit): HeadersInit {
+  const token = storedApiToken();
+  if (!token) {
+    return headers ?? {};
+  }
+
+  return {
+    ...(headers ?? {}),
+    Authorization: `Bearer ${token}`,
+  };
 }
 
 async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -111,12 +145,16 @@ export async function fetchSession(): Promise<AuthSession | null> {
     const response = await fetchWithTimeout(apiUrl("/api/auth/session"), {
       credentials: "include",
       cache: "no-store",
+      headers: authHeaders(),
     });
     if (!response.ok) {
       return null;
     }
 
     const result = await parseJson<{ ok: true; session: AuthSession }>(response);
+    if (result.session?.authenticated) {
+      persistApiToken(result.session);
+    }
     return result.session;
   } catch {
     return null;
@@ -128,7 +166,7 @@ export async function login(username: string, password: string): Promise<AuthSes
     method: "POST",
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...authHeaders({ "Content-Type": "application/json" }),
     },
     body: JSON.stringify({ username, password }),
   });
@@ -139,6 +177,7 @@ export async function login(username: string, password: string): Promise<AuthSes
   }
 
   const result = await parseJson<{ ok: true; session: AuthSession }>(response);
+  persistApiToken(result.session);
   return result.session;
 }
 
@@ -153,7 +192,7 @@ export async function registerAccount(payload: {
     method: "POST",
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...authHeaders({ "Content-Type": "application/json" }),
     },
     body: JSON.stringify(payload),
   });
@@ -164,13 +203,16 @@ export async function registerAccount(payload: {
   }
 
   const result = await parseJson<{ ok: true; session: AuthSession }>(response);
+  persistApiToken(result.session);
   return result.session;
 }
 
 export async function logout(): Promise<void> {
+  persistApiToken(null);
   await fetchWithTimeout(apiUrl("/logout"), {
     method: "POST",
     credentials: "include",
+    headers: authHeaders(),
   });
 }
 
@@ -179,6 +221,7 @@ export async function fetchActivePairing(): Promise<PairingInfo | null> {
     const response = await fetchWithTimeout(apiUrl("/api/hubs/pairing-token"), {
       credentials: "include",
       cache: "no-store",
+      headers: authHeaders(),
     });
     if (!response.ok) {
       return null;
@@ -197,7 +240,7 @@ export async function createPairing(): Promise<PairingInfo | null> {
       method: "POST",
       credentials: "include",
       headers: {
-        "Content-Type": "application/json",
+        ...authHeaders({ "Content-Type": "application/json" }),
       },
       body: JSON.stringify({}),
     });
@@ -217,6 +260,7 @@ export async function fetchLatestSample(): Promise<LatestSample | null> {
     const response = await fetchWithTimeout(apiUrl("/api/latest"), {
       credentials: "include",
       cache: "no-store",
+      headers: authHeaders(),
     });
     if (!response.ok) {
       return null;
@@ -254,6 +298,7 @@ export async function fetchMetricHistory(params: {
     const response = await fetchWithTimeout(apiUrl(`/api/history?${search.toString()}`), {
       credentials: "include",
       cache: "no-store",
+      headers: authHeaders(),
     });
     if (!response.ok) {
       return null;
