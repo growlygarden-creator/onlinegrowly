@@ -65,7 +65,7 @@
 
         <section class="panel settings-card">
             <h2 class="settings-subtitle">Samplingsintervall</h2>
-            <p class="helper-text">Bestem hvor ofte systemet skal hente og sende data videre. Verdiene lagres i backend og pushes også til ESP32-en når den er online.</p>
+            <p class="helper-text">Bestem hvor ofte huben skal lese sensorene og sende data videre. Verdiene lagres i backend og hentes automatisk av huben når den er online.</p>
             <div class="settings-grid">
                 <label class="field">
                     <span>7in1 jordsensor</span>
@@ -100,7 +100,7 @@
                 <button id="save-settings-button" class="button" type="button">Lagre intervaller</button>
                 <span id="settings-save-status" class="status-pill">Ikke lagret enda</span>
             </div>
-            <p id="settings-debug-target" class="helper-text">ESP32 target: -</p>
+            <p id="settings-debug-target" class="helper-text">Hub-konfig: lagres i backend og hentes automatisk av ESP32.</p>
         </section>
 
         <section class="panel settings-card">
@@ -323,7 +323,6 @@
             const url = normalizeTargetUrl({ updateField: true });
             window.localStorage.setItem(storageKey, url);
             activeTarget.textContent = url;
-            settingsDebugTarget.textContent = `ESP32 target: ${url}`;
             return url;
         }
 
@@ -343,7 +342,6 @@
                 }
                 input.value = result.settings.sensor_url || sensorUrl;
                 activeTarget.textContent = input.value;
-                settingsDebugTarget.textContent = `ESP32 target: ${input.value}`;
                 setStatus("Sensor URL lagret", "online");
             } catch (error) {
                 setStatus(`Feil ved lagring`, "offline");
@@ -523,12 +521,11 @@
             };
 
             try {
-                const target = currentTarget();
-                settingsDebugTarget.textContent = `ESP32 target: ${target} -> /device-settings`;
-                const response = await fetch("/api/device-settings", {
+                settingsDebugTarget.textContent = "Hub-konfig: lagrer i backend...";
+                const response = await fetch("/api/settings", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ ...payload, target })
+                    body: JSON.stringify(payload)
                 });
                 const result = await response.json();
                 if (!result.ok) {
@@ -539,17 +536,12 @@
                 sampleTimeLight.value = Math.round(result.settings.sample_time_light_ms / 60000);
                 sampleTimeAir.value = Math.round(result.settings.sample_time_air_ms / 60000);
                 sampleTimeCloud.value = Math.round(result.settings.sample_time_cloud_ms / 60000);
-                if (result.device_ok) {
-                    setSaveStatus("Lagret på app og ESP32", "online");
-                    settingsDebugTarget.textContent = `ESP32 target: ${result.target || target} -> OK`;
-                } else {
-                    setSaveStatus("Lagret i appen · ESP32 ikke oppdatert", "warning");
-                    settingsDebugTarget.textContent = `ESP32 target: ${result.target || target || "-"} -> ${result.device_error || "ikke tilgjengelig"}`;
-                }
+                setSaveStatus("Lagret", "online");
+                settingsDebugTarget.textContent = "Hub-konfig: ESP32 henter nye intervaller automatisk innen ca. 5 minutter.";
             } catch (error) {
                 const label = error?.name ? `${error.name}: ` : "";
                 const message = error?.message || String(error);
-                settingsDebugTarget.textContent = `ESP32 target: FEIL under lagring`;
+                settingsDebugTarget.textContent = "Hub-konfig: feil under lagring";
                 setSaveStatus(`Feil: ${label}${message}`, "offline");
             }
         }
