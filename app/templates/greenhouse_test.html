@@ -18,6 +18,7 @@
                 <a href="/monitor">Monitor</a>
                 <a href="/drivhus-test" class="active">Drivhus test</a>
                 <a href="/settings">{% if not current_user_is_admin %}<span class="nav-lock" aria-hidden="true">🔒</span>{% endif %}Innstillinger</a>
+                <a href="/users">{% if not current_user_is_admin %}<span class="nav-lock" aria-hidden="true">🔒</span>{% endif %}Brukere</a>
                 <form method="post" action="/logout" class="page-nav-form">
                     <button type="submit" class="page-nav-button">Logg ut</button>
                 </form>

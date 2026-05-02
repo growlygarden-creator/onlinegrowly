@@ -31,6 +31,44 @@ export type HistoryResponse = {
   points: HistoryPoint[];
 };
 
+export type PlantRange = {
+  optimal: [number, number];
+  caution: [number, number];
+};
+
+export type PlantCatalogItem = {
+  id: string;
+  kind: "base" | "variant" | "cultivar";
+  profile_id: string;
+  variant_id: string | null;
+  cultivar_id: string | null;
+  name: string;
+  display_name: string;
+  subtitle: string;
+  family: string;
+  icon: string;
+  tone: "tomato" | "cucumber" | "basil" | "leafy" | "berry" | "pepper";
+  ranges: {
+    airTemperature: PlantRange;
+    airHumidity: PlantRange;
+    soilHumidity: PlantRange;
+    soilTemperature: PlantRange;
+    ph: PlantRange;
+    lux: PlantRange;
+  };
+  notes: string;
+  watering: string;
+  seed_guide?: {
+    sow: string;
+    start: string;
+    repot: string;
+    plant_out: string;
+    harvest: string;
+  };
+  category: string;
+  latin_name: string;
+};
+
 const DEFAULT_NATIVE_API_BASE = "https://onlinegrowly.onrender.com";
 const API_BASE_URL = (() => {
   const configuredBase = (import.meta.env.VITE_API_BASE_URL || "").trim();
@@ -308,5 +346,28 @@ export async function fetchMetricHistory(params: {
     return result.ok ? result : null;
   } catch {
     return null;
+  }
+}
+
+export async function fetchPlantCatalog(query = ""): Promise<PlantCatalogItem[]> {
+  try {
+    const search = new URLSearchParams();
+    if (query.trim()) {
+      search.set("q", query.trim());
+    }
+
+    const response = await fetchWithTimeout(apiUrl(`/api/plant-catalog${search.toString() ? `?${search.toString()}` : ""}`), {
+      credentials: "include",
+      cache: "no-store",
+      headers: authHeaders(),
+    });
+    if (!response.ok) {
+      return [];
+    }
+
+    const result = await parseJson<{ ok: true; items: PlantCatalogItem[] }>(response);
+    return Array.isArray(result.items) ? result.items : [];
+  } catch {
+    return [];
   }
 }

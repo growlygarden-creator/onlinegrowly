@@ -114,6 +114,7 @@ size_t visibleNetworkCount = 0;
 void printSensorReading();
 bool ensureHubPairing(bool forceRetry = false);
 void pollDeviceConfig(bool force = false);
+String currentSampleIntervalsJson();
 
 enum class StatusLedColor {
     Off,
@@ -261,12 +262,16 @@ void savePairedHubId(const String& hubId) {
 }
 
 String sampleIntervalsJson() {
-    return String("{\"ok\":true,\"settings\":{") +
+    return String("{\"ok\":true,\"settings\":") + currentSampleIntervalsJson() + "}";
+}
+
+String currentSampleIntervalsJson() {
+    return String("{") +
            "\"sample_time_soil_ms\":" + String(soilSampleIntervalMs) + "," +
            "\"sample_time_light_ms\":" + String(lightSampleIntervalMs) + "," +
            "\"sample_time_air_ms\":" + String(airSampleIntervalMs) + "," +
            "\"sample_time_cloud_ms\":" + String(cloudSampleIntervalMs) +
-           "}}";
+           "}";
 }
 
 void setupStatusLed() {
@@ -1024,7 +1029,7 @@ bool ensureHubPairing(bool forceRetry) {
     return true;
 }
 
-void reportDeviceStatus(const String& event, const String& detail = "") {
+void reportDeviceStatus(const String& event, const String& detail = "", unsigned long appliedConfigRevision = 0) {
     if (WiFi.status() != WL_CONNECTED || captivePortalActive || pairedHubId.length() == 0) {
         return;
     }
@@ -1040,6 +1045,10 @@ void reportDeviceStatus(const String& event, const String& detail = "") {
     body += ",\"local_ip\":\"" + WiFi.localIP().toString() + "\"";
     if (detail.length() > 0) {
         body += ",\"detail\":\"" + detail + "\"";
+    }
+    if (appliedConfigRevision > 0) {
+        body += ",\"config_revision\":" + String(appliedConfigRevision);
+        body += ",\"applied_settings\":" + currentSampleIntervalsJson();
     }
     body += "}";
 
@@ -1163,7 +1172,14 @@ void pollDeviceConfig(bool force) {
         return;
     }
 
-    applyRemoteSampleIntervals(responseBody);
+    const bool intervalsChanged = applyRemoteSampleIntervals(responseBody);
+    const unsigned long configRevision = extractJsonLongValue(responseBody, "revision", 0);
+    if (configRevision > 0) {
+        reportDeviceStatus(
+            intervalsChanged ? "config_applied" : "config_confirmed",
+            intervalsChanged ? "sample_intervals_updated" : "sample_intervals_current",
+            configRevision);
+    }
     const bool updateAvailable = extractJsonBoolValue(responseBody, "update_available", false);
     const String latestVersion = extractJsonStringValue(responseBody, "latest_version");
     const String firmwareUrl = extractJsonStringValue(responseBody, "url");

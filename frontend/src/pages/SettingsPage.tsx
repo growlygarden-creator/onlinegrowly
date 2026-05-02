@@ -1,10 +1,25 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { createPairing, fetchActivePairing, logout, type AuthSession, type PairingInfo } from "../lib/api";
 
 type SettingsPageProps = {
   session: AuthSession | null;
   setSession: (session: AuthSession | null) => void;
 };
+
+type PlantHistoryItem = {
+  instanceId: string;
+  displayName?: string;
+  nickname?: string;
+  icon?: string;
+  family?: string;
+  sowedAt?: string;
+  archivedAt?: string;
+  outcomeLabel?: string;
+  notes?: string;
+};
+
+const PLANT_HISTORY_STORAGE_KEY = "growly.plantHistory";
 
 function initialsFromName(name: string): string {
   return name
@@ -15,10 +30,21 @@ function initialsFromName(name: string): string {
     .join("");
 }
 
+function loadPlantHistory(): PlantHistoryItem[] {
+  try {
+    const raw = window.localStorage.getItem(PLANT_HISTORY_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export function SettingsPage({ session, setSession }: SettingsPageProps) {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
+  const [plantHistory] = useState<PlantHistoryItem[]>(loadPlantHistory);
 
   useEffect(() => {
     fetchActivePairing().then((activePairing) => {
@@ -119,6 +145,20 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
             <span className="chevron">›</span>
           </div>
         </article>
+      </section>
+
+      <section className="settings-section">
+        <p className="section-kicker">Historikk</p>
+        <Link className="soft-card settings-card premium-section-card settings-row-link" to="/historikk">
+          <div className="settings-row">
+            <div className="icon-badge icon-badge--mint">☘</div>
+            <div className="settings-row__content">
+              <strong>Tidligere planteprosjekter</strong>
+              <span>{plantHistory.length ? `${plantHistory.length} lagret i historikk` : "Ingen avsluttede prosjekter enda"}</span>
+            </div>
+            <span className="chevron">›</span>
+          </div>
+        </Link>
       </section>
 
       <section className="settings-section">

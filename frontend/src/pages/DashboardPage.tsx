@@ -11,6 +11,77 @@ type DashboardPageProps = {
 
 type SoilMetricKey = "humidity" | "temperature" | "ph" | "conductivity" | "nitrogen" | "phosphorus" | "potassium" | "salinity" | "tds";
 type TrendRange = "24h" | "3d" | "7d" | "all";
+type ClimateReportMetric = "temperature" | "humidity" | "lux";
+
+type DashboardPlant = {
+  nickname: string;
+  profileId: string;
+};
+
+const GREENHOUSE_PLANTS_STORAGE_KEY = "growly.greenhousePlants";
+
+const dashboardPlantProfiles: Record<
+  string,
+  {
+    name: string;
+    ranges: Record<ClimateReportMetric, { optimal: [number, number]; caution: [number, number] }>;
+  }
+> = {
+  tomato: {
+    name: "Tomat",
+    ranges: {
+      temperature: { optimal: [20, 26], caution: [16, 30] },
+      humidity: { optimal: [45, 65], caution: [35, 78] },
+      lux: { optimal: [5000, 25000], caution: [2000, 40000] },
+    },
+  },
+  cucumber: {
+    name: "Agurk",
+    ranges: {
+      temperature: { optimal: [22, 28], caution: [18, 31] },
+      humidity: { optimal: [60, 80], caution: [48, 90] },
+      lux: { optimal: [6000, 30000], caution: [2500, 45000] },
+    },
+  },
+  basil: {
+    name: "Basilikum",
+    ranges: {
+      temperature: { optimal: [20, 26], caution: [18, 30] },
+      humidity: { optimal: [45, 65], caution: [35, 78] },
+      lux: { optimal: [5000, 22000], caution: [2500, 35000] },
+    },
+  },
+  pepper: {
+    name: "Paprika",
+    ranges: {
+      temperature: { optimal: [21, 28], caution: [18, 31] },
+      humidity: { optimal: [45, 65], caution: [35, 78] },
+      lux: { optimal: [6000, 26000], caution: [3000, 42000] },
+    },
+  },
+  lettuce: {
+    name: "Salat",
+    ranges: {
+      temperature: { optimal: [10, 18], caution: [6, 24] },
+      humidity: { optimal: [50, 75], caution: [40, 85] },
+      lux: { optimal: [3000, 18000], caution: [1500, 30000] },
+    },
+  },
+  strawberry: {
+    name: "Jordbær",
+    ranges: {
+      temperature: { optimal: [16, 22], caution: [12, 28] },
+      humidity: { optimal: [55, 75], caution: [45, 85] },
+      lux: { optimal: [4000, 20000], caution: [1800, 32000] },
+    },
+  },
+};
+
+const defaultDashboardPlants: DashboardPlant[] = [
+  { nickname: "Cherry tomat", profileId: "tomato" },
+  { nickname: "Agurk", profileId: "cucumber" },
+  { nickname: "Basilikum", profileId: "basil" },
+];
 
 const soilMetricConfigs: Array<{
   key: SoilMetricKey;
@@ -159,9 +230,71 @@ function formatUpdatedAt(value: string | null | undefined): string {
   })}`;
 }
 
+function loadDashboardPlants(): DashboardPlant[] {
+  try {
+    const raw = window.localStorage.getItem(GREENHOUSE_PLANTS_STORAGE_KEY);
+    if (!raw) {
+      return defaultDashboardPlants;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return defaultDashboardPlants;
+    }
+
+    return parsed
+      .filter((plant) => plant?.profileId && plant?.nickname)
+      .map((plant) => ({ profileId: plant.profileId, nickname: plant.nickname }));
+  } catch {
+    return defaultDashboardPlants;
+  }
+}
+
+function climateValue(sample: LatestSample | null, metric: ClimateReportMetric): number | null | undefined {
+  if (metric === "temperature") {
+    return sample?.air_temperature ?? sample?.temperature;
+  }
+  if (metric === "humidity") {
+    return sample?.air_humidity;
+  }
+  return sample?.lux;
+}
+
+function climateLabel(metric: ClimateReportMetric): { title: string; unit: string; digits: number } {
+  if (metric === "temperature") {
+    return { title: "Temperatur", unit: "°C", digits: 1 };
+  }
+  if (metric === "humidity") {
+    return { title: "Luftfuktighet", unit: "%", digits: 0 };
+  }
+  return { title: "Lys", unit: "lx", digits: 0 };
+}
+
+function scoreClimate(value: number | null | undefined, range: { optimal: [number, number]; caution: [number, number] }) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return { label: "Venter", level: "missing" as const, text: "Mangler måling." };
+  }
+  if (value >= range.optimal[0] && value <= range.optimal[1]) {
+    return { label: "Optimal", level: "good" as const, text: "Forholdet er innenfor ønsket område." };
+  }
+  if (value >= range.caution[0] && value <= range.caution[1]) {
+    return {
+      label: value < range.optimal[0] ? "Litt lavt" : "Litt høyt",
+      level: "watch" as const,
+      text: "Dette er greit, men bør følges med.",
+    };
+  }
+  return {
+    label: value < range.caution[0] ? "For lavt" : "For høyt",
+    level: "bad" as const,
+    text: "Dette kan påvirke planten og bør vurderes.",
+  };
+}
+
 export function DashboardPage({ session }: DashboardPageProps) {
   const [sample, setSample] = useState<LatestSample | null>(null);
   const [soilPanelOpen, setSoilPanelOpen] = useState(false);
+  const [reportMetric, setReportMetric] = useState<ClimateReportMetric | null>(null);
   const [trendMetric, setTrendMetric] = useState<SoilMetricKey | null>(null);
   const [trendRange, setTrendRange] = useState<TrendRange>("7d");
   const [trendPoints, setTrendPoints] = useState<HistoryPoint[]>([]);
@@ -176,7 +309,7 @@ export function DashboardPage({ session }: DashboardPageProps) {
   }, []);
 
   useEffect(() => {
-    if (!soilPanelOpen && !trendMetric) {
+    if (!soilPanelOpen && !trendMetric && !reportMetric) {
       return;
     }
 
@@ -184,12 +317,13 @@ export function DashboardPage({ session }: DashboardPageProps) {
       if (event.key === "Escape") {
         setSoilPanelOpen(false);
         setTrendMetric(null);
+        setReportMetric(null);
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [soilPanelOpen, trendMetric]);
+  }, [soilPanelOpen, trendMetric, reportMetric]);
 
   useEffect(() => {
     if (!trendMetric) {
@@ -224,7 +358,11 @@ export function DashboardPage({ session }: DashboardPageProps) {
   const status = growthStatus(sample);
   const temperature = metricText(sample?.air_temperature ?? sample?.temperature, "°C", 0);
   const humidity = metricText(sample?.air_humidity, "%", 0);
+  const lux = metricText(sample?.lux, " lx", 0);
   const updatedAt = formatUpdatedAt(sample?.recorded_at);
+  const dashboardPlants = loadDashboardPlants();
+  const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
+  const activeReportValue = reportMetric ? climateValue(sample, reportMetric) : null;
   const soilMetrics = soilMetricConfigs.map((metric) => ({
     ...metric,
     value: formatTrendValue(sampleValue(sample, metric.key), metric.unit, metric.digits),
@@ -284,20 +422,20 @@ export function DashboardPage({ session }: DashboardPageProps) {
           </div>
 
           <div className="metric-strip">
-            <div className="metric-strip__item">
+            <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("temperature")}>
               <span className="metric-strip__label">
                 <img className="metric-strip__dot" src={tempDot} alt="" aria-hidden="true" />
                 Temperatur
               </span>
               <strong>{temperature}</strong>
-            </div>
-            <div className="metric-strip__item">
+            </button>
+            <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("humidity")}>
               <span className="metric-strip__label">
                 <img className="metric-strip__dot" src={humidityDot} alt="" aria-hidden="true" />
                 Luftfuktighet
               </span>
               <strong>{humidity}</strong>
-            </div>
+            </button>
             <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setSoilPanelOpen(true)}>
               <span className="metric-strip__label">
                 <img className="metric-strip__dot" src={soilDot} alt="" aria-hidden="true" />
@@ -305,11 +443,13 @@ export function DashboardPage({ session }: DashboardPageProps) {
               </span>
               <strong>{status.soil}</strong>
             </button>
-          </div>
-
-          <div className="hero-meta-row">
-            <span>{updatedAt}</span>
-            <span>{session?.hub?.hub_name || "Growly Hub"}</span>
+            <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("lux")}>
+              <span className="metric-strip__label">
+                <span className="metric-strip__sun-dot" aria-hidden="true" />
+                Lys
+              </span>
+              <strong>{lux}</strong>
+            </button>
           </div>
         </article>
       </section>
@@ -353,6 +493,51 @@ export function DashboardPage({ session }: DashboardPageProps) {
                   <strong>{metric.value}</strong>
                 </button>
               ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {reportMetric && activeReportLabel ? (
+        <div className="soil-modal" role="dialog" aria-modal="true" aria-labelledby="climate-report-title">
+          <button
+            className="soil-modal__backdrop"
+            type="button"
+            aria-label="Lukk rapport"
+            onClick={() => setReportMetric(null)}
+          />
+          <section className="soil-modal__panel soft-card climate-report-panel">
+            <div className="soil-modal__header">
+              <div>
+                <p className="section-kicker">Rapport</p>
+                <h2 id="climate-report-title">{activeReportLabel.title}</h2>
+                <span>
+                  Nå: {formatTrendValue(activeReportValue, activeReportLabel.unit, activeReportLabel.digits)}
+                </span>
+              </div>
+              <button className="soil-modal__close" type="button" aria-label="Lukk" onClick={() => setReportMetric(null)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="climate-report-list">
+              {dashboardPlants.map((plant) => {
+                const profile = dashboardPlantProfiles[plant.profileId] ?? dashboardPlantProfiles.tomato;
+                const range = profile.ranges[reportMetric];
+                const score = scoreClimate(activeReportValue, range);
+                return (
+                  <article className="climate-report-row" key={`${plant.profileId}-${plant.nickname}`}>
+                    <div>
+                      <strong>{plant.nickname || profile.name}</strong>
+                      <span>Optimal: {range.optimal[0]}-{range.optimal[1]} {activeReportLabel.unit}</span>
+                      <small>{score.text}</small>
+                    </div>
+                    <span className={`condition-badge condition-badge--${score.level}`}>{score.label}</span>
+                  </article>
+                );
+              })}
             </div>
           </section>
         </div>

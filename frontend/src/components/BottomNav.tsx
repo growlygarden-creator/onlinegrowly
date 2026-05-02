@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 
 type Tab = {
   label: string;
+  shortLabel?: string;
   to: string;
   icon: (props: { className?: string }) => JSX.Element;
 };
@@ -20,7 +21,41 @@ const tabs: Tab[] = [
     ),
   },
   {
+    label: "Mine planter",
+    shortLabel: "Planter",
+    to: "/drivhus",
+    icon: ({ className }) => (
+      <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.8"
+          d="M4 20V11.4L12 5l8 6.4V20M7.5 20v-6.5h9V20M3 20h18M12 5v15"
+        />
+      </svg>
+    ),
+  },
+  {
+    label: "Kartotek",
+    to: "/kartotek",
+    icon: ({ className }) => (
+      <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.8"
+          d="M5 4.5h10.5A3.5 3.5 0 0 1 19 8v11.5H8.5A3.5 3.5 0 0 1 5 16V4.5Zm0 0v11.2A3.3 3.3 0 0 0 8.3 19M8.5 8h6M8.5 11.5h7"
+        />
+      </svg>
+    ),
+  },
+  {
     label: "Innstillinger",
+    shortLabel: "Innst.",
     to: "/settings",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -44,7 +79,8 @@ export function BottomNav() {
           end={tab.to === "/"}
         >
           <tab.icon className="bottom-nav__icon" />
-          <span className="bottom-nav__label">{tab.label}</span>
+          <span className="bottom-nav__label bottom-nav__label--full">{tab.label}</span>
+          <span className="bottom-nav__label bottom-nav__label--short">{tab.shortLabel ?? tab.label}</span>
         </NavLink>
       ))}
     </nav>

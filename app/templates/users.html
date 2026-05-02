@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Growly Brukere</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260502-users-3">
+</head>
+<body>
+    <main class="dashboard-shell">
+        <header class="page-topbar">
+            <a class="landing-brand" href="/" aria-label="Growly Garden">
+                <img class="logo-mark small" src="{{ url_for('static', path='logo.png') }}" alt="Growly logo">
+                <span>Growly Garden</span>
+            </a>
+            <nav class="page-nav">
+                <a href="/">Hjem</a>
+                <a href="/monitor">Monitor</a>
+                <a href="/drivhus-test">Drivhus test</a>
+                <a href="/settings">{% if not current_user_is_admin %}<span class="nav-lock" aria-hidden="true">🔒</span>{% endif %}Innstillinger</a>
+                <a href="/users" class="active">{% if not current_user_is_admin %}<span class="nav-lock" aria-hidden="true">🔒</span>{% endif %}Brukere</a>
+                <form method="post" action="/logout" class="page-nav-form">
+                    <button type="submit" class="page-nav-button">Logg ut</button>
+                </form>
+            </nav>
+        </header>
+
+        <section class="hero page-hero users-hero">
+            <div class="hero-copy">
+                <p class="eyebrow">Brukere</p>
+                <h1>Kundehåndtering</h1>
+                <p class="lead">Finn brukere raskt, se hub-status, rediger kontaktinfo, reset passord og styr tilgang uten at siden blir tung å bruke.</p>
+                <p class="helper-text">Aktiv hub: <strong>{{ active_hub.hub_id }}</strong> · Innlogget som <strong>{{ current_username }}</strong></p>
+            </div>
+        </section>
+
+        <section class="customer-command-grid customer-command-grid-summary">
+            <article class="panel settings-card customer-summary-card">
+                <h2 class="settings-subtitle">Oversikt</h2>
+                <div class="customer-stat-grid">
+                    <div class="customer-stat">
+                        <span>Totalt</span>
+                        <strong id="stat-total">0</strong>
+                    </div>
+                    <div class="customer-stat">
+                        <span>Aktive</span>
+                        <strong id="stat-active">0</strong>
+                    </div>
+                    <div class="customer-stat">
+                        <span>Admin</span>
+                        <strong id="stat-admin">0</strong>
+                    </div>
+                    <div class="customer-stat">
+                        <span>Med hub</span>
+                        <strong id="stat-hub">0</strong>
+                    </div>
+                </div>
+                <p class="helper-text">Brukere opprettes via web-linken. Her håndterer du eksisterende kunder, tilgang, kontaktinfo og passord.</p>
+            </article>
+        </section>
+
+        <section class="panel settings-card customer-manager">
+            <div class="section-heading-row customer-manager-head">
+                <div>
+                    <h2 class="settings-subtitle">Kunderegister</h2>
+                    <p class="helper-text"><span id="visible-users-count">0 brukere</span> vises. Velg et kort for detaljer og handlinger.</p>
+                </div>
+                <div class="customer-head-actions">
+                    <span id="user-status" class="status-pill">Klar</span>
+                    <button id="refresh-users-button" class="button subtle-button" type="button">Oppdater</button>
+                </div>
+            </div>
+
+            <div class="customer-toolbar">
+                <label class="customer-search">
+                    <span>Søk</span>
+                    <input id="user-search" type="search" placeholder="Navn, e-post, telefon, hub eller brukernavn">
+                </label>
+                <div class="customer-filter-row" aria-label="Filter">
+                    <button class="customer-filter active" type="button" data-user-filter="all">Alle</button>
+                    <button class="customer-filter" type="button" data-user-filter="active">Aktive</button>
+                    <button class="customer-filter" type="button" data-user-filter="inactive">Deaktivert</button>
+                    <button class="customer-filter" type="button" data-user-filter="admin">Admin</button>
+                    <button class="customer-filter" type="button" data-user-filter="hubless">Uten hub</button>
+                </div>
+                <label class="customer-sort">
+                    <span>Sorter</span>
+                    <select id="user-sort">
+                        <option value="name">Navn A-Å</option>
+                        <option value="username">Brukernavn</option>
+                        <option value="hub">Hub</option>
+                        <option value="role">Rolle</option>
+                    </select>
+                </label>
+            </div>
+
+            <div class="customer-workspace">
+                <div id="user-list" class="customer-list"></div>
+                <aside id="user-detail" class="customer-detail">
+                    <div class="customer-detail-empty">
+                        <strong>Velg en bruker</strong>
+                        <p class="helper-text">Detaljer, passordreset og tilgang vises her.</p>
+                    </div>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const userList = document.getElementById("user-list");
+        const userDetail = document.getElementById("user-detail");
+        const userStatus = document.getElementById("user-status");
+        const refreshUsersButton = document.getElementById("refresh-users-button");
+        const userSearch = document.getElementById("user-search");
+        const userSort = document.getElementById("user-sort");
+        const visibleUsersCount = document.getElementById("visible-users-count");
+        const currentUsername = "{{ current_username }}";
+
+        const stats = {
+            total: document.getElementById("stat-total"),
+            active: document.getElementById("stat-active"),
+            admin: document.getElementById("stat-admin"),
+            hub: document.getElementById("stat-hub")
+        };
+
+        const errorMessages = {
+            missing_username: "Brukernavn mangler.",
+            username_too_short: "Brukernavnet må ha minst 3 tegn.",
+            missing_full_name: "Fullt navn mangler.",
+            full_name_too_short: "Fullt navn er for kort.",
+            missing_phone: "Telefonnummer mangler.",
+            phone_too_short: "Telefonnummer er for kort.",
+            missing_email: "E-post mangler.",
+            invalid_email: "E-postadressen ser ikke riktig ut.",
+            password_too_short: "Passordet må ha minst 6 tegn.",
+            user_exists: "Brukeren finnes allerede.",
+            email_exists: "E-postadressen er allerede i bruk.",
+            user_not_found: "Brukeren finnes ikke.",
+            cannot_delete_self: "Du kan ikke slette brukeren du er innlogget med.",
+            cannot_delete_last_admin: "Du kan ikke slette siste admin-bruker."
+        };
+
+        let users = [];
+        let selectedUsername = "";
+        let activeFilter = "all";
+
+        function humanError(error) {
+            return errorMessages[error] || error || "Ukjent feil";
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? "")
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;");
+        }
+
+        function setUserStatus(text, mode = "") {
+            userStatus.textContent = text;
+            userStatus.dataset.mode = mode;
+        }
+
+        function displayName(user) {
+            return (user.full_name || user.username || "").trim();
+        }
+
+        function searchableText(user) {
+            return [
+                user.username,
+                user.full_name,
+                user.email,
+                user.phone,
+                user.hub_id,
+                user.hub_name
+            ].join(" ").toLowerCase();
+        }
+
+        function userMatchesFilter(user) {
+            if (activeFilter === "active") return !!user.is_active;
+            if (activeFilter === "inactive") return !user.is_active;
+            if (activeFilter === "admin") return !!user.is_admin;
+            if (activeFilter === "hubless") return !user.hub_id;
+            return true;
+        }
+
+        function sortedUsers(list) {
+            return [...list].sort((a, b) => {
+                if (userSort.value === "username") {
+                    return String(a.username || "").localeCompare(String(b.username || ""), "nb");
+                }
+                if (userSort.value === "hub") {
+                    return String(a.hub_id || "zz").localeCompare(String(b.hub_id || "zz"), "nb");
+                }
+                if (userSort.value === "role") {
+                    return Number(!!b.is_admin) - Number(!!a.is_admin) || displayName(a).localeCompare(displayName(b), "nb");
+                }
+                return displayName(a).localeCompare(displayName(b), "nb");
+            });
+        }
+
+        function filteredUsers() {
+            const query = (userSearch.value || "").trim().toLowerCase();
+            return sortedUsers(users.filter((user) => userMatchesFilter(user) && (!query || searchableText(user).includes(query))));
+        }
+
+        function renderStats() {
+            stats.total.textContent = users.length;
+            stats.active.textContent = users.filter((user) => user.is_active).length;
+            stats.admin.textContent = users.filter((user) => user.is_admin).length;
+            stats.hub.textContent = users.filter((user) => user.hub_id).length;
+        }
+
+        function userInitials(user) {
+            const name = displayName(user);
+            const parts = name.split(/\s+/).filter(Boolean);
+            if (parts.length > 1) {
+                return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+            }
+            return String(user.username || "?").slice(0, 2).toUpperCase();
+        }
+
+        function renderList() {
+            const list = filteredUsers();
+            visibleUsersCount.textContent = `${list.length} ${list.length === 1 ? "bruker" : "brukere"}`;
+
+            if (!list.length) {
+                userList.innerHTML = '<div class="customer-empty"><strong>Ingen treff</strong><p class="helper-text">Prøv et annet søk eller filter.</p></div>';
+                renderDetail();
+                return;
+            }
+
+            if (!selectedUsername || !list.some((user) => user.username === selectedUsername)) {
+                selectedUsername = list[0].username;
+            }
+
+            userList.innerHTML = list.map((user) => {
+                const selected = user.username === selectedUsername ? " selected" : "";
+                const role = user.is_admin ? "Admin" : "Kunde";
+                const state = user.is_active ? "Aktiv" : "Av";
+                const statusClass = user.is_active ? "online" : "offline";
+                const hub = user.hub_id ? escapeHtml(user.hub_id) : "Ingen hub";
+                return `
+                    <button class="customer-row${selected}" type="button" data-user-select="${escapeHtml(user.username)}">
+                        <span class="customer-avatar">${escapeHtml(userInitials(user))}</span>
+                        <span class="customer-row-main">
+                            <strong>${escapeHtml(displayName(user))}</strong>
+                            <small>${escapeHtml(user.email || "Ingen e-post")} · ${hub}</small>
+                        </span>
+                        <span class="customer-row-meta">
+                            <span class="mini-pill ${statusClass}">${state}</span>
+                            <small>${role}</small>
+                        </span>
+                    </button>
+                `;
+            }).join("");
+
+            renderDetail();
+        }
+
+        function selectedUser() {
+            return users.find((user) => user.username === selectedUsername);
+        }
+
+        function renderDetail() {
+            const user = selectedUser();
+            if (!user) {
+                userDetail.innerHTML = `
+                    <div class="customer-detail-empty">
+                        <strong>Velg en bruker</strong>
+                        <p class="helper-text">Detaljer, passordreset og tilgang vises her.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const cannotDeleteSelf = user.username === currentUsername;
+            userDetail.innerHTML = `
+                <div class="customer-detail-head">
+                    <span class="customer-avatar large">${escapeHtml(userInitials(user))}</span>
+                    <div>
+                        <p class="eyebrow">${user.is_admin ? "Admin" : "Kunde"} · ${user.is_active ? "Aktiv" : "Deaktivert"}</p>
+                        <h3>${escapeHtml(displayName(user))}</h3>
+                        <p class="helper-text">${escapeHtml(user.username)}</p>
+                    </div>
+                </div>
+
+                <div class="customer-info-grid">
+                    <div>
+                        <span>E-post</span>
+                        <strong>${escapeHtml(user.email || "Ikke satt")}</strong>
+                    </div>
+                    <div>
+                        <span>Telefon</span>
+                        <strong>${escapeHtml(user.phone || "Ikke satt")}</strong>
+                    </div>
+                    <div>
+                        <span>Hub</span>
+                        <strong>${escapeHtml(user.hub_id || "Ingen hub")}</strong>
+                    </div>
+                    <div>
+                        <span>Hub-navn</span>
+                        <strong>${escapeHtml(user.hub_name || "Ikke satt")}</strong>
+                    </div>
+                </div>
+
+                <div class="customer-edit-grid">
+                    <label class="field">
+                        <span>Fullt navn</span>
+                        <input data-detail-field="full_name" type="text" value="${escapeHtml(user.full_name || "")}">
+                    </label>
+                    <label class="field">
+                        <span>Telefon</span>
+                        <input data-detail-field="phone" type="tel" value="${escapeHtml(user.phone || "")}">
+                    </label>
+                    <label class="field">
+                        <span>E-post</span>
+                        <input data-detail-field="email" type="email" value="${escapeHtml(user.email || "")}">
+                    </label>
+                    <label class="field">
+                        <span>Nytt passord manuelt</span>
+                        <input data-detail-field="password" type="password" placeholder="La stå tomt hvis uendret">
+                    </label>
+                </div>
+
+                <div class="customer-access-card">
+                    <label class="toggle-line">
+                        <input type="checkbox" data-detail-field="is_active" ${user.is_active ? "checked" : ""}>
+                        <span>Brukeren er aktiv</span>
+                    </label>
+                    <label class="toggle-line">
+                        <input type="checkbox" data-detail-field="is_admin" ${user.is_admin ? "checked" : ""}>
+                        <span>Admin-tilgang</span>
+                    </label>
+                </div>
+
+                <div class="customer-actions">
+                    <button type="button" class="button" data-detail-save="${escapeHtml(user.username)}">Lagre endringer</button>
+                    <button type="button" class="button subtle-button" data-detail-reset="${escapeHtml(user.username)}">Reset passord</button>
+                    <button type="button" class="button danger-button" data-detail-delete="${escapeHtml(user.username)}" ${cannotDeleteSelf ? "disabled" : ""}>Slett bruker</button>
+                </div>
+            `;
+        }
+
+        function updateUsers(nextUsers, preferredSelection = selectedUsername) {
+            users = nextUsers || [];
+            selectedUsername = preferredSelection && users.some((user) => user.username === preferredSelection)
+                ? preferredSelection
+                : (users[0]?.username || "");
+            renderStats();
+            renderList();
+        }
+
+        async function loadUsers() {
+            const response = await fetch("/api/users", { cache: "no-store" });
+            const payload = await response.json();
+            if (!payload.ok) {
+                throw new Error(payload.error || "users_load_failed");
+            }
+            updateUsers(payload.users || []);
+        }
+
+        function detailPayload() {
+            const field = (name) => userDetail.querySelector(`[data-detail-field="${name}"]`);
+            return {
+                full_name: field("full_name")?.value || "",
+                phone: field("phone")?.value || "",
+                email: field("email")?.value || "",
+                password: field("password")?.value || "",
+                is_active: !!field("is_active")?.checked,
+                is_admin: !!field("is_admin")?.checked
+            };
+        }
+
+        async function updateUser(username) {
+            setUserStatus(`Lagrer ${username}...`, "warning");
+            try {
+                const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(detailPayload())
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "user_update_failed");
+                }
+                updateUsers(result.users || [], username);
+                setUserStatus(`Oppdatert ${username}`, "online");
+            } catch (error) {
+                setUserStatus(`Feil: ${humanError(error.message)}`, "offline");
+            }
+        }
+
+        async function resetPassword(username) {
+            if (!window.confirm(`Lage nytt midlertidig passord for ${username}?`)) {
+                return;
+            }
+
+            setUserStatus(`Resetter passord for ${username}...`, "warning");
+            try {
+                const response = await fetch(`/api/users/${encodeURIComponent(username)}/reset-password`, {
+                    method: "POST"
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "password_reset_failed");
+                }
+                updateUsers(result.users || [], username);
+                setUserStatus(`Nytt passord for ${username}: ${result.password}`, "online");
+                if (navigator.clipboard?.writeText) {
+                    navigator.clipboard.writeText(result.password).catch(() => {});
+                }
+            } catch (error) {
+                setUserStatus(`Feil: ${humanError(error.message)}`, "offline");
+            }
+        }
+
+        async function deleteUser(username) {
+            if (!window.confirm(`Slette bruker ${username}? Dette fjerner også hub, pairing og sensordata som tilhører brukeren.`)) {
+                return;
+            }
+
+            setUserStatus(`Sletter ${username}...`, "warning");
+            try {
+                const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+                    method: "DELETE"
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "user_delete_failed");
+                }
+                updateUsers(result.users || []);
+                setUserStatus(`Slettet ${username}`, "online");
+            } catch (error) {
+                setUserStatus(`Feil: ${humanError(error.message)}`, "offline");
+            }
+        }
+
+        refreshUsersButton.addEventListener("click", () => {
+            setUserStatus("Oppdaterer...", "warning");
+            loadUsers()
+                .then(() => setUserStatus("Oppdatert", "online"))
+                .catch((error) => setUserStatus(`Feil: ${humanError(error.message)}`, "offline"));
+        });
+        userSearch.addEventListener("input", renderList);
+        userSort.addEventListener("change", renderList);
+        document.querySelectorAll("[data-user-filter]").forEach((button) => {
+            button.addEventListener("click", () => {
+                activeFilter = button.dataset.userFilter || "all";
+                document.querySelectorAll("[data-user-filter]").forEach((filterButton) => {
+                    filterButton.classList.toggle("active", filterButton === button);
+                });
+                renderList();
+            });
+        });
+
+        userList.addEventListener("click", (event) => {
+            const row = event.target.closest("[data-user-select]");
+            if (!row) {
+                return;
+            }
+            selectedUsername = row.dataset.userSelect;
+            renderList();
+        });
+
+        userDetail.addEventListener("click", (event) => {
+            const saveButton = event.target.closest("[data-detail-save]");
+            if (saveButton) {
+                updateUser(saveButton.dataset.detailSave);
+                return;
+            }
+            const resetButton = event.target.closest("[data-detail-reset]");
+            if (resetButton) {
+                resetPassword(resetButton.dataset.detailReset);
+                return;
+            }
+            const deleteButton = event.target.closest("[data-detail-delete]");
+            if (deleteButton && !deleteButton.disabled) {
+                deleteUser(deleteButton.dataset.detailDelete);
+            }
+        });
+
+        loadUsers().catch((error) => {
+            setUserStatus(`Feil: ${humanError(error.message)}`, "offline");
+        });
+    </script>
+</body>
+</html>

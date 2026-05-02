@@ -18,6 +18,7 @@
                 <a href="/monitor">Monitor</a>
                 <a href="/drivhus-test">Drivhus test</a>
                 <a href="/settings" class="active">{% if not current_user_is_admin %}<span class="nav-lock" aria-hidden="true">🔒</span>{% endif %}Innstillinger</a>
+                <a href="/users">{% if not current_user_is_admin %}<span class="nav-lock" aria-hidden="true">🔒</span>{% endif %}Brukere</a>
                 <form method="post" action="/logout" class="page-nav-form">
                     <button type="submit" class="page-nav-button">Logg ut</button>
                 </form>
@@ -82,7 +83,7 @@
                     </div>
                 </label>
                 <label class="field">
-                    <span>Luftsensor</span>
+                    <span>Luftsensor DHT22/BMP280</span>
                     <div class="unit-input">
                         <input id="sample-time-air" type="number" min="1" step="1" value="{{ sample_settings['sample_time_air_ms'] // 60000 }}">
                         <span class="unit-suffix">min</span>
@@ -100,54 +101,29 @@
                 <button id="save-settings-button" class="button" type="button">Lagre intervaller</button>
                 <span id="settings-save-status" class="status-pill">Ikke lagret enda</span>
             </div>
+            <div class="settings-grid config-ack-grid">
+                <div class="config-ack-card">
+                    <span>Sendt konfig</span>
+                    <strong id="config-requested-revision">rev {{ sample_settings['config_revision'] }}</strong>
+                    <small id="config-requested-at">{{ sample_settings['config_updated_at'] or 'Ikke endret enda' }}</small>
+                </div>
+                <div class="config-ack-card">
+                    <span>Bekreftet av hub</span>
+                    <strong id="config-applied-revision">rev {{ sample_settings['config_applied_revision'] or 0 }}</strong>
+                    <small id="config-applied-at">{{ sample_settings['config_applied_at'] or 'Venter på første bekreftelse' }}</small>
+                </div>
+                <div class="config-ack-card">
+                    <span>Hub-status</span>
+                    <strong id="device-status-message">{{ sample_settings['device_status_message'] or 'Ingen status enda' }}</strong>
+                    <small id="device-status-at">{{ sample_settings['device_status_at'] or 'Ikke sett' }}</small>
+                </div>
+                <div class="config-ack-card">
+                    <span>Firmware</span>
+                    <strong id="device-firmware-version">{{ sample_settings['device_firmware_version'] or 'Ukjent' }}</strong>
+                    <small id="config-ack-state">Sjekker status...</small>
+                </div>
+            </div>
             <p id="settings-debug-target" class="helper-text">Hub-konfig: lagres i backend og hentes automatisk av ESP32.</p>
-        </section>
-
-        <section class="panel settings-card">
-            <h2 class="settings-subtitle">Data start</h2>
-            <p class="helper-text">Alt før dette tidspunktet skjules i monitor, trender og sammendrag. Det betyr at ingen data fra før denne tiden skal vises noe sted i appen.</p>
-            <div class="settings-grid">
-                <label class="field">
-                    <span>Startdato for visning</span>
-                    <input id="history-start-date" type="date" value="{{ sample_settings['history_start_at'].split('T')[0] if sample_settings['history_start_at'] else '' }}">
-                </label>
-                <label class="field">
-                    <span>Klokkeslett</span>
-                    <input id="history-start-time" type="time" value="{{ sample_settings['history_start_at'].split('T')[1] if sample_settings['history_start_at'] else '' }}">
-                </label>
-            </div>
-            <div class="actions">
-                <button id="save-history-start-button" class="button" type="button">Lagre data start</button>
-                <span id="history-start-status" class="status-pill">Ikke lagret enda</span>
-            </div>
-            <p class="helper-text">La feltet stå tomt hvis du vil vise all historikk.</p>
-        </section>
-
-        <section class="panel settings-card">
-            <h2 class="settings-subtitle">Brukere</h2>
-            <p class="helper-text">Legg til nye visningsbrukere eller bytt passord på eksisterende brukere. Dette påvirker vanlig login til appen, ikke den ekstra låsen på Innstillinger.</p>
-
-            <div class="settings-grid users-grid">
-                <label class="field">
-                    <span>Nytt brukernavn</span>
-                    <input id="new-username" type="text" autocomplete="off" spellcheck="false">
-                </label>
-                <label class="field">
-                    <span>Nytt passord</span>
-                    <input id="new-user-password" type="password" autocomplete="new-password">
-                </label>
-            </div>
-            <label class="toggle-line admin-toggle-line">
-                <input id="new-user-admin" type="checkbox">
-                <span>Gi denne brukeren admin-tilgang til Innstillinger</span>
-            </label>
-
-            <div class="actions">
-                <button id="add-user-button" class="button" type="button">Legg til bruker</button>
-                <span id="user-status" class="status-pill">Ingen endring ennå</span>
-            </div>
-
-            <div id="user-list" class="user-list"></div>
         </section>
 
         <section class="panel detail-panel">
@@ -276,19 +252,17 @@
         const sampleTimeLight = document.getElementById("sample-time-light");
         const sampleTimeAir = document.getElementById("sample-time-air");
         const sampleTimeCloud = document.getElementById("sample-time-cloud");
-        const historyStartDate = document.getElementById("history-start-date");
-        const historyStartTime = document.getElementById("history-start-time");
-        const saveHistoryStartButton = document.getElementById("save-history-start-button");
-        const historyStartStatus = document.getElementById("history-start-status");
         const saveSettingsButton = document.getElementById("save-settings-button");
         const settingsSaveStatus = document.getElementById("settings-save-status");
         const settingsDebugTarget = document.getElementById("settings-debug-target");
-        const newUsername = document.getElementById("new-username");
-        const newUserPassword = document.getElementById("new-user-password");
-        const newUserAdmin = document.getElementById("new-user-admin");
-        const addUserButton = document.getElementById("add-user-button");
-        const userStatus = document.getElementById("user-status");
-        const userList = document.getElementById("user-list");
+        const configRequestedRevision = document.getElementById("config-requested-revision");
+        const configRequestedAt = document.getElementById("config-requested-at");
+        const configAppliedRevision = document.getElementById("config-applied-revision");
+        const configAppliedAt = document.getElementById("config-applied-at");
+        const deviceStatusMessage = document.getElementById("device-status-message");
+        const deviceStatusAt = document.getElementById("device-status-at");
+        const deviceFirmwareVersion = document.getElementById("device-firmware-version");
+        const configAckState = document.getElementById("config-ack-state");
 
         function loadStoredUrl() {
             input.value = defaultSensorUrl;
@@ -359,153 +333,53 @@
             settingsSaveStatus.dataset.mode = mode;
         }
 
-        function setHistoryStartStatus(text, mode = "") {
-            historyStartStatus.textContent = text;
-            historyStartStatus.dataset.mode = mode;
-        }
-
-        function setUserStatus(text, mode = "") {
-            userStatus.textContent = text;
-            userStatus.dataset.mode = mode;
-        }
-
-        function renderUsers(users) {
-            if (!users || !users.length) {
-                userList.innerHTML = '<p class="helper-text">Ingen brukere registrert ennå.</p>';
-                return;
-            }
-
-            userList.innerHTML = users.map((user) => `
-                <article class="user-card">
-                    <div class="user-card-head">
-                        <div>
-                            <strong>${user.username}</strong>
-                            <p class="helper-text">${user.is_active ? "Aktiv" : "Deaktivert"} · ${user.is_admin ? "Admin" : "Visning"}${user.hub_id ? ` · ${user.hub_id}` : " · Ingen hub ennå"}</p>
-                            ${user.hub_name ? `<p class="helper-text">Hub-navn: ${user.hub_name}</p>` : ""}
-                        </div>
-                        <div class="user-card-toggles">
-                            <label class="toggle-line">
-                                <input type="checkbox" data-user-toggle="${user.username}" ${user.is_active ? "checked" : ""}>
-                                <span>${user.is_active ? "Aktiv" : "Av"}</span>
-                            </label>
-                            <label class="toggle-line">
-                                <input type="checkbox" data-user-admin-toggle="${user.username}" ${user.is_admin ? "checked" : ""}>
-                                <span>${user.is_admin ? "Admin" : "Vanlig"}</span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="user-card-actions">
-                        <input type="password" data-user-password="${user.username}" placeholder="Nytt passord">
-                        <button type="button" class="button subtle-button" data-user-save="${user.username}">Lagre</button>
-                        <button type="button" class="button danger-button" data-user-delete="${user.username}">Slett</button>
-                    </div>
-                </article>
-            `).join("");
-        }
-
-        async function loadUsers() {
-            const response = await fetch("/api/users", { cache: "no-store" });
-            const payload = await response.json();
-            if (!payload.ok) {
-                throw new Error(payload.error || "users_load_failed");
-            }
-            renderUsers(payload.users || []);
-        }
-
-        async function addUser() {
-            setUserStatus("Lagrer bruker...", "warning");
-            const payload = {
-                username: (newUsername.value || "").trim(),
-                password: newUserPassword.value || "",
-                is_admin: !!newUserAdmin.checked
-            };
-
-            try {
-                const response = await fetch("/api/users", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-                if (!result.ok) {
-                    throw new Error(result.error || "user_create_failed");
-                }
-                newUsername.value = "";
-                newUserPassword.value = "";
-                newUserAdmin.checked = false;
-                renderUsers(result.users || []);
-                setUserStatus("Bruker lagret", "online");
-            } catch (error) {
-                setUserStatus(`Feil: ${error.message || error}`, "offline");
-            }
-        }
-
-        async function updateUser(username) {
-            const passwordInput = document.querySelector(`[data-user-password="${username}"]`);
-            const toggleInput = document.querySelector(`[data-user-toggle="${username}"]`);
-            const adminToggleInput = document.querySelector(`[data-user-admin-toggle="${username}"]`);
-            const payload = {
-                password: passwordInput?.value || "",
-                is_active: !!toggleInput?.checked,
-                is_admin: !!adminToggleInput?.checked
-            };
-
-            setUserStatus(`Lagrer ${username}...`, "warning");
-
-            try {
-                const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-                if (!result.ok) {
-                    throw new Error(result.error || "user_update_failed");
-                }
-                if (passwordInput) {
-                    passwordInput.value = "";
-                }
-                renderUsers(result.users || []);
-                setUserStatus(`Oppdatert ${username}`, "online");
-            } catch (error) {
-                setUserStatus(`Feil: ${error.message || error}`, "offline");
-            }
-        }
-
-        async function deleteUser(username) {
-            if (!window.confirm(`Slette bruker ${username}? Dette fjerner også hub, pairing og sensordata som tilhører brukeren.`)) {
-                return;
-            }
-
-            setUserStatus(`Sletter ${username}...`, "warning");
-
-            try {
-                const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
-                    method: "DELETE"
-                });
-                const result = await response.json();
-                if (!result.ok) {
-                    throw new Error(result.error || "user_delete_failed");
-                }
-                renderUsers(result.users || []);
-                setUserStatus(`Slettet ${username}`, "online");
-            } catch (error) {
-                setUserStatus(`Feil: ${error.message || error}`, "offline");
-            }
-        }
-
-        function loadHistoryStartFields() {
-            historyStartDate.value = (historyStartDate.value || "").trim();
-            historyStartTime.value = (historyStartTime.value || "").trim();
-        }
-
-        function buildHistoryStartValue() {
-            const datePart = (historyStartDate.value || "").trim();
-            const timePart = (historyStartTime.value || "").trim();
-            if (!datePart) {
+        function formatTimestamp(value) {
+            if (!value) {
                 return "";
             }
-            return `${datePart}T${timePart || "00:00"}`;
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                return value;
+            }
+            return date.toLocaleString("nb-NO", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit"
+            });
+        }
+
+        function renderConfigAck(settings) {
+            const requestedRevision = Number(settings.config_revision || 0);
+            const appliedRevision = Number(settings.config_applied_revision || 0);
+            configRequestedRevision.textContent = `rev ${requestedRevision}`;
+            configRequestedAt.textContent = formatTimestamp(settings.config_updated_at) || "Ikke endret enda";
+            configAppliedRevision.textContent = `rev ${appliedRevision}`;
+            configAppliedAt.textContent = formatTimestamp(settings.config_applied_at) || "Venter på første bekreftelse";
+            deviceStatusMessage.textContent = settings.device_status_message || "Ingen status enda";
+            deviceStatusAt.textContent = formatTimestamp(settings.device_status_at) || "Ikke sett";
+            deviceFirmwareVersion.textContent = settings.device_firmware_version || "Ukjent";
+
+            if (requestedRevision > 0 && appliedRevision >= requestedRevision) {
+                configAckState.textContent = "Tatt i bruk av hub";
+                configAckState.dataset.mode = "online";
+                return;
+            }
+            configAckState.textContent = "Venter på hub";
+            configAckState.dataset.mode = "warning";
+        }
+
+        async function refreshConfigAck() {
+            try {
+                const response = await fetch("/api/settings", { cache: "no-store" });
+                const result = await response.json();
+                if (result.ok && result.settings) {
+                    renderConfigAck(result.settings);
+                }
+            } catch {
+                configAckState.textContent = "Kunne ikke sjekke hub-status";
+                configAckState.dataset.mode = "offline";
+            }
         }
 
         async function saveSampleSettings() {
@@ -536,48 +410,15 @@
                 sampleTimeLight.value = Math.round(result.settings.sample_time_light_ms / 60000);
                 sampleTimeAir.value = Math.round(result.settings.sample_time_air_ms / 60000);
                 sampleTimeCloud.value = Math.round(result.settings.sample_time_cloud_ms / 60000);
+                renderConfigAck(result.settings);
                 setSaveStatus("Lagret", "online");
-                settingsDebugTarget.textContent = "Hub-konfig: ESP32 henter nye intervaller automatisk innen ca. 5 minutter.";
+                settingsDebugTarget.textContent = "Hub-konfig: lagret. Venter på bekreftelse fra ESP32.";
+                window.setTimeout(refreshConfigAck, 5000);
             } catch (error) {
                 const label = error?.name ? `${error.name}: ` : "";
                 const message = error?.message || String(error);
                 settingsDebugTarget.textContent = "Hub-konfig: feil under lagring";
                 setSaveStatus(`Feil: ${label}${message}`, "offline");
-            }
-        }
-
-        async function saveHistoryStart() {
-            setHistoryStartStatus("Lagrer...", "warning");
-
-            const payload = {
-                history_start_at: buildHistoryStartValue()
-            };
-
-            try {
-                const response = await fetch("/api/settings", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-                if (!result.ok) {
-                    throw new Error(result.error || "save_history_start_failed");
-                }
-
-                const saved = (result.settings.history_start_at || "").trim();
-                if (saved.includes("T")) {
-                    const [datePart, timePart] = saved.split("T");
-                    historyStartDate.value = datePart || "";
-                    historyStartTime.value = (timePart || "").slice(0, 5);
-                } else {
-                    historyStartDate.value = "";
-                    historyStartTime.value = "";
-                }
-                setHistoryStartStatus("Loggstart lagret", "online");
-            } catch (error) {
-                const label = error?.name ? `${error.name}: ` : "";
-                const message = error?.message || String(error);
-                setHistoryStartStatus(`Feil: ${label}${message}`, "offline");
             }
         }
 
@@ -606,7 +447,6 @@
         }
 
         loadStoredUrl();
-        loadHistoryStartFields();
         refreshButton.addEventListener("click", testSensor);
         saveSensorUrlButton.addEventListener("click", saveSensorUrl);
         input.addEventListener("change", () => {
@@ -617,24 +457,9 @@
             }
         });
         saveSettingsButton.addEventListener("click", saveSampleSettings);
-        saveHistoryStartButton.addEventListener("click", saveHistoryStart);
-        addUserButton.addEventListener("click", addUser);
-        userList.addEventListener("click", (event) => {
-            const deleteButton = event.target.closest("[data-user-delete]");
-            if (deleteButton) {
-                deleteUser(deleteButton.dataset.userDelete);
-                return;
-            }
-            const button = event.target.closest("[data-user-save]");
-            if (!button) {
-                return;
-            }
-            updateUser(button.dataset.userSave);
-        });
         testSensor();
-        loadUsers().catch((error) => {
-            setUserStatus(`Feil: ${error.message || error}`, "offline");
-        });
+        refreshConfigAck();
+        window.setInterval(refreshConfigAck, 15000);
     </script>
 </body>
 </html>

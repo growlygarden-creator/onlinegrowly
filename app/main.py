@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import base64
+import csv
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
@@ -30,6 +31,7 @@ except ImportError:  # pragma: no cover - production environments may rely on sy
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
+PLANT_IMPORT_DIR = ROOT_DIR / "data" / "imports"
 
 
 def load_local_env(path: Path) -> None:
@@ -87,6 +89,338 @@ DEFAULT_APP_SETTINGS: dict[str, Any] = {
     "sample_time_cloud_ms": 60000,
     "history_start_at": "",
 }
+DEFAULT_PLANT_PROFILES: tuple[dict[str, Any], ...] = (
+    {
+        "profile_id": "tomato",
+        "name": "Tomat",
+        "family": "Varmeelskende",
+        "icon": "T",
+        "tone": "tomato",
+        "ranges": {
+            "airTemperature": {"optimal": [20, 26], "caution": [16, 30]},
+            "airHumidity": {"optimal": [45, 65], "caution": [35, 78]},
+            "soilHumidity": {"optimal": [55, 75], "caution": [45, 85]},
+            "soilTemperature": {"optimal": [20, 26], "caution": [16, 30]},
+            "ph": {"optimal": [6.0, 6.8], "caution": [5.5, 7.2]},
+            "lux": {"optimal": [5000, 25000], "caution": [2000, 40000]},
+        },
+    },
+    {
+        "profile_id": "cucumber",
+        "name": "Agurk",
+        "family": "Varmeelskende",
+        "icon": "A",
+        "tone": "cucumber",
+        "ranges": {
+            "airTemperature": {"optimal": [22, 28], "caution": [18, 31]},
+            "airHumidity": {"optimal": [60, 80], "caution": [48, 90]},
+            "soilHumidity": {"optimal": [60, 80], "caution": [50, 90]},
+            "soilTemperature": {"optimal": [22, 28], "caution": [18, 31]},
+            "ph": {"optimal": [6.0, 7.0], "caution": [5.5, 7.5]},
+            "lux": {"optimal": [6000, 30000], "caution": [2500, 45000]},
+        },
+    },
+    {
+        "profile_id": "basil",
+        "name": "Basilikum",
+        "family": "Urter",
+        "icon": "B",
+        "tone": "basil",
+        "ranges": {
+            "airTemperature": {"optimal": [20, 26], "caution": [18, 30]},
+            "airHumidity": {"optimal": [45, 65], "caution": [35, 78]},
+            "soilHumidity": {"optimal": [50, 70], "caution": [40, 80]},
+            "soilTemperature": {"optimal": [20, 26], "caution": [18, 30]},
+            "ph": {"optimal": [6.0, 7.0], "caution": [5.5, 7.5]},
+            "lux": {"optimal": [5000, 22000], "caution": [2500, 35000]},
+        },
+    },
+    {
+        "profile_id": "pepper",
+        "name": "Paprika",
+        "family": "Varmeelskende",
+        "icon": "P",
+        "tone": "pepper",
+        "ranges": {
+            "airTemperature": {"optimal": [21, 28], "caution": [18, 31]},
+            "airHumidity": {"optimal": [45, 65], "caution": [35, 78]},
+            "soilHumidity": {"optimal": [55, 72], "caution": [45, 82]},
+            "soilTemperature": {"optimal": [22, 29], "caution": [18, 32]},
+            "ph": {"optimal": [6.0, 6.8], "caution": [5.5, 7.2]},
+            "lux": {"optimal": [6000, 26000], "caution": [3000, 42000]},
+        },
+    },
+    {
+        "profile_id": "lettuce",
+        "name": "Salat",
+        "family": "Kjølig start",
+        "icon": "S",
+        "tone": "leafy",
+        "ranges": {
+            "airTemperature": {"optimal": [10, 18], "caution": [6, 24]},
+            "airHumidity": {"optimal": [50, 75], "caution": [40, 85]},
+            "soilHumidity": {"optimal": [55, 75], "caution": [45, 85]},
+            "soilTemperature": {"optimal": [10, 18], "caution": [6, 22]},
+            "ph": {"optimal": [6.0, 7.0], "caution": [5.5, 7.5]},
+            "lux": {"optimal": [3000, 18000], "caution": [1500, 30000]},
+        },
+    },
+    {
+        "profile_id": "strawberry",
+        "name": "Jordbær",
+        "family": "Bær",
+        "icon": "J",
+        "tone": "berry",
+        "ranges": {
+            "airTemperature": {"optimal": [16, 22], "caution": [12, 28]},
+            "airHumidity": {"optimal": [55, 75], "caution": [45, 85]},
+            "soilHumidity": {"optimal": [58, 74], "caution": [48, 84]},
+            "soilTemperature": {"optimal": [16, 22], "caution": [12, 26]},
+            "ph": {"optimal": [5.5, 6.5], "caution": [5.2, 6.9]},
+            "lux": {"optimal": [4000, 20000], "caution": [1800, 32000]},
+        },
+    },
+)
+
+
+def csv_float(row: dict[str, str], key: str, fallback: float = 0) -> float:
+    value = (row.get(key) or "").strip()
+    if not value:
+        return fallback
+    return float(value)
+
+
+def csv_int(row: dict[str, str], key: str, fallback: int = 0) -> int:
+    return int(round(csv_float(row, key, fallback)))
+
+
+def bool_text(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "ja", "on"}
+
+
+def plant_tone(row: dict[str, str]) -> str:
+    plant_id = (row.get("plant_id") or "").lower()
+    category = (row.get("kategori") or "").lower()
+    family = (row.get("familie_type") or "").lower()
+    if "tomato" in plant_id:
+        return "tomato"
+    if "cucumber" in plant_id or "agurk" in plant_id:
+        return "cucumber"
+    if "basil" in plant_id:
+        return "basil"
+    if "pepper" in plant_id or "chili" in plant_id:
+        return "pepper"
+    if category == "bær" or family.startswith("bær"):
+        return "berry"
+    if "blad" in family or "kål" in family or plant_id in {"lettuce", "spinach", "kale"}:
+        return "leafy"
+    return "leafy" if category in {"grønnsak", "urt"} else "berry"
+
+
+def plant_icon(name: str, plant_id: str) -> str:
+    plant_id = (plant_id or "").lower()
+    name = (name or "").lower()
+    icon_map = {
+        "tomato": "🍅",
+        "cucumber": "🥒",
+        "pepper": "🫑",
+        "chili": "🌶️",
+        "basil": "🌿",
+        "parsley": "🌿",
+        "coriander": "🌿",
+        "dill": "🌿",
+        "lettuce": "🥬",
+        "spinach": "🥬",
+        "kale": "🥬",
+        "arugula": "🥬",
+        "radish": "🫜",
+        "carrot": "🥕",
+        "strawberry": "🍓",
+        "squash": "🌼",
+        "zucchini": "🌼",
+        "eggplant": "🍆",
+        "melon": "🍈",
+        "thyme": "🌿",
+        "oregano": "🌿",
+        "rosemary": "🌿",
+        "mint": "🌿",
+        "chives": "🌿",
+        "onion": "🧅",
+        "garlic": "🧄",
+        "potato": "🥔",
+        "pumpkin": "🎃",
+        "raspberry": "🫐",
+        "blueberry": "🫐",
+        "grape": "🍇",
+        "fig": "🪴",
+    }
+    if plant_id in icon_map:
+        return icon_map[plant_id]
+    if "tomat" in name:
+        return "🍅"
+    if "agurk" in name:
+        return "🥒"
+    if "paprika" in name:
+        return "🫑"
+    if "chili" in name:
+        return "🌶️"
+    if "salat" in name or "kål" in name:
+        return "🥬"
+    if "bær" in name:
+        return "🫐"
+    if "blomst" in name:
+        return "🌸"
+    return "🌱"
+
+
+def seed_guide_for_profile(profile_id: str, category: str, family: str) -> dict[str, str]:
+    profile_id = (profile_id or "").lower()
+    category = (category or "").lower()
+    family = (family or "").lower()
+    guides: dict[str, dict[str, str]] = {
+        "tomato": {
+            "sow": "Så inne i mars-april.",
+            "start": "Forkultiveres inne lyst og varmt.",
+            "repot": "Pottes om når planten har 2-4 varige blad.",
+            "plant_out": "Plantes i drivhus fra mai når nettene er stabile.",
+            "harvest": "Høstes vanligvis juli-september.",
+        },
+        "pepper": {
+            "sow": "Så inne i februar-mars.",
+            "start": "Startes inne tidlig, varmt og lyst.",
+            "repot": "Pottes om når røttene fyller småpotten.",
+            "plant_out": "Settes i drivhus fra mai-juni.",
+            "harvest": "Høstes fra juli og utover.",
+        },
+        "chili": {
+            "sow": "Så inne i januar-mars.",
+            "start": "Startes inne tidlig med varme og mye lys.",
+            "repot": "Pottes om gradvis for sterk rotvekst.",
+            "plant_out": "Settes i drivhus når temperaturen holder seg stabil.",
+            "harvest": "Høstes fra sensommeren og utover.",
+        },
+        "cucumber": {
+            "sow": "Så inne i april-mai.",
+            "start": "Forkultiveres kort inne, helst varmt.",
+            "repot": "Pottes forsiktig om uten å forstyrre røttene for mye.",
+            "plant_out": "Plantes i drivhus fra mai-juni.",
+            "harvest": "Høstes ofte fra juni/juli.",
+        },
+        "basil": {
+            "sow": "Så inne i mars-mai.",
+            "start": "Startes inne varmt, lyst og uten trekk.",
+            "repot": "Prikles eller pottes om når plantene kan håndteres.",
+            "plant_out": "Trives best i drivhus eller varm vinduskarm.",
+            "harvest": "Toppes og høstes jevnlig gjennom sesongen.",
+        },
+        "lettuce": {
+            "sow": "Så inne eller direkte fra mars-august.",
+            "start": "Kan forkultiveres i pluggbrett for tidligere avling.",
+            "repot": "Pottes/plantes om når småplantene er håndterbare.",
+            "plant_out": "Settes ut/drivhus når jorda er kjølig og fuktig.",
+            "harvest": "Høstes fortløpende etter størrelse.",
+        },
+        "strawberry": {
+            "sow": "Plantes vanligvis som småplanter vår eller sensommer.",
+            "start": "Kan stå i potter/kasser i drivhus.",
+            "repot": "Pottes om ved tett rotklump eller før ny sesong.",
+            "plant_out": "Settes ut eller i drivhus når faren for hard frost er over.",
+            "harvest": "Bærer vanligvis fra juni, remonterende sorter lengre.",
+        },
+    }
+    if profile_id in guides:
+        return guides[profile_id]
+    if "varmeelskende" in family:
+        return {
+            "sow": "Så inne i mars-april.",
+            "start": "Forkultiveres inne med varme og godt lys.",
+            "repot": "Pottes om når røttene fyller potten.",
+            "plant_out": "Flyttes til drivhus fra mai-juni.",
+            "harvest": "Høstes når frukt eller blader er modne.",
+        }
+    if "rot" in family or "knoll" in family:
+        return {
+            "sow": "Så direkte fra april-juni.",
+            "start": "Forkultivering er sjelden nødvendig.",
+            "repot": "Unngå mye ompotting, røtter liker ro.",
+            "plant_out": "Dyrkes direkte i dyp og løs jord.",
+            "harvest": "Høstes når røttene har ønsket størrelse.",
+        }
+    if "blad" in family or "kål" in family or category == "grønnsak":
+        return {
+            "sow": "Så inne eller direkte fra mars-juli.",
+            "start": "Kan forkultiveres for jevnere start.",
+            "repot": "Pottes/plantes om når småplantene er robuste.",
+            "plant_out": "Trives best i kjølig til mildt drivhusklima.",
+            "harvest": "Høstes fortløpende eller når hodet er utviklet.",
+        }
+    if category == "urt":
+        return {
+            "sow": "Så inne fra mars-mai.",
+            "start": "Startes lyst og jevnt fuktig.",
+            "repot": "Pottes om når planten har god rotklump.",
+            "plant_out": "Kan stå i drivhus, potte eller varm krok.",
+            "harvest": "Høstes jevnlig ved å klippe skudd/topper.",
+        }
+    if category in {"blomst", "bær", "frukt"}:
+        return {
+            "sow": "Start inne vår eller plant som småplante etter behov.",
+            "start": "Gi lys, moderat varme og jevn fukt.",
+            "repot": "Pottes om når røttene fyller potten.",
+            "plant_out": "Settes i drivhus/krukke når veksten er i gang.",
+            "harvest": "Følg blomstring/fruktsetting gjennom sesongen.",
+        }
+    return {
+        "sow": "Såtid avhenger av sort og dyrkingsmål.",
+        "start": "Start lyst, jevnt fuktig og uten temperatursjokk.",
+        "repot": "Pottes om når røttene fyller potten.",
+        "plant_out": "Flyttes videre når planten er robust.",
+        "harvest": "Følg utviklingen gjennom sesongen.",
+    }
+
+
+def profile_ranges_from_csv(row: dict[str, str]) -> dict[str, dict[str, list[float]]]:
+    return {
+        "airTemperature": {
+            "optimal": [csv_float(row, "lufttemp_optimal_min_c"), csv_float(row, "lufttemp_optimal_max_c")],
+            "caution": [csv_float(row, "lufttemp_akseptabel_min_c"), csv_float(row, "lufttemp_akseptabel_max_c")],
+        },
+        "airHumidity": {
+            "optimal": [csv_float(row, "luftfukt_optimal_min_pct"), csv_float(row, "luftfukt_optimal_max_pct")],
+            "caution": [csv_float(row, "luftfukt_akseptabel_min_pct"), csv_float(row, "luftfukt_akseptabel_max_pct")],
+        },
+        "soilHumidity": {
+            "optimal": [csv_float(row, "jordfukt_optimal_min_pct"), csv_float(row, "jordfukt_optimal_max_pct")],
+            "caution": [csv_float(row, "jordfukt_akseptabel_min_pct"), csv_float(row, "jordfukt_akseptabel_max_pct")],
+        },
+        "soilTemperature": {
+            "optimal": [csv_float(row, "jordtemp_optimal_min_c"), csv_float(row, "jordtemp_optimal_max_c")],
+            "caution": [csv_float(row, "jordtemp_akseptabel_min_c"), csv_float(row, "jordtemp_akseptabel_max_c")],
+        },
+        "ph": {
+            "optimal": [csv_float(row, "ph_optimal_min"), csv_float(row, "ph_optimal_max")],
+            "caution": [csv_float(row, "ph_akseptabel_min"), csv_float(row, "ph_akseptabel_max")],
+        },
+        "lux": {
+            "optimal": [csv_float(row, "lys_optimal_min_lux"), csv_float(row, "lys_optimal_max_lux")],
+            "caution": [csv_float(row, "lys_akseptabel_min_lux"), csv_float(row, "lys_akseptabel_max_lux")],
+        },
+    }
+
+
+def adjusted_ranges(base_ranges: dict[str, Any], variant: dict[str, Any] | None) -> dict[str, Any]:
+    ranges = json.loads(json.dumps(base_ranges))
+    if not variant:
+        return ranges
+
+    ranges["airTemperature"]["caution"][0] += float(variant.get("delta_lufttemp_akseptabel_min_c") or 0)
+    ranges["airTemperature"]["caution"][1] += float(variant.get("delta_lufttemp_akseptabel_max_c") or 0)
+    ranges["soilHumidity"]["optimal"][0] += float(variant.get("delta_jordfukt_optimal_min_pct") or 0)
+    ranges["soilHumidity"]["optimal"][1] += float(variant.get("delta_jordfukt_optimal_max_pct") or 0)
+    ranges["airHumidity"]["caution"][1] += float(variant.get("delta_luftfukt_akseptabel_max_pct") or 0)
+    ranges["lux"]["optimal"][0] += float(variant.get("delta_lys_optimal_min_lux") or 0)
+    ranges["lux"]["optimal"][1] += float(variant.get("delta_lys_optimal_max_lux") or 0)
+    return ranges
 METRIC_KEYS = (
     "air_temperature",
     "air_humidity",
@@ -204,6 +538,193 @@ def storage_status() -> dict[str, Any]:
     }
 
 
+def import_plant_profiles_from_csv(connection: sqlite3.Connection) -> None:
+    path = PLANT_IMPORT_DIR / "plant_profiles.csv"
+    if not path.exists():
+        return
+
+    now = utc_now_iso()
+    with path.open(encoding="utf-8", newline="") as file:
+        for row in csv.DictReader(file):
+            profile_id = (row.get("plant_id") or "").strip()
+            name = (row.get("norsk_navn") or profile_id).strip()
+            if not profile_id or not name:
+                continue
+            ranges = profile_ranges_from_csv(row)
+            connection.execute(
+                """
+                INSERT INTO plant_profiles (
+                    profile_id, name, family, icon, tone, english_name, latin_name, category,
+                    watering_short, climate_note, underwatering_signs, overwatering_signs,
+                    underwatering_action, overwatering_action, watering_strategy, ranges_json, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(profile_id) DO UPDATE SET
+                    name = excluded.name,
+                    family = excluded.family,
+                    icon = excluded.icon,
+                    tone = excluded.tone,
+                    english_name = excluded.english_name,
+                    latin_name = excluded.latin_name,
+                    category = excluded.category,
+                    watering_short = excluded.watering_short,
+                    climate_note = excluded.climate_note,
+                    underwatering_signs = excluded.underwatering_signs,
+                    overwatering_signs = excluded.overwatering_signs,
+                    underwatering_action = excluded.underwatering_action,
+                    overwatering_action = excluded.overwatering_action,
+                    watering_strategy = excluded.watering_strategy,
+                    ranges_json = excluded.ranges_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    profile_id,
+                    name,
+                    (row.get("familie_type") or "").strip(),
+                    plant_icon(name, profile_id),
+                    plant_tone(row),
+                    (row.get("engelsk_navn") or "").strip(),
+                    (row.get("latinsk_navn") or "").strip(),
+                    (row.get("kategori") or "").strip(),
+                    (row.get("vanning_kort") or "").strip(),
+                    (row.get("klima_notat") or "").strip(),
+                    (row.get("undervanning_tegn") or "").strip(),
+                    (row.get("overvanning_tegn") or "").strip(),
+                    (row.get("undervanning_tiltak") or "").strip(),
+                    (row.get("overvanning_tiltak") or "").strip(),
+                    (row.get("vanningsstrategi") or "").strip(),
+                    json.dumps(ranges),
+                    now,
+                ),
+            )
+
+
+def import_plant_variants_from_csv(connection: sqlite3.Connection) -> None:
+    path = PLANT_IMPORT_DIR / "plant_variants.csv"
+    if not path.exists():
+        return
+
+    now = utc_now_iso()
+    with path.open(encoding="utf-8", newline="") as file:
+        for row in csv.DictReader(file):
+            variant_id = (row.get("variant_id") or "").strip()
+            base_plant_id = (row.get("base_plant_id") or "").strip()
+            if not variant_id or not base_plant_id:
+                continue
+            connection.execute(
+                """
+                INSERT INTO plant_variants (
+                    variant_id, base_plant_id, norsk_navn, engelsk_navn, variant_type,
+                    heat_tolerant, cool_tolerant, drought_sensitive, crack_sensitive, humidity_sensitive,
+                    delta_lufttemp_akseptabel_min_c, delta_lufttemp_akseptabel_max_c,
+                    delta_jordfukt_optimal_min_pct, delta_jordfukt_optimal_max_pct,
+                    delta_luftfukt_akseptabel_max_pct, delta_lys_optimal_min_lux,
+                    delta_lys_optimal_max_lux, notes, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(variant_id) DO UPDATE SET
+                    base_plant_id = excluded.base_plant_id,
+                    norsk_navn = excluded.norsk_navn,
+                    engelsk_navn = excluded.engelsk_navn,
+                    variant_type = excluded.variant_type,
+                    heat_tolerant = excluded.heat_tolerant,
+                    cool_tolerant = excluded.cool_tolerant,
+                    drought_sensitive = excluded.drought_sensitive,
+                    crack_sensitive = excluded.crack_sensitive,
+                    humidity_sensitive = excluded.humidity_sensitive,
+                    delta_lufttemp_akseptabel_min_c = excluded.delta_lufttemp_akseptabel_min_c,
+                    delta_lufttemp_akseptabel_max_c = excluded.delta_lufttemp_akseptabel_max_c,
+                    delta_jordfukt_optimal_min_pct = excluded.delta_jordfukt_optimal_min_pct,
+                    delta_jordfukt_optimal_max_pct = excluded.delta_jordfukt_optimal_max_pct,
+                    delta_luftfukt_akseptabel_max_pct = excluded.delta_luftfukt_akseptabel_max_pct,
+                    delta_lys_optimal_min_lux = excluded.delta_lys_optimal_min_lux,
+                    delta_lys_optimal_max_lux = excluded.delta_lys_optimal_max_lux,
+                    notes = excluded.notes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    variant_id,
+                    base_plant_id,
+                    (row.get("norsk_navn") or "").strip(),
+                    (row.get("engelsk_navn") or "").strip(),
+                    (row.get("variant_type") or "").strip(),
+                    int(bool_text(row.get("heat_tolerant"))),
+                    int(bool_text(row.get("cool_tolerant"))),
+                    int(bool_text(row.get("drought_sensitive"))),
+                    int(bool_text(row.get("crack_sensitive"))),
+                    int(bool_text(row.get("humidity_sensitive"))),
+                    csv_float(row, "delta_lufttemp_akseptabel_min_c"),
+                    csv_float(row, "delta_lufttemp_akseptabel_max_c"),
+                    csv_float(row, "delta_jordfukt_optimal_min_pct"),
+                    csv_float(row, "delta_jordfukt_optimal_max_pct"),
+                    csv_float(row, "delta_luftfukt_akseptabel_max_pct"),
+                    csv_float(row, "delta_lys_optimal_min_lux"),
+                    csv_float(row, "delta_lys_optimal_max_lux"),
+                    (row.get("notes") or "").strip(),
+                    now,
+                ),
+            )
+
+
+def import_plant_cultivars_from_csv(connection: sqlite3.Connection) -> None:
+    path = PLANT_IMPORT_DIR / "plant_cultivars.csv"
+    if not path.exists():
+        return
+
+    now = utc_now_iso()
+    with path.open(encoding="utf-8", newline="") as file:
+        for row in csv.DictReader(file):
+            cultivar_id = (row.get("cultivar_id") or "").strip()
+            base_plant_id = (row.get("base_plant_id") or "").strip()
+            variant_id = (row.get("variant_id") or "").strip()
+            if not cultivar_id or not base_plant_id or not variant_id:
+                continue
+            connection.execute(
+                """
+                INSERT INTO plant_cultivars (
+                    cultivar_id, cultivar_name, base_plant_id, variant_id, norsk_navn, engelsk_navn,
+                    heat_tolerant, cool_tolerant, drought_sensitive, crack_sensitive, humidity_sensitive,
+                    notes, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(cultivar_id) DO UPDATE SET
+                    cultivar_name = excluded.cultivar_name,
+                    base_plant_id = excluded.base_plant_id,
+                    variant_id = excluded.variant_id,
+                    norsk_navn = excluded.norsk_navn,
+                    engelsk_navn = excluded.engelsk_navn,
+                    heat_tolerant = excluded.heat_tolerant,
+                    cool_tolerant = excluded.cool_tolerant,
+                    drought_sensitive = excluded.drought_sensitive,
+                    crack_sensitive = excluded.crack_sensitive,
+                    humidity_sensitive = excluded.humidity_sensitive,
+                    notes = excluded.notes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    cultivar_id,
+                    (row.get("cultivar_name") or "").strip(),
+                    base_plant_id,
+                    variant_id,
+                    (row.get("norsk_navn") or "").strip(),
+                    (row.get("engelsk_navn") or "").strip(),
+                    int(bool_text(row.get("heat_tolerant"))),
+                    int(bool_text(row.get("cool_tolerant"))),
+                    int(bool_text(row.get("drought_sensitive"))),
+                    int(bool_text(row.get("crack_sensitive"))),
+                    int(bool_text(row.get("humidity_sensitive"))),
+                    (row.get("notes") or "").strip(),
+                    now,
+                ),
+            )
+
+
+def import_plant_catalog_from_csv(connection: sqlite3.Connection) -> None:
+    import_plant_profiles_from_csv(connection)
+    import_plant_variants_from_csv(connection)
+    import_plant_cultivars_from_csv(connection)
+
+
 def init_db() -> None:
     ensure_data_dir()
     with db_connection() as connection:
@@ -268,6 +789,14 @@ def init_db() -> None:
                 sample_time_air_ms INTEGER NOT NULL,
                 sample_time_cloud_ms INTEGER NOT NULL,
                 history_start_at TEXT NOT NULL DEFAULT '',
+                config_revision INTEGER NOT NULL DEFAULT 1,
+                config_updated_at TEXT NOT NULL DEFAULT '',
+                config_applied_revision INTEGER NOT NULL DEFAULT 0,
+                config_applied_at TEXT NOT NULL DEFAULT '',
+                config_applied_settings_json TEXT NOT NULL DEFAULT '',
+                device_status_at TEXT NOT NULL DEFAULT '',
+                device_status_message TEXT NOT NULL DEFAULT '',
+                device_firmware_version TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY(owner_username) REFERENCES app_users(username)
@@ -284,6 +813,95 @@ def init_db() -> None:
                 used_at TEXT,
                 paired_hub_id TEXT,
                 FOREIGN KEY(target_username) REFERENCES app_users(username)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plant_profiles (
+                profile_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                family TEXT NOT NULL,
+                icon TEXT NOT NULL,
+                tone TEXT NOT NULL,
+                english_name TEXT NOT NULL DEFAULT '',
+                latin_name TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT '',
+                watering_short TEXT NOT NULL DEFAULT '',
+                climate_note TEXT NOT NULL DEFAULT '',
+                underwatering_signs TEXT NOT NULL DEFAULT '',
+                overwatering_signs TEXT NOT NULL DEFAULT '',
+                underwatering_action TEXT NOT NULL DEFAULT '',
+                overwatering_action TEXT NOT NULL DEFAULT '',
+                watering_strategy TEXT NOT NULL DEFAULT '',
+                ranges_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        profile_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(plant_profiles)").fetchall()
+        }
+        profile_column_defaults = {
+            "english_name": "TEXT NOT NULL DEFAULT ''",
+            "latin_name": "TEXT NOT NULL DEFAULT ''",
+            "category": "TEXT NOT NULL DEFAULT ''",
+            "watering_short": "TEXT NOT NULL DEFAULT ''",
+            "climate_note": "TEXT NOT NULL DEFAULT ''",
+            "underwatering_signs": "TEXT NOT NULL DEFAULT ''",
+            "overwatering_signs": "TEXT NOT NULL DEFAULT ''",
+            "underwatering_action": "TEXT NOT NULL DEFAULT ''",
+            "overwatering_action": "TEXT NOT NULL DEFAULT ''",
+            "watering_strategy": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column_name, column_sql in profile_column_defaults.items():
+            if column_name not in profile_columns:
+                connection.execute(f"ALTER TABLE plant_profiles ADD COLUMN {column_name} {column_sql}")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plant_variants (
+                variant_id TEXT PRIMARY KEY,
+                base_plant_id TEXT NOT NULL,
+                norsk_navn TEXT NOT NULL,
+                engelsk_navn TEXT NOT NULL,
+                variant_type TEXT NOT NULL,
+                heat_tolerant INTEGER NOT NULL,
+                cool_tolerant INTEGER NOT NULL,
+                drought_sensitive INTEGER NOT NULL,
+                crack_sensitive INTEGER NOT NULL,
+                humidity_sensitive INTEGER NOT NULL,
+                delta_lufttemp_akseptabel_min_c REAL NOT NULL,
+                delta_lufttemp_akseptabel_max_c REAL NOT NULL,
+                delta_jordfukt_optimal_min_pct REAL NOT NULL,
+                delta_jordfukt_optimal_max_pct REAL NOT NULL,
+                delta_luftfukt_akseptabel_max_pct REAL NOT NULL,
+                delta_lys_optimal_min_lux REAL NOT NULL,
+                delta_lys_optimal_max_lux REAL NOT NULL,
+                notes TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(base_plant_id) REFERENCES plant_profiles(profile_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plant_cultivars (
+                cultivar_id TEXT PRIMARY KEY,
+                cultivar_name TEXT NOT NULL,
+                base_plant_id TEXT NOT NULL,
+                variant_id TEXT NOT NULL,
+                norsk_navn TEXT NOT NULL,
+                engelsk_navn TEXT NOT NULL,
+                heat_tolerant INTEGER NOT NULL,
+                cool_tolerant INTEGER NOT NULL,
+                drought_sensitive INTEGER NOT NULL,
+                crack_sensitive INTEGER NOT NULL,
+                humidity_sensitive INTEGER NOT NULL,
+                notes TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(base_plant_id) REFERENCES plant_profiles(profile_id),
+                FOREIGN KEY(variant_id) REFERENCES plant_variants(variant_id)
             )
             """
         )
@@ -361,6 +979,19 @@ def init_db() -> None:
         }
         if "local_ip" not in existing_hub_columns:
             connection.execute("ALTER TABLE hubs ADD COLUMN local_ip TEXT NOT NULL DEFAULT ''")
+        hub_column_defaults = {
+            "config_revision": "INTEGER NOT NULL DEFAULT 1",
+            "config_updated_at": "TEXT NOT NULL DEFAULT ''",
+            "config_applied_revision": "INTEGER NOT NULL DEFAULT 0",
+            "config_applied_at": "TEXT NOT NULL DEFAULT ''",
+            "config_applied_settings_json": "TEXT NOT NULL DEFAULT ''",
+            "device_status_at": "TEXT NOT NULL DEFAULT ''",
+            "device_status_message": "TEXT NOT NULL DEFAULT ''",
+            "device_firmware_version": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column_name, column_definition in hub_column_defaults.items():
+            if column_name not in existing_hub_columns:
+                connection.execute(f"ALTER TABLE hubs ADD COLUMN {column_name} {column_definition}")
         for key, value in DEFAULT_APP_SETTINGS.items():
             connection.execute(
                 """
@@ -370,6 +1001,31 @@ def init_db() -> None:
                 """,
                 (key, str(value)),
             )
+        now_for_profiles = utc_now_iso()
+        for profile in DEFAULT_PLANT_PROFILES:
+            connection.execute(
+                """
+                INSERT INTO plant_profiles (profile_id, name, family, icon, tone, ranges_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(profile_id) DO UPDATE SET
+                    name = excluded.name,
+                    family = excluded.family,
+                    icon = excluded.icon,
+                    tone = excluded.tone,
+                    ranges_json = excluded.ranges_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    profile["profile_id"],
+                    profile["name"],
+                    profile["family"],
+                    profile["icon"],
+                    profile["tone"],
+                    json.dumps(profile["ranges"]),
+                    now_for_profiles,
+                ),
+            )
+        import_plant_catalog_from_csv(connection)
         existing_admin = connection.execute(
             """
             SELECT username
@@ -488,7 +1144,16 @@ def init_db() -> None:
             """,
             (DEFAULT_PRIMARY_HUB_ID,),
         ).fetchone()
-        if not primary_hub:
+        primary_owner_hub = connection.execute(
+            """
+            SELECT hub_id
+            FROM hubs
+            WHERE owner_username = ?
+            LIMIT 1
+            """,
+            (primary_owner_username,),
+        ).fetchone()
+        if not primary_hub and not primary_owner_hub:
             now = utc_now_iso()
             connection.execute(
                 """
@@ -581,7 +1246,10 @@ def list_hubs() -> list[dict[str, Any]]:
             """
             SELECT hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                   sample_time_cloud_ms, history_start_at, created_at, updated_at
+                   sample_time_cloud_ms, history_start_at, config_revision,
+                   config_updated_at, config_applied_revision, config_applied_at,
+                   config_applied_settings_json, device_status_at, device_status_message,
+                   device_firmware_version, created_at, updated_at
             FROM hubs
             ORDER BY created_at ASC, hub_id ASC
             """
@@ -595,7 +1263,10 @@ def find_hub(hub_id: str) -> dict[str, Any] | None:
             """
             SELECT hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                   sample_time_cloud_ms, history_start_at, created_at, updated_at
+                   sample_time_cloud_ms, history_start_at, config_revision,
+                   config_updated_at, config_applied_revision, config_applied_at,
+                   config_applied_settings_json, device_status_at, device_status_message,
+                   device_firmware_version, created_at, updated_at
             FROM hubs
             WHERE hub_id = ?
             """,
@@ -610,13 +1281,176 @@ def find_hub_by_owner(username: str) -> dict[str, Any] | None:
             """
             SELECT hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                   sample_time_cloud_ms, history_start_at, created_at, updated_at
+                   sample_time_cloud_ms, history_start_at, config_revision,
+                   config_updated_at, config_applied_revision, config_applied_at,
+                   config_applied_settings_json, device_status_at, device_status_message,
+                   device_firmware_version, created_at, updated_at
             FROM hubs
             WHERE owner_username = ?
             """,
             (username,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def list_plant_profiles(query: str = "") -> list[dict[str, Any]]:
+    query_text = query.strip().lower()
+    with db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT profile_id, name, family, icon, tone, english_name, latin_name, category,
+                   watering_short, climate_note, underwatering_signs, overwatering_signs,
+                   underwatering_action, overwatering_action, watering_strategy, ranges_json
+            FROM plant_profiles
+            ORDER BY name COLLATE NOCASE ASC
+            """
+        ).fetchall()
+
+    profiles: list[dict[str, Any]] = []
+    for row in rows:
+        profile = dict(row)
+        if query_text and query_text not in f"{profile['name']} {profile['family']}".lower():
+            continue
+        try:
+            ranges = json.loads(str(profile.pop("ranges_json") or "{}"))
+        except json.JSONDecodeError:
+            ranges = {}
+        profile["ranges"] = ranges
+        profiles.append(profile)
+    return profiles
+
+
+def list_plant_catalog(query: str = "") -> list[dict[str, Any]]:
+    query_text = query.strip().lower()
+    with db_connection() as connection:
+        profile_rows = connection.execute(
+            """
+            SELECT profile_id, name, family, icon, tone, english_name, latin_name, category,
+                   watering_short, climate_note, underwatering_signs, overwatering_signs,
+                   underwatering_action, overwatering_action, watering_strategy, ranges_json
+            FROM plant_profiles
+            ORDER BY name COLLATE NOCASE ASC
+            """
+        ).fetchall()
+        variant_rows = connection.execute(
+            """
+            SELECT variant_id, base_plant_id, norsk_navn, engelsk_navn, variant_type,
+                   heat_tolerant, cool_tolerant, drought_sensitive, crack_sensitive, humidity_sensitive,
+                   delta_lufttemp_akseptabel_min_c, delta_lufttemp_akseptabel_max_c,
+                   delta_jordfukt_optimal_min_pct, delta_jordfukt_optimal_max_pct,
+                   delta_luftfukt_akseptabel_max_pct, delta_lys_optimal_min_lux,
+                   delta_lys_optimal_max_lux, notes
+            FROM plant_variants
+            ORDER BY norsk_navn COLLATE NOCASE ASC
+            """
+        ).fetchall()
+        cultivar_rows = connection.execute(
+            """
+            SELECT cultivar_id, cultivar_name, base_plant_id, variant_id, norsk_navn, engelsk_navn,
+                   heat_tolerant, cool_tolerant, drought_sensitive, crack_sensitive, humidity_sensitive, notes
+            FROM plant_cultivars
+            ORDER BY cultivar_name COLLATE NOCASE ASC
+            """
+        ).fetchall()
+
+    profiles: dict[str, dict[str, Any]] = {}
+    for row in profile_rows:
+        profile = dict(row)
+        try:
+            ranges = json.loads(str(profile.pop("ranges_json") or "{}"))
+        except json.JSONDecodeError:
+            ranges = {}
+        profile["ranges"] = ranges
+        profiles[str(profile["profile_id"])] = profile
+
+    variants = {str(row["variant_id"]): dict(row) for row in variant_rows}
+    items: list[dict[str, Any]] = []
+
+    def matches(item: dict[str, Any]) -> bool:
+        if not query_text:
+            return True
+        haystack = " ".join(str(value or "") for value in item.values()).lower()
+        return query_text in haystack
+
+    for profile in profiles.values():
+        item = {
+            "id": profile["profile_id"],
+            "kind": "base",
+            "profile_id": profile["profile_id"],
+            "variant_id": None,
+            "cultivar_id": None,
+            "name": profile["name"],
+            "display_name": profile["name"],
+            "subtitle": profile["family"],
+            "family": profile["family"],
+            "icon": profile["icon"],
+            "tone": profile["tone"],
+            "ranges": profile["ranges"],
+            "notes": profile.get("climate_note") or profile.get("watering_short") or "",
+            "watering": profile.get("watering_short") or "",
+            "seed_guide": seed_guide_for_profile(str(profile["profile_id"]), str(profile.get("category") or ""), str(profile.get("family") or "")),
+            "category": profile.get("category") or "",
+            "latin_name": profile.get("latin_name") or "",
+        }
+        if matches(item):
+            items.append(item)
+
+    for variant in variants.values():
+        base = profiles.get(str(variant["base_plant_id"]))
+        if not base:
+            continue
+        item = {
+            "id": variant["variant_id"],
+            "kind": "variant",
+            "profile_id": base["profile_id"],
+            "variant_id": variant["variant_id"],
+            "cultivar_id": None,
+            "name": variant["norsk_navn"],
+            "display_name": variant["norsk_navn"],
+            "subtitle": f"{base['name']} · {variant['variant_type']}",
+            "family": base["family"],
+            "icon": base["icon"],
+            "tone": base["tone"],
+            "ranges": adjusted_ranges(base["ranges"], variant),
+            "notes": variant.get("notes") or "",
+            "watering": base.get("watering_short") or "",
+            "seed_guide": seed_guide_for_profile(str(base["profile_id"]), str(base.get("category") or ""), str(base.get("family") or "")),
+            "category": base.get("category") or "",
+            "latin_name": base.get("latin_name") or "",
+        }
+        if matches(item):
+            items.append(item)
+
+    for cultivar in cultivar_rows:
+        cultivar_item = dict(cultivar)
+        base = profiles.get(str(cultivar_item["base_plant_id"]))
+        variant = variants.get(str(cultivar_item["variant_id"]))
+        if not base:
+            continue
+        item = {
+            "id": cultivar_item["cultivar_id"],
+            "kind": "cultivar",
+            "profile_id": base["profile_id"],
+            "variant_id": cultivar_item["variant_id"],
+            "cultivar_id": cultivar_item["cultivar_id"],
+            "name": cultivar_item["norsk_navn"],
+            "display_name": cultivar_item["norsk_navn"],
+            "subtitle": f"{base['name']} · {variant['norsk_navn'] if variant else cultivar_item['cultivar_name']}",
+            "family": base["family"],
+            "icon": base["icon"],
+            "tone": base["tone"],
+            "ranges": adjusted_ranges(base["ranges"], variant),
+            "notes": cultivar_item.get("notes") or (variant.get("notes") if variant else ""),
+            "watering": base.get("watering_short") or "",
+            "seed_guide": seed_guide_for_profile(str(base["profile_id"]), str(base.get("category") or ""), str(base.get("family") or "")),
+            "category": base.get("category") or "",
+            "latin_name": base.get("latin_name") or "",
+        }
+        if matches(item):
+            items.append(item)
+
+    kind_order = {"cultivar": 0, "variant": 1, "base": 2}
+    return sorted(items, key=lambda item: (kind_order.get(str(item["kind"]), 3), str(item["display_name"]).lower()))
 
 
 def list_active_pairing_tokens() -> list[dict[str, Any]]:
@@ -833,6 +1667,13 @@ def hub_settings(hub_id: str) -> dict[str, Any]:
     if not hub:
         raise ValueError("hub_not_found")
 
+    try:
+        applied_settings = json.loads(str(hub.get("config_applied_settings_json") or "{}"))
+    except json.JSONDecodeError:
+        applied_settings = {}
+    if not isinstance(applied_settings, dict):
+        applied_settings = {}
+
     return {
         "hub_id": hub["hub_id"],
         "hub_name": hub["hub_name"],
@@ -845,6 +1686,14 @@ def hub_settings(hub_id: str) -> dict[str, Any]:
         "sample_time_air_ms": int(hub["sample_time_air_ms"]),
         "sample_time_cloud_ms": int(hub["sample_time_cloud_ms"]),
         "history_start_at": normalize_history_start_at(hub["history_start_at"]),
+        "config_revision": int(hub.get("config_revision") or 1),
+        "config_updated_at": str(hub.get("config_updated_at") or ""),
+        "config_applied_revision": int(hub.get("config_applied_revision") or 0),
+        "config_applied_at": str(hub.get("config_applied_at") or ""),
+        "config_applied_settings": applied_settings,
+        "device_status_at": str(hub.get("device_status_at") or ""),
+        "device_status_message": str(hub.get("device_status_message") or ""),
+        "device_firmware_version": str(hub.get("device_firmware_version") or ""),
     }
 
 
@@ -869,6 +1718,16 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if value_int > 3600000:
             value_int = 3600000
         updated[key] = value_int
+    config_keys = {
+        "sample_time_soil_ms",
+        "sample_time_light_ms",
+        "sample_time_air_ms",
+        "sample_time_cloud_ms",
+    }
+    config_changed = any(updated[key] != current[key] for key in config_keys)
+    now = utc_now_iso()
+    next_revision = int(current.get("config_revision") or 1) + (1 if config_changed else 0)
+    config_updated_at = now if config_changed else str(current.get("config_updated_at") or "")
 
     with db_connection() as connection:
         connection.execute(
@@ -882,6 +1741,8 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 sample_time_air_ms = ?,
                 sample_time_cloud_ms = ?,
                 history_start_at = ?,
+                config_revision = ?,
+                config_updated_at = ?,
                 updated_at = ?
             WHERE hub_id = ?
             """,
@@ -894,7 +1755,9 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 updated["sample_time_air_ms"],
                 updated["sample_time_cloud_ms"],
                 updated["history_start_at"],
-                utc_now_iso(),
+                next_revision,
+                config_updated_at,
+                now,
                 hub_id,
             ),
         )
@@ -920,6 +1783,57 @@ def update_hub_local_ip(hub_id: str, local_ip: str | None) -> None:
         connection.commit()
 
 
+def update_hub_device_status(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    now = utc_now_iso()
+    local_ip = str(payload.get("local_ip") or "").strip()
+    status_message = str(payload.get("status") or payload.get("message") or payload.get("event") or "").strip()
+    status_detail = str(payload.get("detail") or "").strip()
+    if status_detail:
+        status_message = f"{status_message}: {status_detail}" if status_message else status_detail
+    firmware_version = str(payload.get("firmware_version") or payload.get("version") or "").strip()
+    config_revision_raw = payload.get("config_revision", payload.get("applied_config_revision"))
+    try:
+        applied_revision = int(config_revision_raw or 0)
+    except (TypeError, ValueError):
+        applied_revision = 0
+    applied_settings = payload.get("applied_settings")
+    if not isinstance(applied_settings, dict):
+        applied_settings = {}
+
+    assignments = [
+        "device_status_at = ?",
+        "device_status_message = ?",
+        "device_firmware_version = ?",
+        "updated_at = ?",
+    ]
+    values: list[Any] = [now, status_message, firmware_version, now]
+    if local_ip:
+        assignments.insert(0, "local_ip = ?")
+        values.insert(0, local_ip)
+    if applied_revision > 0:
+        assignments.extend(
+            [
+                "config_applied_revision = ?",
+                "config_applied_at = ?",
+                "config_applied_settings_json = ?",
+            ]
+        )
+        values.extend([applied_revision, now, json.dumps(applied_settings, ensure_ascii=False)])
+
+    values.append(hub_id)
+    with db_connection() as connection:
+        connection.execute(
+            f"""
+            UPDATE hubs
+            SET {", ".join(assignments)}
+            WHERE hub_id = ?
+            """,
+            values,
+        )
+        connection.commit()
+    return hub_settings(hub_id)
+
+
 def device_config_response(hub_id: str, current_version: str = "") -> dict[str, Any]:
     settings = hub_settings(hub_id)
     latest_version = ACTIVE_FIRMWARE_VERSION
@@ -939,6 +1853,10 @@ def device_config_response(hub_id: str, current_version: str = "") -> dict[str, 
             "sample_time_light_ms": settings["sample_time_light_ms"],
             "sample_time_air_ms": settings["sample_time_air_ms"],
             "sample_time_cloud_ms": settings["sample_time_cloud_ms"],
+        },
+        "config": {
+            "revision": settings["config_revision"],
+            "updated_at": settings["config_updated_at"],
         },
         "firmware": {
             "current_version": str(current_version or "").strip(),
@@ -1292,6 +2210,16 @@ def delete_app_user(username: str, acting_username: str) -> None:
             (username,),
         )
         connection.commit()
+
+
+def reset_app_user_password(username: str) -> str:
+    user = find_app_user(username)
+    if not user:
+        raise ValueError("user_not_found")
+
+    temporary_password = f"Growly-{secrets.token_urlsafe(6)}"
+    update_app_user(username, password=temporary_password)
+    return temporary_password
 
 
 def normalized_sensor_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -2308,6 +3236,23 @@ async def settings(request: Request):
     )
 
 
+@app.get("/users")
+async def users_page(request: Request):
+    redirect = require_settings_page(request)
+    if redirect:
+        return redirect
+    hub = resolve_request_hub(request)
+    return templates.TemplateResponse(
+        "users.html",
+        {
+            "request": request,
+            "active_hub": hub,
+            "storage_status": storage_status(),
+            **template_auth_context(request),
+        },
+    )
+
+
 @app.get("/management")
 async def management(request: Request):
     return RedirectResponse(url="/settings", status_code=303)
@@ -2541,6 +3486,22 @@ async def day_summary(request: Request):
     return {"ok": True, "hub_id": hub_id, "summary": summary, "source": source, "fallback_reason": fallback_reason}
 
 
+@app.get("/api/plant-profiles")
+async def plant_profiles(request: Request, q: str = ""):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    return {"ok": True, "profiles": list_plant_profiles(q)}
+
+
+@app.get("/api/plant-catalog")
+async def plant_catalog(request: Request, q: str = ""):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    return {"ok": True, "items": list_plant_catalog(q)}
+
+
 @app.get("/api/settings")
 async def get_settings(request: Request):
     auth_error = require_viewer_api(request)
@@ -2648,8 +3609,8 @@ async def update_device_status(payload: dict[str, Any]):
     except ValueError as exc:
         return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
 
-    update_hub_local_ip(hub_id, payload.get("local_ip"))
-    return {"ok": True, "server_time": utc_now_iso()}
+    settings = update_hub_device_status(hub_id, payload)
+    return {"ok": True, "server_time": utc_now_iso(), "settings": settings}
 
 
 @app.post("/api/users")
@@ -2693,6 +3654,18 @@ async def edit_user(request: Request, username: str, payload: dict[str, Any]):
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
     return {"ok": True, "user": user, "users": list_app_users()}
+
+
+@app.post("/api/users/{username}/reset-password")
+async def reset_user_password(request: Request, username: str):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        temporary_password = reset_app_user_password(username)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "password": temporary_password, "users": list_app_users()}
 
 
 @app.delete("/api/users/{username}")

@@ -6,6 +6,8 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { GreenhousePage } from "./pages/GreenhousePage";
 import { LoginPage } from "./pages/LoginPage";
+import { PlantCatalogPage } from "./pages/PlantCatalogPage";
+import { PlantHistoryPage } from "./pages/PlantHistoryPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
@@ -45,6 +47,14 @@ export function App() {
         <Route
           path="/drivhus"
           element={isAuthenticated ? <GreenhousePage session={authenticatedSession} /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/kartotek"
+          element={isAuthenticated ? <PlantCatalogPage session={authenticatedSession} /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/historikk"
+          element={isAuthenticated ? <PlantHistoryPage /> : <Navigate to="/login" replace />}
         />
         <Route
           path="/kalender"
