@@ -1254,6 +1254,26 @@ def next_hub_id(connection: sqlite3.Connection) -> str:
     return f"growly-hub-{max_number + 1:03d}"
 
 
+def is_valid_hub_id(hub_id: str) -> bool:
+    suffix = hub_id.removeprefix("growly-hub-")
+    return hub_id.startswith("growly-hub-") and suffix.isdigit() and 1 <= len(suffix) <= 6
+
+
+def default_hub_owner_username(connection: sqlite3.Connection) -> str:
+    row = connection.execute(
+        """
+        SELECT username
+        FROM app_users
+        WHERE is_admin = 0 AND is_active = 1
+        ORDER BY created_at ASC, username COLLATE NOCASE ASC
+        LIMIT 1
+        """
+    ).fetchone()
+    if row and row["username"]:
+        return str(row["username"])
+    return DEFAULT_VIEWER_USERNAME
+
+
 def list_hubs() -> list[dict[str, Any]]:
     with db_connection() as connection:
         rows = connection.execute(
@@ -1718,6 +1738,97 @@ def create_hub_for_user(username: str) -> dict[str, Any]:
             ),
         )
         connection.commit()
+    return find_hub(hub_id) or {}
+
+
+def ensure_device_hub(hub_id: str, local_ip: str | None = None) -> dict[str, Any]:
+    hub_id = hub_id.strip()
+    existing_hub = find_hub(hub_id)
+    if existing_hub:
+        return existing_hub
+    if not is_valid_hub_id(hub_id):
+        raise ValueError("hub_not_found")
+
+    now = utc_now_iso()
+    global_settings = global_app_settings()
+    clean_ip = str(local_ip or "").strip()
+    with db_connection() as connection:
+        owner_username = default_hub_owner_username(connection)
+        owner_hub = connection.execute(
+            """
+            SELECT hub_id
+            FROM hubs
+            WHERE owner_username = ?
+            LIMIT 1
+            """,
+            (owner_username,),
+        ).fetchone()
+        if owner_hub:
+            connection.execute(
+                """
+                UPDATE hubs
+                SET hub_id = ?,
+                    hub_name = ?,
+                    is_active = 1,
+                    local_ip = ?,
+                    sample_time_soil_ms = ?,
+                    sample_time_light_ms = ?,
+                    sample_time_air_ms = ?,
+                    sample_time_cloud_ms = ?,
+                    config_updated_at = ?,
+                    device_status_at = ?,
+                    device_status_message = ?,
+                    updated_at = ?
+                WHERE owner_username = ?
+                """,
+                (
+                    hub_id,
+                    owner_username,
+                    clean_ip,
+                    global_settings["sample_time_soil_ms"],
+                    global_settings["sample_time_light_ms"],
+                    global_settings["sample_time_air_ms"],
+                    global_settings["sample_time_cloud_ms"],
+                    now,
+                    now,
+                    "Gjenopprettet fra fysisk hub",
+                    now,
+                    owner_username,
+                ),
+            )
+            connection.commit()
+            return find_hub(hub_id) or {}
+
+        connection.execute(
+            """
+            INSERT INTO hubs (
+                hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
+                sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
+                sample_time_cloud_ms, history_start_at, config_revision,
+                config_updated_at, device_status_at, device_status_message,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+            """,
+            (
+                hub_id,
+                owner_username,
+                owner_username,
+                global_settings["sensor_url"],
+                clean_ip,
+                global_settings["sample_time_soil_ms"],
+                global_settings["sample_time_light_ms"],
+                global_settings["sample_time_air_ms"],
+                global_settings["sample_time_cloud_ms"],
+                global_settings["history_start_at"],
+                now,
+                now,
+                "Gjenopprettet fra fysisk hub",
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+
     return find_hub(hub_id) or {}
 
 
@@ -3659,6 +3770,7 @@ async def get_device_config(hub_id: str = Query(""), version: str = Query("")):
     if not hub_id:
         return JSONResponse(status_code=400, content={"ok": False, "error": "missing_hub_id"})
     try:
+        ensure_device_hub(hub_id)
         return device_config_response(hub_id, version)
     except ValueError as exc:
         return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
@@ -3670,7 +3782,7 @@ async def update_device_status(payload: dict[str, Any]):
     if not hub_id:
         return JSONResponse(status_code=400, content={"ok": False, "error": "missing_hub_id"})
     try:
-        hub_settings(hub_id)
+        ensure_device_hub(hub_id, str(payload.get("local_ip") or ""))
     except ValueError as exc:
         return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
 
