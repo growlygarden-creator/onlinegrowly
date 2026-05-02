@@ -31,6 +31,7 @@ String configuredPairingCode;
 String pairedHubId;
 String pairingStatusMessage = "Huben er ikke paret ennå.";
 String firmwareStatusMessage = "Firmware OK";
+String lastDeviceStatusPostMessage = "Ingen statuspost sendt ennå.";
 bool captivePortalActive = false;
 unsigned long lastWifiScanAt = 0;
 bool wifiScanLoaded = false;
@@ -957,6 +958,43 @@ bool applyRemoteSampleIntervals(const String& payload) {
     return changed;
 }
 
+String jsonEscape(const String& value) {
+    String escaped;
+    escaped.reserve(value.length() + 8);
+    for (size_t i = 0; i < value.length(); ++i) {
+        const char c = value[i];
+        switch (c) {
+            case '"':
+                escaped += "\\\"";
+                break;
+            case '\\':
+                escaped += "\\\\";
+                break;
+            case '\n':
+                escaped += "\\n";
+                break;
+            case '\r':
+                escaped += "\\r";
+                break;
+            case '\t':
+                escaped += "\\t";
+                break;
+            default:
+                escaped += c;
+                break;
+        }
+    }
+    return escaped;
+}
+
+bool beginHttpClient(HTTPClient& http, WiFiClient& plainClient, WiFiClientSecure& secureClient, const String& url) {
+    if (url.startsWith("https://")) {
+        secureClient.setInsecure();
+        return http.begin(secureClient, url);
+    }
+    return http.begin(plainClient, url);
+}
+
 bool ensureHubPairing(bool forceRetry) {
     if (pairedHubId.length() > 0) {
         pairingStatusMessage = "Huben er paret som " + pairedHubId + ".";
@@ -990,12 +1028,14 @@ bool ensureHubPairing(bool forceRetry) {
         return false;
     }
 
-    String body = String("{\"pairing_token\":\"") + configuredPairingCode + "\"";
-    body += ",\"local_ip\":\"" + WiFi.localIP().toString() + "\"}";
+    String body = String("{\"pairing_token\":\"") + jsonEscape(configuredPairingCode) + "\"";
+    body += ",\"local_ip\":\"" + jsonEscape(WiFi.localIP().toString()) + "\"}";
 
     HTTPClient http;
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     http.setTimeout(5000);
-    if (!http.begin(pairUrl)) {
+    if (!beginHttpClient(http, plainClient, secureClient, pairUrl)) {
         pairingStatusMessage = "Kunne ikke kontakte Growly backend.";
         return false;
     }
@@ -1006,7 +1046,7 @@ bool ensureHubPairing(bool forceRetry) {
     http.end();
 
     if (statusCode <= 0) {
-        pairingStatusMessage = "Pairing feilet: " + String(statusCode);
+        pairingStatusMessage = "Pairing feilet: " + http.errorToString(statusCode);
         return false;
     }
 
@@ -1039,12 +1079,12 @@ void reportDeviceStatus(const String& event, const String& detail = "", unsigned
         return;
     }
 
-    String body = String("{\"hub_id\":\"") + pairedHubId + "\"";
-    body += ",\"firmware_version\":\"" + String(DeviceConfig::FIRMWARE_VERSION) + "\"";
-    body += ",\"event\":\"" + event + "\"";
-    body += ",\"local_ip\":\"" + WiFi.localIP().toString() + "\"";
+    String body = String("{\"hub_id\":\"") + jsonEscape(pairedHubId) + "\"";
+    body += ",\"firmware_version\":\"" + jsonEscape(String(DeviceConfig::FIRMWARE_VERSION)) + "\"";
+    body += ",\"event\":\"" + jsonEscape(event) + "\"";
+    body += ",\"local_ip\":\"" + jsonEscape(WiFi.localIP().toString()) + "\"";
     if (detail.length() > 0) {
-        body += ",\"detail\":\"" + detail + "\"";
+        body += ",\"detail\":\"" + jsonEscape(detail) + "\"";
     }
     if (appliedConfigRevision > 0) {
         body += ",\"config_revision\":" + String(appliedConfigRevision);
@@ -1053,13 +1093,27 @@ void reportDeviceStatus(const String& event, const String& detail = "", unsigned
     body += "}";
 
     HTTPClient http;
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     http.setTimeout(4000);
-    if (!http.begin(statusUrl)) {
+    if (!beginHttpClient(http, plainClient, secureClient, statusUrl)) {
+        lastDeviceStatusPostMessage = "Statuspost feilet: ugyldig URL.";
+        Serial.println(lastDeviceStatusPostMessage);
         return;
     }
     http.addHeader("Content-Type", "application/json");
-    http.POST(body);
+    const int statusCode = http.POST(body);
+    const String responseBody = http.getString();
     http.end();
+
+    if (statusCode > 0) {
+        lastDeviceStatusPostMessage = "Statuspost HTTP " + String(statusCode);
+        Serial.printf("Device status POST %s -> HTTP %d\n", statusUrl.c_str(), statusCode);
+        Serial.println(responseBody);
+    } else {
+        lastDeviceStatusPostMessage = "Statuspost feilet: " + http.errorToString(statusCode);
+        Serial.println(lastDeviceStatusPostMessage);
+    }
 }
 
 bool performFirmwareUpdate(const String& version, const String& firmwareUrl) {
@@ -1157,9 +1211,12 @@ void pollDeviceConfig(bool force) {
                              "&version=" + urlEncode(DeviceConfig::FIRMWARE_VERSION);
 
     HTTPClient http;
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     http.setTimeout(7000);
-    if (!http.begin(configUrl)) {
+    if (!beginHttpClient(http, plainClient, secureClient, configUrl)) {
         firmwareStatusMessage = "Kunne ikke kontakte config.";
+        Serial.println(firmwareStatusMessage);
         return;
     }
 
@@ -1167,8 +1224,11 @@ void pollDeviceConfig(bool force) {
     const String responseBody = http.getString();
     http.end();
 
+    Serial.printf("Device config GET %s -> HTTP %d\n", configUrl.c_str(), statusCode);
+
     if (statusCode < 200 || statusCode >= 300) {
         firmwareStatusMessage = "Config feilet HTTP " + String(statusCode);
+        Serial.println(responseBody);
         return;
     }
 
@@ -1188,7 +1248,7 @@ void pollDeviceConfig(bool force) {
         return;
     }
 
-    firmwareStatusMessage = "Firmware OK";
+    firmwareStatusMessage = configRevision > 0 ? ("Firmware OK, config rev " + String(configRevision)) : "Firmware OK";
 }
 
 String authLabel(wifi_auth_mode_t authMode) {
@@ -1768,13 +1828,14 @@ void handleRoot() {
 void handleHealth() {
     const String json =
         String("{\"status\":\"ok\",\"device\":\"") + DeviceConfig::DEVICE_NAME +
-        "\",\"firmware_version\":\"" + String(DeviceConfig::FIRMWARE_VERSION) +
-        "\",\"firmware_status\":\"" + firmwareStatusMessage +
-        "\",\"mode\":\"" + wifiModeLabel() +
-        "\",\"ip\":\"" + activeIpAddress() +
-        "\",\"wifi_ssid\":\"" + configuredWifiSsid +
-        "\",\"hub_id\":\"" + pairedHubId +
-        "\",\"pairing_status\":\"" + pairingStatusMessage + "\"}";
+        "\",\"firmware_version\":\"" + jsonEscape(String(DeviceConfig::FIRMWARE_VERSION)) +
+        "\",\"firmware_status\":\"" + jsonEscape(firmwareStatusMessage) +
+        "\",\"backend_status\":\"" + jsonEscape(lastDeviceStatusPostMessage) +
+        "\",\"mode\":\"" + jsonEscape(wifiModeLabel()) +
+        "\",\"ip\":\"" + jsonEscape(activeIpAddress()) +
+        "\",\"wifi_ssid\":\"" + jsonEscape(configuredWifiSsid) +
+        "\",\"hub_id\":\"" + jsonEscape(pairedHubId) +
+        "\",\"pairing_status\":\"" + jsonEscape(pairingStatusMessage) + "\"}";
     server.send(200, "application/json", json);
 }
 
@@ -1917,8 +1978,10 @@ void uploadSensorReadingToBackend() {
     lastBackendUploadAt = millis();
 
     HTTPClient http;
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     http.setTimeout(4000);
-    if (!http.begin(DeviceConfig::BACKEND_INGEST_URL)) {
+    if (!beginHttpClient(http, plainClient, secureClient, DeviceConfig::BACKEND_INGEST_URL)) {
         Serial.println("Backend upload skipped: invalid URL");
         return;
     }
@@ -1948,8 +2011,10 @@ void sendToSupabase() {
     lastSupabaseUploadAt = millis();
 
     HTTPClient http;
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     http.setTimeout(5000);
-    if (!http.begin(DeviceConfig::SUPABASE_REST_ENDPOINT)) {
+    if (!beginHttpClient(http, plainClient, secureClient, DeviceConfig::SUPABASE_REST_ENDPOINT)) {
         Serial.println("Supabase upload skipped: invalid URL");
         return;
     }
