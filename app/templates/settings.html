@@ -66,7 +66,7 @@
 
         <section class="panel settings-card">
             <h2 class="settings-subtitle">Samplingsintervall</h2>
-            <p class="helper-text">Bestem hvor ofte huben skal lese sensorene og sende data videre. Verdiene lagres i backend og hentes automatisk av huben når den er online.</p>
+            <p class="helper-text">Bestem hvor ofte alle hubber skal lese sensorene og sende data videre. Verdiene lagres globalt i backend og hentes automatisk av hver ESP32 når den er online.</p>
             <div class="settings-grid">
                 <label class="field">
                     <span>7in1 jordsensor</span>
@@ -123,7 +123,7 @@
                     <small id="config-ack-state">Sjekker status...</small>
                 </div>
             </div>
-            <p id="settings-debug-target" class="helper-text">Hub-konfig: lagres i backend og hentes automatisk av ESP32.</p>
+            <p id="settings-debug-target" class="helper-text">Hub-konfig: lagres globalt i backend og hentes automatisk av alle ESP32-hubber. Bekreftelsen over gjelder aktiv hub.</p>
         </section>
 
         <section class="panel detail-panel">
@@ -412,7 +412,7 @@
                 sampleTimeCloud.value = Math.round(result.settings.sample_time_cloud_ms / 60000);
                 renderConfigAck(result.settings);
                 setSaveStatus("Lagret", "online");
-                settingsDebugTarget.textContent = "Hub-konfig: lagret. Venter på bekreftelse fra ESP32.";
+                settingsDebugTarget.textContent = "Hub-konfig: lagret globalt. Venter på bekreftelse fra aktiv ESP32.";
                 window.setTimeout(refreshConfigAck, 5000);
             } catch (error) {
                 const label = error?.name ? `${error.name}: ` : "";

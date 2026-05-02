@@ -89,6 +89,12 @@ DEFAULT_APP_SETTINGS: dict[str, Any] = {
     "sample_time_cloud_ms": 60000,
     "history_start_at": "",
 }
+GLOBAL_CONFIG_KEYS = {
+    "sample_time_soil_ms",
+    "sample_time_light_ms",
+    "sample_time_air_ms",
+    "sample_time_cloud_ms",
+}
 DEFAULT_PLANT_PROFILES: tuple[dict[str, Any], ...] = (
     {
         "profile_id": "tomato",
@@ -1301,6 +1307,49 @@ def find_hub_by_owner(username: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def global_app_settings() -> dict[str, Any]:
+    settings = DEFAULT_APP_SETTINGS.copy()
+    with db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT key, value
+            FROM app_settings
+            """
+        ).fetchall()
+
+    for row in rows:
+        key = str(row["key"])
+        value = row["value"]
+        if key == "history_start_date" and not settings.get("history_start_at"):
+            settings["history_start_at"] = normalize_history_start_at(value)
+            continue
+        if key not in settings:
+            continue
+        if key == "sensor_url":
+            settings[key] = normalize_sensor_url(value)
+            continue
+        if key == "history_start_at":
+            settings[key] = normalize_history_start_at(value)
+            continue
+        try:
+            settings[key] = int(value)
+        except (TypeError, ValueError):
+            settings[key] = DEFAULT_APP_SETTINGS[key]
+    return settings
+
+
+def save_global_config_settings(connection: sqlite3.Connection, settings: dict[str, Any]) -> None:
+    for key in GLOBAL_CONFIG_KEYS:
+        connection.execute(
+            """
+            INSERT INTO app_settings (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, str(settings[key])),
+        )
+
+
 def list_plant_profiles(query: str = "") -> list[dict[str, Any]]:
     query_text = query.strip().lower()
     with db_connection() as connection:
@@ -1574,7 +1623,8 @@ def complete_pairing_token(
 
     target_username = str(pairing["target_username"])
     now = utc_now_iso()
-    effective_sensor_url = normalize_sensor_url(sensor_url or DEFAULT_APP_SETTINGS["sensor_url"])
+    global_settings = global_app_settings()
+    effective_sensor_url = normalize_sensor_url(sensor_url or global_settings["sensor_url"])
     effective_local_ip = str(local_ip or "").strip()
     existing_hub = find_hub_by_owner(target_username)
 
@@ -1613,11 +1663,11 @@ def complete_pairing_token(
                     target_username,
                     effective_sensor_url,
                     effective_local_ip,
-                    DEFAULT_APP_SETTINGS["sample_time_soil_ms"],
-                    DEFAULT_APP_SETTINGS["sample_time_light_ms"],
-                    DEFAULT_APP_SETTINGS["sample_time_air_ms"],
-                    DEFAULT_APP_SETTINGS["sample_time_cloud_ms"],
-                    DEFAULT_APP_SETTINGS["history_start_at"],
+                    global_settings["sample_time_soil_ms"],
+                    global_settings["sample_time_light_ms"],
+                    global_settings["sample_time_air_ms"],
+                    global_settings["sample_time_cloud_ms"],
+                    global_settings["history_start_at"],
                     now,
                     now,
                 ),
@@ -1641,6 +1691,7 @@ def create_hub_for_user(username: str) -> dict[str, Any]:
         return existing_hub
 
     now = utc_now_iso()
+    global_settings = global_app_settings()
     with db_connection() as connection:
         hub_id = next_hub_id(connection)
         connection.execute(
@@ -1655,13 +1706,13 @@ def create_hub_for_user(username: str) -> dict[str, Any]:
                 hub_id,
                 username,
                 username,
-                DEFAULT_APP_SETTINGS["sensor_url"],
+                global_settings["sensor_url"],
                 "",
-                DEFAULT_APP_SETTINGS["sample_time_soil_ms"],
-                DEFAULT_APP_SETTINGS["sample_time_light_ms"],
-                DEFAULT_APP_SETTINGS["sample_time_air_ms"],
-                DEFAULT_APP_SETTINGS["sample_time_cloud_ms"],
-                DEFAULT_APP_SETTINGS["history_start_at"],
+                global_settings["sample_time_soil_ms"],
+                global_settings["sample_time_light_ms"],
+                global_settings["sample_time_air_ms"],
+                global_settings["sample_time_cloud_ms"],
+                global_settings["history_start_at"],
                 now,
                 now,
             ),
@@ -1726,15 +1777,9 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if value_int > 3600000:
             value_int = 3600000
         updated[key] = value_int
-    config_keys = {
-        "sample_time_soil_ms",
-        "sample_time_light_ms",
-        "sample_time_air_ms",
-        "sample_time_cloud_ms",
-    }
-    config_changed = any(updated[key] != current[key] for key in config_keys)
+    config_payload = any(key in payload for key in GLOBAL_CONFIG_KEYS)
+    config_changed = config_payload
     now = utc_now_iso()
-    next_revision = int(current.get("config_revision") or 1) + (1 if config_changed else 0)
     config_updated_at = now if config_changed else str(current.get("config_updated_at") or "")
 
     with db_connection() as connection:
@@ -1744,12 +1789,7 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             SET hub_name = ?,
                 sensor_url = ?,
                 local_ip = ?,
-                sample_time_soil_ms = ?,
-                sample_time_light_ms = ?,
-                sample_time_air_ms = ?,
-                sample_time_cloud_ms = ?,
                 history_start_at = ?,
-                config_revision = ?,
                 config_updated_at = ?,
                 updated_at = ?
             WHERE hub_id = ?
@@ -1758,17 +1798,34 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 updated["hub_name"],
                 updated["sensor_url"],
                 str(updated.get("local_ip", "") or "").strip(),
-                updated["sample_time_soil_ms"],
-                updated["sample_time_light_ms"],
-                updated["sample_time_air_ms"],
-                updated["sample_time_cloud_ms"],
                 updated["history_start_at"],
-                next_revision,
                 config_updated_at,
                 now,
                 hub_id,
             ),
         )
+        if config_changed:
+            save_global_config_settings(connection, updated)
+            connection.execute(
+                """
+                UPDATE hubs
+                SET sample_time_soil_ms = ?,
+                    sample_time_light_ms = ?,
+                    sample_time_air_ms = ?,
+                    sample_time_cloud_ms = ?,
+                    config_revision = config_revision + 1,
+                    config_updated_at = ?,
+                    updated_at = ?
+                """,
+                (
+                    updated["sample_time_soil_ms"],
+                    updated["sample_time_light_ms"],
+                    updated["sample_time_air_ms"],
+                    updated["sample_time_cloud_ms"],
+                    now,
+                    now,
+                ),
+            )
         connection.commit()
 
     return hub_settings(hub_id)
