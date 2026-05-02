@@ -524,17 +524,25 @@ def ensure_data_dir() -> None:
 def storage_status() -> dict[str, Any]:
     preferred_path = str(PREFERRED_DATA_DIR)
     active_path = str(DATA_DIR)
-    persistent = DATA_DIR == PREFERRED_DATA_DIR
+    render_runtime = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+    preferred_is_mount = DATA_DIR.exists() and os.path.ismount(DATA_DIR)
+    persistent = DATA_DIR == PREFERRED_DATA_DIR and (not render_runtime or preferred_is_mount)
+    if persistent:
+        message = "Brukere og innstillinger lagres varig."
+    elif render_runtime and DATA_DIR == PREFERRED_DATA_DIR and not preferred_is_mount:
+        message = (
+            "Render kjører uten mountet persistent disk på denne stien. "
+            "Brukere og innstillinger kan nullstilles ved deploy eller restart."
+        )
+    else:
+        message = "Appen bruker midlertidig lagring nå. Brukere og innstillinger kan forsvinne ved deploy eller restart."
     return {
         "persistent": persistent,
         "active_path": active_path,
         "preferred_path": preferred_path,
+        "preferred_is_mount": preferred_is_mount,
         "mode": "persistent" if persistent else "temporary",
-        "message": (
-            "Brukere og innstillinger lagres varig."
-            if persistent
-            else "Appen bruker midlertidig lagring nå. Brukere og innstillinger kan forsvinne ved deploy eller restart."
-        ),
+        "message": message,
     }
 
 
