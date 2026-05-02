@@ -169,13 +169,13 @@ const soilMetricConfigs: Array<{ key: SoilMetricKey; label: string; unit: string
   { key: "tds", label: "TDS", unit: "", digits: 0 },
 ];
 
-const detailTrendMetrics: Array<{ key: DetailTrendMetric; label: string; unit: string; apiMetric: string; fallbackApiMetric?: string }> = [
-  { key: "airTemperature", label: "Lufttemp", unit: "°C", apiMetric: "air_temperature", fallbackApiMetric: "temperature" },
-  { key: "airHumidity", label: "Luftfukt", unit: "%", apiMetric: "air_humidity" },
-  { key: "soilTemperature", label: "Jordtemp", unit: "°C", apiMetric: "temperature" },
-  { key: "soilHumidity", label: "Jordfukt", unit: "%", apiMetric: "humidity" },
-  { key: "ph", label: "pH", unit: "", apiMetric: "ph" },
-  { key: "lux", label: "Lys", unit: "lx", apiMetric: "lux" },
+const detailTrendMetrics: Array<{ key: DetailTrendMetric; label: string; unit: string; apiMetrics: string[] }> = [
+  { key: "airTemperature", label: "Lufttemp", unit: "°C", apiMetrics: ["air_temperature", "temperature"] },
+  { key: "airHumidity", label: "Luftfukt", unit: "%", apiMetrics: ["air_humidity"] },
+  { key: "soilTemperature", label: "Jordtemp", unit: "°C", apiMetrics: ["temperature", "air_temperature"] },
+  { key: "soilHumidity", label: "Jordfukt", unit: "%", apiMetrics: ["humidity"] },
+  { key: "ph", label: "pH", unit: "", apiMetrics: ["ph"] },
+  { key: "lux", label: "Lys", unit: "lx", apiMetrics: ["lux"] },
 ];
 
 function metricText(value: number | null | undefined, suffix: string, digits = 0): string {
@@ -265,6 +265,21 @@ function greenhouseValue(sample: LatestSample | null, key: ClimateKey): number |
   if (key === "soilTemperature") return sample?.temperature;
   if (key === "ph") return sample?.ph;
   return sample?.lux;
+}
+
+function latestTrendPoints(sample: LatestSample | null, key: DetailTrendMetric): HistoryPoint[] {
+  const value = greenhouseValue(sample, key);
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return [];
+  }
+
+  const recordedAt = sample?.recorded_at ? new Date(sample.recorded_at) : new Date();
+  const end = Number.isNaN(recordedAt.getTime()) ? new Date() : recordedAt;
+  const start = new Date(end.getTime() - 10 * 60 * 1000);
+  return [
+    { recorded_at: start.toISOString(), value },
+    { recorded_at: end.toISOString(), value },
+  ];
 }
 
 function scoreValue(value: number | null | undefined, range: { optimal: [number, number]; caution: [number, number] }) {
@@ -414,13 +429,16 @@ function detailTrendPath(points: HistoryPoint[], range: { optimal: [number, numb
     height: Math.abs(yFor(high) - yFor(low)),
   });
 
-  const line = points
-    .map((point, index) => {
-      const x = ((new Date(point.recorded_at).getTime() - minTime) / timeSpread) * width;
-      const y = yFor(Number(point.value));
-      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
+  const coordinates = points.map((point) => ({
+    x: ((new Date(point.recorded_at).getTime() - minTime) / timeSpread) * width,
+    y: yFor(Number(point.value)),
+  }));
+  const line =
+    coordinates.length === 1
+      ? `M ${Math.max(0, coordinates[0].x - 8).toFixed(2)} ${coordinates[0].y.toFixed(2)} L ${Math.min(width, coordinates[0].x + 8).toFixed(2)} ${coordinates[0].y.toFixed(2)}`
+      : coordinates
+          .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+          .join(" ");
 
   return {
     line,
@@ -472,39 +490,60 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
 
   useEffect(() => {
     if (!selectedPlantId) {
+      setDetailTrendPoints([]);
+      setDetailTrendLoading(false);
       return;
     }
 
+    let cancelled = false;
     const metric = detailTrendMetrics.find((item) => item.key === detailTrendMetric) ?? detailTrendMetrics[0];
-    const now = new Date();
-    const dateFrom = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-    const dateTo = now.toISOString();
 
     setDetailTrendLoading(true);
-    fetchMetricHistory({
-      metric: metric.apiMetric,
-      span: "hours",
-      limit: 300,
-      dateFrom,
-      dateTo,
-    }).then((result) => {
-      if (result?.points.length || !metric.fallbackApiMetric) {
-        setDetailTrendPoints(result?.points ?? []);
-        setDetailTrendLoading(false);
-        return;
+
+    async function loadDetailTrend() {
+      for (const apiMetric of metric.apiMetrics) {
+        const recent = await fetchMetricHistory({
+          metric: apiMetric,
+          span: "hours",
+          limit: 500,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        if (recent?.points.length) {
+          setDetailTrendPoints(recent.points);
+          setDetailTrendLoading(false);
+          return;
+        }
+
+        const longer = await fetchMetricHistory({
+          metric: apiMetric,
+          span: "days",
+          limit: 500,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        if (longer?.points.length) {
+          setDetailTrendPoints(longer.points);
+          setDetailTrendLoading(false);
+          return;
+        }
       }
 
-      fetchMetricHistory({
-        metric: metric.fallbackApiMetric,
-        span: "hours",
-        limit: 300,
-        dateFrom,
-        dateTo,
-      }).then((fallbackResult) => {
-        setDetailTrendPoints(fallbackResult?.points ?? []);
-        setDetailTrendLoading(false);
-      });
-    });
+      setDetailTrendPoints([]);
+      setDetailTrendLoading(false);
+    }
+
+    void loadDetailTrend();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedPlantId, detailTrendMetric]);
 
   const selectedPlant = plants.find((plant) => plant.instanceId === selectedPlantId) ?? null;
@@ -519,7 +558,10 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
   });
   const activeTrendMetric = detailTrendMetrics.find((metric) => metric.key === detailTrendMetric) ?? detailTrendMetrics[0];
   const activeTrendRange = selectedProfile?.ranges[detailTrendMetric];
-  const activeTrendChart = activeTrendRange ? detailTrendPath(detailTrendPoints, activeTrendRange) : null;
+  const fallbackTrendPoints = latestTrendPoints(sample, detailTrendMetric);
+  const displayTrendPoints = detailTrendPoints.length ? detailTrendPoints : fallbackTrendPoints;
+  const trendUsesLatestOnly = !detailTrendPoints.length && fallbackTrendPoints.length > 0;
+  const activeTrendChart = activeTrendRange ? detailTrendPath(displayTrendPoints, activeTrendRange) : null;
   const baseCatalogItems = searchableCatalogItems.filter((item) => item.kind === "base");
   const filteredBaseItems = baseCatalogItems.filter((item) => {
     const query = newPlantQuery.trim().toLowerCase();
@@ -816,6 +858,9 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
                       <span>{activeTrendChart.startTime}</span>
                       <span>{activeTrendChart.endTime}</span>
                     </div>
+                    {trendUsesLatestOnly ? (
+                      <div className="plant-zone-chart__notice">Viser siste måling til huben har bygget historikk.</div>
+                    ) : null}
                   </>
                 ) : (
                   <div className="plant-zone-empty">

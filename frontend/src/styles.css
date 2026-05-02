@@ -2343,6 +2343,18 @@ input {
   font-weight: 800;
 }
 
+.plant-zone-chart__notice {
+  position: absolute;
+  left: 14px;
+  right: 68px;
+  bottom: 26px;
+  z-index: 1;
+  color: #79867b;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+}
+
 .plant-zone-chart__caution {
   fill: rgba(236, 191, 106, 0.2);
 }
