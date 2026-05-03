@@ -256,7 +256,7 @@ function chartPath(
   const area = `${line} L ${right} ${bottom} L ${left} ${bottom} Z`;
   const digits = config?.digits ?? 0;
   const unit = config?.unit ?? "";
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+  const yTicks = [0, 0.33, 0.66, 1].map((ratio) => {
     const value = minValue + valueSpread * ratio;
     return {
       value,
@@ -750,22 +750,6 @@ export function DashboardPage({ session }: DashboardPageProps) {
             </div>
 
             <div className="trend-chart-card">
-              {activeTrendConfig.optimal || activeTrendConfig.acceptable ? (
-                <div className="trend-chart-legend" aria-hidden="true">
-                  {activeTrendConfig.optimal ? (
-                    <span>
-                      <i className="trend-chart-legend__dot trend-chart-legend__dot--optimal" />
-                      Optimal
-                    </span>
-                  ) : null}
-                  {activeTrendConfig.acceptable ? (
-                    <span>
-                      <i className="trend-chart-legend__dot trend-chart-legend__dot--acceptable" />
-                      Akseptabel
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
               <svg className="dashboard-trend-chart" viewBox="0 0 800 260" preserveAspectRatio="none" aria-label={`${activeTrendConfig.label} trend`}>
                 <defs>
                   <linearGradient id="dashboard-trend-fill" x1="0" y1="0" x2="0" y2="1">
@@ -823,27 +807,17 @@ export function DashboardPage({ session }: DashboardPageProps) {
                   <>
                     <line className="dashboard-trend-hover-line" x1={hoverPoint.x} x2={hoverPoint.x} y1="20" y2="226" />
                     <circle className="dashboard-trend-point" cx={hoverPoint.x} cy={hoverPoint.y} r="6" />
-                    <text className="dashboard-trend-value-label" x={Math.max(96, Math.min(704, hoverPoint.x))} y={Math.max(34, hoverPoint.y - 16)} textAnchor="middle">
+                    <text className="dashboard-trend-value-label" x={Math.max(104, Math.min(696, hoverPoint.x))} y={Math.max(34, hoverPoint.y - 16)} textAnchor="middle">
                       {formatTrendValue(Number(hoverPoint.point.value), activeTrendConfig.unit, activeTrendConfig.digits)}
                     </text>
                   </>
                 ) : trendChart.coords.length ? (
-                  <>
-                    <circle
-                      className="dashboard-trend-point"
-                      cx={trendChart.coords[trendChart.coords.length - 1].x}
-                      cy={trendChart.coords[trendChart.coords.length - 1].y}
-                      r="6"
-                    />
-                    <text
-                      className="dashboard-trend-value-label"
-                      x={Math.max(96, Math.min(704, trendChart.coords[trendChart.coords.length - 1].x))}
-                      y={Math.max(34, trendChart.coords[trendChart.coords.length - 1].y - 16)}
-                      textAnchor="middle"
-                    >
-                      {formatTrendValue(latestTrendValue, activeTrendConfig.unit, activeTrendConfig.digits)}
-                    </text>
-                  </>
+                  <circle
+                    className="dashboard-trend-point"
+                    cx={trendChart.coords[trendChart.coords.length - 1].x}
+                    cy={trendChart.coords[trendChart.coords.length - 1].y}
+                    r="5"
+                  />
                 ) : null}
               </svg>
               {hoverPoint ? (

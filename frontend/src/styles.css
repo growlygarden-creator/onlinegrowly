@@ -591,48 +591,11 @@ input {
   position: relative;
   min-height: 300px;
   margin-top: 14px;
-  padding: 12px;
+  padding: 14px 12px 10px;
   border: 1px solid rgba(38, 98, 65, 0.08);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.64);
   overflow: hidden;
-}
-
-.trend-chart-legend {
-  position: absolute;
-  top: 14px;
-  right: 16px;
-  z-index: 1;
-  display: flex;
-  gap: 10px;
-  padding: 7px 9px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 10px 22px rgba(24, 40, 24, 0.08);
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 800;
-}
-
-.trend-chart-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.trend-chart-legend__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-}
-
-.trend-chart-legend__dot--optimal {
-  background: #2f8a54;
-}
-
-.trend-chart-legend__dot--acceptable {
-  background: #d7aa3f;
 }
 
 .dashboard-trend-chart {
@@ -642,7 +605,7 @@ input {
 }
 
 .dashboard-trend-chart line {
-  stroke: rgba(84, 105, 87, 0.16);
+  stroke: rgba(84, 105, 87, 0.12);
   stroke-width: 1;
 }
 
@@ -651,22 +614,22 @@ input {
 }
 
 .dashboard-trend-band--acceptable {
-  fill: rgba(222, 181, 80, 0.15);
+  fill: rgba(222, 181, 80, 0.1);
 }
 
 .dashboard-trend-band--optimal {
-  fill: rgba(47, 138, 84, 0.16);
+  fill: rgba(47, 138, 84, 0.12);
 }
 
 .dashboard-trend-axis-label {
-  fill: rgba(82, 99, 83, 0.78);
-  font-size: 18px;
-  font-weight: 800;
+  fill: rgba(82, 99, 83, 0.58);
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: 0;
 }
 
 .dashboard-trend-axis-label--x {
-  font-size: 17px;
+  font-size: 12px;
 }
 
 .dashboard-trend-area {
@@ -676,26 +639,26 @@ input {
 .dashboard-trend-line {
   fill: none;
   stroke: #2f8a54;
-  stroke-width: 5;
+  stroke-width: 3.5;
   stroke-linecap: round;
   stroke-linejoin: round;
-  filter: drop-shadow(0 10px 12px rgba(47, 138, 84, 0.18));
+  filter: drop-shadow(0 8px 10px rgba(47, 138, 84, 0.12));
 }
 
 .dashboard-trend-point {
   fill: #2f8a54;
   stroke: #ffffff;
-  stroke-width: 4;
+  stroke-width: 3;
 }
 
 .dashboard-trend-value-label {
   fill: #1f5f3e;
   paint-order: stroke;
   stroke: rgba(255, 255, 255, 0.92);
-  stroke-width: 7px;
+  stroke-width: 5px;
   stroke-linejoin: round;
-  font-size: 19px;
-  font-weight: 900;
+  font-size: 13px;
+  font-weight: 800;
   letter-spacing: 0;
 }
 
