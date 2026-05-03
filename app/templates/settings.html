@@ -29,7 +29,7 @@
             <div class="hero-copy">
                 <p class="eyebrow">Innstillinger</p>
                 <h1>System og tilgang</h1>
-                <p class="lead">Administrer sensoradresse, intervaller, datastart og brukere på ett sted.</p>
+                <p class="lead">Administrer globale hub-intervaller, firmware-status og teknisk koblingsinfo på ett sted.</p>
                 <p class="helper-text">Aktiv hub: <strong>{{ active_hub.hub_id }}</strong> · Eier: <strong>{{ active_hub.owner_username }}</strong></p>
             </div>
         </section>
@@ -48,20 +48,6 @@
             {% if not storage_status.persistent %}
             <p class="helper-text">For Render bør persistent disk være koblet til <strong>{{ storage_status.preferred_path }}</strong>. Hvis ikke vil brukere og innstillinger forsvinne når appen deployes på nytt.</p>
             {% endif %}
-        </section>
-
-        <section class="panel control-panel settings-card">
-            <h1 class="settings-title">Sensor URL</h1>
-            <label class="field">
-                <span>Sensor URL</span>
-                <input id="sensor-url" type="text" value="{{ default_sensor_url }}" spellcheck="false">
-            </label>
-            <div class="actions">
-                <button id="refresh-button" class="button" type="button">Oppdater nå</button>
-                <button id="save-sensor-url-button" class="button subtle-button" type="button">Lagre sensor URL</button>
-                <span id="connection-badge" class="status-pill">Venter på første svar</span>
-            </div>
-            <p class="helper-text">Tips: når ESP32 er på vanlig Wi-Fi kan du bytte til dens vanlige IP her. Hver henting lagres i backend for trendvisning.</p>
         </section>
 
         <section class="panel settings-card">
@@ -124,26 +110,6 @@
                 </div>
             </div>
             <p id="settings-debug-target" class="helper-text">Hub-konfig: lagres globalt i backend og hentes automatisk av alle ESP32-hubber. Bekreftelsen over gjelder aktiv hub.</p>
-        </section>
-
-        <section class="panel detail-panel">
-            <div class="detail-row">
-                <span>Sist oppdatert</span>
-                <strong id="updated-at">-</strong>
-            </div>
-            <div class="detail-row">
-                <span>Sensor-status</span>
-                <strong id="sensor-validity">-</strong>
-            </div>
-            <div class="detail-row">
-                <span>Feil</span>
-                <strong id="sensor-error">-</strong>
-            </div>
-            <div class="detail-row">
-                <span>Mål</span>
-                <strong id="active-target">{{ default_sensor_url }}</strong>
-            </div>
-            <pre id="raw-json" class="raw-json">Venter på data...</pre>
         </section>
 
         <section class="panel settings-card wiring-card">
@@ -236,18 +202,6 @@
     </main>
 
     <script>
-        const defaultSensorUrl = "{{ default_sensor_url }}";
-        const storageKey = "growly.sensorUrl";
-
-        const input = document.getElementById("sensor-url");
-        const refreshButton = document.getElementById("refresh-button");
-        const saveSensorUrlButton = document.getElementById("save-sensor-url-button");
-        const badge = document.getElementById("connection-badge");
-        const updatedAt = document.getElementById("updated-at");
-        const sensorValidity = document.getElementById("sensor-validity");
-        const sensorError = document.getElementById("sensor-error");
-        const activeTarget = document.getElementById("active-target");
-        const rawJson = document.getElementById("raw-json");
         const sampleTimeSoil = document.getElementById("sample-time-soil");
         const sampleTimeLight = document.getElementById("sample-time-light");
         const sampleTimeAir = document.getElementById("sample-time-air");
@@ -263,70 +217,6 @@
         const deviceStatusAt = document.getElementById("device-status-at");
         const deviceFirmwareVersion = document.getElementById("device-firmware-version");
         const configAckState = document.getElementById("config-ack-state");
-
-        function loadStoredUrl() {
-            input.value = defaultSensorUrl;
-            normalizeTargetUrl({ updateField: true });
-        }
-
-        function normalizeTargetUrl({ updateField = false } = {}) {
-            let raw = (input.value || "").trim() || defaultSensorUrl;
-            raw = raw.replace(/\s+/g, "");
-
-            if (!/^https?:\/\//i.test(raw)) {
-                raw = `http://${raw}`;
-            }
-
-            const match = raw.match(/^(https?):\/\/([^\/?#]+)(\/[^?#]*)?$/i);
-            if (!match || !match[2]) {
-                throw new Error("Ugyldig Sensor URL. Bruk for eksempel http://192.168.0.131/sensor");
-            }
-
-            const scheme = match[1].toLowerCase();
-            const host = match[2];
-            const path = (match[3] || "").replace(/\/+$/, "");
-            const normalized = `${scheme}://${host}${path}`;
-
-            if (updateField) {
-                input.value = normalized;
-            }
-            return normalized;
-        }
-
-        function currentTarget() {
-            const url = normalizeTargetUrl({ updateField: true });
-            window.localStorage.setItem(storageKey, url);
-            activeTarget.textContent = url;
-            return url;
-        }
-
-        async function saveSensorUrl() {
-            setStatus("Lagrer sensor-URL...", "loading");
-
-            try {
-                const sensorUrl = currentTarget();
-                const response = await fetch("/api/settings", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ sensor_url: sensorUrl })
-                });
-                const result = await response.json();
-                if (!result.ok) {
-                    throw new Error(result.error || "save_sensor_url_failed");
-                }
-                input.value = result.settings.sensor_url || sensorUrl;
-                activeTarget.textContent = input.value;
-                setStatus("Sensor URL lagret", "online");
-            } catch (error) {
-                setStatus(`Feil ved lagring`, "offline");
-                sensorError.textContent = error?.message || String(error);
-            }
-        }
-
-        function setStatus(text, mode) {
-            badge.textContent = text;
-            badge.dataset.mode = mode;
-        }
 
         function setSaveStatus(text, mode = "") {
             settingsSaveStatus.textContent = text;
@@ -422,42 +312,7 @@
             }
         }
 
-        async function testSensor() {
-            const target = currentTarget();
-            setStatus("Henter data...", "loading");
-
-            try {
-                const response = await fetch(`/api/sensor?target=${encodeURIComponent(target)}`, { cache: "no-store" });
-                const payload = await response.json();
-                if (!payload.ok) {
-                    throw new Error(payload.error || "unknown_error");
-                }
-                updatedAt.textContent = new Date().toLocaleTimeString("no-NO", { timeZone: "Europe/Oslo" });
-                sensorValidity.textContent = payload.sensor.valid ? "Gyldig svar" : "Svar mottatt";
-                sensorError.textContent = payload.sensor.error || "Ingen";
-                rawJson.textContent = JSON.stringify(payload.sensor, null, 2);
-                setStatus(payload.sensor.valid ? "Sensor online" : "Svar mottatt", payload.sensor.valid ? "online" : "warning");
-            } catch (error) {
-                updatedAt.textContent = new Date().toLocaleTimeString("no-NO", { timeZone: "Europe/Oslo" });
-                sensorValidity.textContent = "Ingen kontakt";
-                sensorError.textContent = error.message;
-                rawJson.textContent = `Klarte ikke hente data fra sensor.\n\n${error.message}`;
-                setStatus("Sensor offline", "offline");
-            }
-        }
-
-        loadStoredUrl();
-        refreshButton.addEventListener("click", testSensor);
-        saveSensorUrlButton.addEventListener("click", saveSensorUrl);
-        input.addEventListener("change", () => {
-            try {
-                currentTarget();
-            } catch (error) {
-                setSaveStatus(`Feil: ${error.message}`, "offline");
-            }
-        });
         saveSettingsButton.addEventListener("click", saveSampleSettings);
-        testSensor();
         refreshConfigAck();
         window.setInterval(refreshConfigAck, 15000);
     </script>
