@@ -545,6 +545,48 @@ input {
   white-space: nowrap;
 }
 
+.trend-reference {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(38, 98, 65, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.trend-reference strong {
+  color: var(--accent-strong);
+  letter-spacing: -0.02em;
+}
+
+.trend-reference span {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.trend-reference small {
+  justify-self: end;
+  grid-row: 1 / span 2;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(232, 241, 226, 0.9);
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.trend-reference--watch small {
+  background: rgba(246, 229, 184, 0.86);
+}
+
+.trend-reference--bad small {
+  background: rgba(246, 212, 201, 0.86);
+}
+
 .trend-chart-card {
   position: relative;
   min-height: 300px;
@@ -556,6 +598,43 @@ input {
   overflow: hidden;
 }
 
+.trend-chart-legend {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 1;
+  display: flex;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 10px 22px rgba(24, 40, 24, 0.08);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.trend-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.trend-chart-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.trend-chart-legend__dot--optimal {
+  background: #2f8a54;
+}
+
+.trend-chart-legend__dot--acceptable {
+  background: #d7aa3f;
+}
+
 .dashboard-trend-chart {
   display: block;
   width: 100%;
@@ -565,6 +644,29 @@ input {
 .dashboard-trend-chart line {
   stroke: rgba(84, 105, 87, 0.16);
   stroke-width: 1;
+}
+
+.dashboard-trend-band {
+  pointer-events: none;
+}
+
+.dashboard-trend-band--acceptable {
+  fill: rgba(222, 181, 80, 0.15);
+}
+
+.dashboard-trend-band--optimal {
+  fill: rgba(47, 138, 84, 0.16);
+}
+
+.dashboard-trend-axis-label {
+  fill: rgba(82, 99, 83, 0.78);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.dashboard-trend-axis-label--x {
+  font-size: 17px;
 }
 
 .dashboard-trend-area {
@@ -584,6 +686,17 @@ input {
   fill: #2f8a54;
   stroke: #ffffff;
   stroke-width: 4;
+}
+
+.dashboard-trend-value-label {
+  fill: #1f5f3e;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 7px;
+  stroke-linejoin: round;
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: 0;
 }
 
 .dashboard-trend-hover-line {
@@ -2853,6 +2966,15 @@ input {
 
   .trend-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trend-reference {
+    grid-template-columns: 1fr;
+  }
+
+  .trend-reference small {
+    justify-self: start;
+    grid-row: auto;
   }
 
   .trend-chart-card {

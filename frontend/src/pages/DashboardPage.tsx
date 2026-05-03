@@ -88,10 +88,37 @@ const soilMetricConfigs: Array<{
   label: string;
   unit: string;
   digits: number;
+  optimal?: [number, number];
+  acceptable?: [number, number];
+  referenceNote?: string;
 }> = [
-  { key: "humidity", label: "Jordfuktighet", unit: "%", digits: 0 },
-  { key: "temperature", label: "Jordtemperatur", unit: "°C", digits: 1 },
-  { key: "ph", label: "pH", unit: "", digits: 1 },
+  {
+    key: "humidity",
+    label: "Jordfuktighet",
+    unit: "%",
+    digits: 0,
+    optimal: [55, 75],
+    acceptable: [40, 85],
+    referenceNote: "Generell drivhusreferanse. Plantekortet kan ha strammere krav.",
+  },
+  {
+    key: "temperature",
+    label: "Jordtemperatur",
+    unit: "°C",
+    digits: 1,
+    optimal: [18, 22],
+    acceptable: [10, 26],
+    referenceNote: "God rotaktivitet for mange drivhusplanter ligger ofte i dette området.",
+  },
+  {
+    key: "ph",
+    label: "pH",
+    unit: "",
+    digits: 1,
+    optimal: [5.8, 6.8],
+    acceptable: [5.5, 7.5],
+    referenceNote: "De fleste grønnsaker liker svakt sur til nær nøytral jord.",
+  },
   { key: "conductivity", label: "Ledningsevne", unit: "", digits: 0 },
   { key: "nitrogen", label: "Nitrogen (N)", unit: "", digits: 0 },
   { key: "phosphorus", label: "Fosfor (P)", unit: "", digits: 0 },
@@ -153,32 +180,73 @@ function formatTrendTime(value: string): string {
   });
 }
 
-function chartPath(points: HistoryPoint[]): {
+function formatTrendTick(value: string, range: TrendRange): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  if (range === "24h") {
+    return date.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  return date.toLocaleDateString("nb-NO", { day: "2-digit", month: "2-digit" });
+}
+
+function formatAxisValue(value: number, unit: string, digits: number): string {
+  const formatted = value.toFixed(digits);
+  if (unit === "°C") {
+    return `${formatted}°`;
+  }
+  if (unit === "%") {
+    return `${formatted}%`;
+  }
+  return formatted;
+}
+
+function chartPath(
+  points: HistoryPoint[],
+  config: (typeof soilMetricConfigs)[number] | undefined,
+  range: TrendRange,
+): {
   area: string;
   line: string;
   coords: Array<{ x: number; y: number; point: HistoryPoint }>;
+  yTicks: Array<{ value: number; label: string; y: number }>;
+  xTicks: Array<{ label: string; x: number }>;
+  optimalBand: { y: number; height: number; label: string } | null;
+  acceptableBand: { y: number; height: number; label: string } | null;
 } {
   if (!points.length) {
-    return { area: "", line: "", coords: [] };
+    return { area: "", line: "", coords: [], yTicks: [], xTicks: [], optimalBand: null, acceptableBand: null };
   }
 
-  const width = 800;
   const top = 20;
   const bottom = 226;
-  const left = 22;
-  const right = 760;
+  const left = 72;
+  const right = 750;
   const times = points.map((point) => new Date(point.recorded_at).getTime());
   const values = points.map((point) => Number(point.value));
+  const referenceValues = [
+    ...(config?.acceptable ?? []),
+    ...(config?.optimal ?? []),
+  ];
   const minTime = Math.min(...times);
   const maxTime = Math.max(...times);
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
+  const rawMinValue = Math.min(...values, ...referenceValues);
+  const rawMaxValue = Math.max(...values, ...referenceValues);
+  const rawSpread = rawMaxValue - rawMinValue || Math.max(Math.abs(rawMaxValue), 1);
+  const padding = rawSpread * 0.12;
+  const minValue = rawMinValue - padding;
+  const maxValue = rawMaxValue + padding;
   const valueSpread = maxValue - minValue || 1;
   const timeSpread = maxTime - minTime || 1;
 
+  const yForValue = (value: number) => bottom - ((value - minValue) / valueSpread) * (bottom - top);
+
   const coords = points.map((point) => {
     const x = left + ((new Date(point.recorded_at).getTime() - minTime) / timeSpread) * (right - left);
-    const y = bottom - ((Number(point.value) - minValue) / valueSpread) * (bottom - top);
+    const y = yForValue(Number(point.value));
     return { x, y, point };
   });
 
@@ -186,8 +254,78 @@ function chartPath(points: HistoryPoint[]): {
     .map((coord, index) => `${index === 0 ? "M" : "L"} ${coord.x.toFixed(2)} ${coord.y.toFixed(2)}`)
     .join(" ");
   const area = `${line} L ${right} ${bottom} L ${left} ${bottom} Z`;
+  const digits = config?.digits ?? 0;
+  const unit = config?.unit ?? "";
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+    const value = minValue + valueSpread * ratio;
+    return {
+      value,
+      y: bottom - ratio * (bottom - top),
+      label: formatAxisValue(value, unit, digits),
+    };
+  }).reverse();
 
-  return { area, line, coords };
+  const tickIndexes = Array.from(new Set([0, Math.floor((points.length - 1) / 2), points.length - 1]));
+  const xTicks = tickIndexes.map((index) => ({
+    label: formatTrendTick(points[index].recorded_at, range),
+    x: coords[index].x,
+  }));
+
+  const bandForRange = (band: [number, number] | undefined, label: string) => {
+    if (!band) {
+      return null;
+    }
+    const topY = yForValue(band[1]);
+    const bottomY = yForValue(band[0]);
+    return {
+      y: topY,
+      height: Math.max(bottomY - topY, 2),
+      label,
+    };
+  };
+
+  return {
+    area,
+    line,
+    coords,
+    yTicks,
+    xTicks,
+    optimalBand: bandForRange(config?.optimal, "Optimal"),
+    acceptableBand: bandForRange(config?.acceptable, "Akseptabel"),
+  };
+}
+
+function trendReferenceStatus(value: number | null, config: (typeof soilMetricConfigs)[number] | undefined) {
+  if (value === null || !config) {
+    return { level: "missing" as const, label: "Venter", text: "Mangler måling for valgt periode." };
+  }
+
+  if (config.optimal && value >= config.optimal[0] && value <= config.optimal[1]) {
+    return { level: "good" as const, label: "Innenfor optimal sone", text: config.referenceNote ?? "Verdien ligger der vi ønsker den." };
+  }
+
+  if (config.acceptable && value >= config.acceptable[0] && value <= config.acceptable[1]) {
+    const direction = config.optimal && value < config.optimal[0] ? "litt lav" : "litt høy";
+    return {
+      level: "watch" as const,
+      label: "Akseptabelt",
+      text: `Verdien er ${direction}, men fortsatt innenfor akseptabel sone.`,
+    };
+  }
+
+  if (config.acceptable) {
+    return {
+      level: "bad" as const,
+      label: value < config.acceptable[0] ? "For lavt" : "For høyt",
+      text: "Verdien er utenfor referansen og bør vurderes mot planten som står i potten.",
+    };
+  }
+
+  return {
+    level: "neutral" as const,
+    label: "Trend uten fast sone",
+    text: "Denne verdien vurderes best sammen med plante, jordtype og gjødslingsplan.",
+  };
 }
 
 function growthStatus(sample: LatestSample | null): { title: string; note: string; soil: string } {
@@ -374,7 +512,8 @@ export function DashboardPage({ session }: DashboardPageProps) {
   const trendDelta = latestTrendValue !== null && previousTrendValue !== null ? latestTrendValue - previousTrendValue : null;
   const trendMin = trendValues.length ? Math.min(...trendValues) : null;
   const trendMax = trendValues.length ? Math.max(...trendValues) : null;
-  const trendChart = chartPath(trendPoints);
+  const trendChart = chartPath(trendPoints, activeTrendConfig, trendRange);
+  const trendStatus = trendReferenceStatus(latestTrendValue, activeTrendConfig);
   const hoverPoint = hoverIndex !== null ? trendChart.coords[hoverIndex] : null;
 
   function openTrend(metric: SoilMetricKey) {
@@ -598,7 +737,35 @@ export function DashboardPage({ session }: DashboardPageProps) {
               </span>
             </div>
 
+            <div className={`trend-reference trend-reference--${trendStatus.level}`}>
+              <strong>{trendStatus.label}</strong>
+              <span>{trendStatus.text}</span>
+              {activeTrendConfig.optimal ? (
+                <small>
+                  Optimal {formatTrendValue(activeTrendConfig.optimal[0], activeTrendConfig.unit, activeTrendConfig.digits)}
+                  {"-"}
+                  {formatTrendValue(activeTrendConfig.optimal[1], activeTrendConfig.unit, activeTrendConfig.digits)}
+                </small>
+              ) : null}
+            </div>
+
             <div className="trend-chart-card">
+              {activeTrendConfig.optimal || activeTrendConfig.acceptable ? (
+                <div className="trend-chart-legend" aria-hidden="true">
+                  {activeTrendConfig.optimal ? (
+                    <span>
+                      <i className="trend-chart-legend__dot trend-chart-legend__dot--optimal" />
+                      Optimal
+                    </span>
+                  ) : null}
+                  {activeTrendConfig.acceptable ? (
+                    <span>
+                      <i className="trend-chart-legend__dot trend-chart-legend__dot--acceptable" />
+                      Akseptabel
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               <svg className="dashboard-trend-chart" viewBox="0 0 800 260" preserveAspectRatio="none" aria-label={`${activeTrendConfig.label} trend`}>
                 <defs>
                   <linearGradient id="dashboard-trend-fill" x1="0" y1="0" x2="0" y2="1">
@@ -606,11 +773,41 @@ export function DashboardPage({ session }: DashboardPageProps) {
                     <stop offset="100%" stopColor="rgba(47, 138, 84, 0.02)" />
                   </linearGradient>
                 </defs>
-                {[0, 1, 2, 3].map((tick) => (
-                  <line key={tick} x1="22" x2="760" y1={38 + tick * 54} y2={38 + tick * 54} />
+                {trendChart.acceptableBand ? (
+                  <rect
+                    className="dashboard-trend-band dashboard-trend-band--acceptable"
+                    x="72"
+                    y={trendChart.acceptableBand.y}
+                    width="678"
+                    height={trendChart.acceptableBand.height}
+                    rx="10"
+                  />
+                ) : null}
+                {trendChart.optimalBand ? (
+                  <rect
+                    className="dashboard-trend-band dashboard-trend-band--optimal"
+                    x="72"
+                    y={trendChart.optimalBand.y}
+                    width="678"
+                    height={trendChart.optimalBand.height}
+                    rx="10"
+                  />
+                ) : null}
+                {trendChart.yTicks.map((tick) => (
+                  <g key={`${tick.label}-${tick.y}`}>
+                    <line x1="72" x2="750" y1={tick.y} y2={tick.y} />
+                    <text className="dashboard-trend-axis-label dashboard-trend-axis-label--y" x="58" y={tick.y + 5} textAnchor="end">
+                      {tick.label}
+                    </text>
+                  </g>
                 ))}
                 <path className="dashboard-trend-area" d={trendChart.area} />
                 <path className="dashboard-trend-line" d={trendChart.line} />
+                {trendChart.xTicks.map((tick) => (
+                  <text className="dashboard-trend-axis-label dashboard-trend-axis-label--x" key={`${tick.label}-${tick.x}`} x={tick.x} y="250" textAnchor="middle">
+                    {tick.label}
+                  </text>
+                ))}
                 {trendChart.coords.map((coord, index) => (
                   <circle
                     key={`${coord.point.recorded_at}-${index}`}
@@ -626,14 +823,27 @@ export function DashboardPage({ session }: DashboardPageProps) {
                   <>
                     <line className="dashboard-trend-hover-line" x1={hoverPoint.x} x2={hoverPoint.x} y1="20" y2="226" />
                     <circle className="dashboard-trend-point" cx={hoverPoint.x} cy={hoverPoint.y} r="6" />
+                    <text className="dashboard-trend-value-label" x={Math.max(96, Math.min(704, hoverPoint.x))} y={Math.max(34, hoverPoint.y - 16)} textAnchor="middle">
+                      {formatTrendValue(Number(hoverPoint.point.value), activeTrendConfig.unit, activeTrendConfig.digits)}
+                    </text>
                   </>
                 ) : trendChart.coords.length ? (
-                  <circle
-                    className="dashboard-trend-point"
-                    cx={trendChart.coords[trendChart.coords.length - 1].x}
-                    cy={trendChart.coords[trendChart.coords.length - 1].y}
-                    r="6"
-                  />
+                  <>
+                    <circle
+                      className="dashboard-trend-point"
+                      cx={trendChart.coords[trendChart.coords.length - 1].x}
+                      cy={trendChart.coords[trendChart.coords.length - 1].y}
+                      r="6"
+                    />
+                    <text
+                      className="dashboard-trend-value-label"
+                      x={Math.max(96, Math.min(704, trendChart.coords[trendChart.coords.length - 1].x))}
+                      y={Math.max(34, trendChart.coords[trendChart.coords.length - 1].y - 16)}
+                      textAnchor="middle"
+                    >
+                      {formatTrendValue(latestTrendValue, activeTrendConfig.unit, activeTrendConfig.digits)}
+                    </text>
+                  </>
                 ) : null}
               </svg>
               {hoverPoint ? (
