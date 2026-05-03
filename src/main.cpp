@@ -990,8 +990,13 @@ String jsonEscape(const String& value) {
 bool beginHttpClient(HTTPClient& http, WiFiClient& plainClient, WiFiClientSecure& secureClient, const String& url) {
     if (url.startsWith("https://")) {
         secureClient.setInsecure();
+        secureClient.setHandshakeTimeout(30);
+        secureClient.setTimeout(30000);
+        http.setReuse(false);
         return http.begin(secureClient, url);
     }
+    plainClient.setTimeout(30000);
+    http.setReuse(false);
     return http.begin(plainClient, url);
 }
 
