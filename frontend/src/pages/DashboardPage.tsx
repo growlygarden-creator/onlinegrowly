@@ -10,8 +10,18 @@ type DashboardPageProps = {
 };
 
 type SoilMetricKey = "humidity" | "temperature" | "ph" | "conductivity" | "nitrogen" | "phosphorus" | "potassium" | "salinity" | "tds";
+type TrendMetricKey = SoilMetricKey | "air_temperature" | "air_humidity" | "lux";
 type TrendRange = "24h" | "3d" | "7d" | "all";
 type ClimateReportMetric = "temperature" | "humidity" | "lux";
+type TrendMetricConfig = {
+  key: TrendMetricKey;
+  label: string;
+  unit: string;
+  digits: number;
+  optimal?: [number, number];
+  acceptable?: [number, number];
+  referenceNote?: string;
+};
 
 type DashboardPlant = {
   nickname: string;
@@ -83,15 +93,34 @@ const defaultDashboardPlants: DashboardPlant[] = [
   { nickname: "Basilikum", profileId: "basil" },
 ];
 
-const soilMetricConfigs: Array<{
-  key: SoilMetricKey;
-  label: string;
-  unit: string;
-  digits: number;
-  optimal?: [number, number];
-  acceptable?: [number, number];
-  referenceNote?: string;
-}> = [
+const trendMetricConfigs: TrendMetricConfig[] = [
+  {
+    key: "air_temperature",
+    label: "Lufttemperatur",
+    unit: "°C",
+    digits: 1,
+    optimal: [18, 26],
+    acceptable: [8, 32],
+    referenceNote: "Felles drivhustemperatur. Plantekortene vurderer dette per plante.",
+  },
+  {
+    key: "air_humidity",
+    label: "Luftfuktighet",
+    unit: "%",
+    digits: 0,
+    optimal: [50, 75],
+    acceptable: [35, 90],
+    referenceNote: "God balanse gir vekst uten å gjøre klimaet for soppvennlig.",
+  },
+  {
+    key: "lux",
+    label: "Lys",
+    unit: "lx",
+    digits: 0,
+    optimal: [5000, 25000],
+    acceptable: [1500, 45000],
+    referenceNote: "Lys vurderes best over tid, siden enkelttimer kan svinge kraftig.",
+  },
   {
     key: "humidity",
     label: "Jordfuktighet",
@@ -127,6 +156,10 @@ const soilMetricConfigs: Array<{
   { key: "tds", label: "TDS", unit: "", digits: 0 },
 ];
 
+const soilMetricConfigs = trendMetricConfigs.filter((metric): metric is TrendMetricConfig & { key: SoilMetricKey } =>
+  !["air_temperature", "air_humidity", "lux"].includes(metric.key),
+);
+
 const trendRangeOptions: Array<{ key: TrendRange; label: string }> = [
   { key: "24h", label: "24t" },
   { key: "3d", label: "3 dager" },
@@ -142,7 +175,7 @@ function metricText(value: number | null | undefined, suffix: string, digits = 0
   return `${value.toFixed(digits)}${suffix}`;
 }
 
-function sampleValue(sample: LatestSample | null, key: SoilMetricKey): number | null | undefined {
+function sampleValue(sample: LatestSample | null, key: TrendMetricKey): number | null | undefined {
   return sample?.[key];
 }
 
@@ -206,7 +239,7 @@ function formatAxisValue(value: number, unit: string, digits: number): string {
 
 function chartPath(
   points: HistoryPoint[],
-  config: (typeof soilMetricConfigs)[number] | undefined,
+  config: TrendMetricConfig | undefined,
   range: TrendRange,
 ): {
   area: string;
@@ -295,7 +328,7 @@ function chartPath(
   };
 }
 
-function trendReferenceStatus(value: number | null, config: (typeof soilMetricConfigs)[number] | undefined) {
+function trendReferenceStatus(value: number | null, config: TrendMetricConfig | undefined) {
   if (value === null || !config) {
     return { level: "missing" as const, label: "Venter", text: "Mangler måling for valgt periode." };
   }
@@ -408,6 +441,16 @@ function climateLabel(metric: ClimateReportMetric): { title: string; unit: strin
   return { title: "Lys", unit: "lx", digits: 0 };
 }
 
+function climateTrendMetric(metric: ClimateReportMetric): TrendMetricKey {
+  if (metric === "temperature") {
+    return "air_temperature";
+  }
+  if (metric === "humidity") {
+    return "air_humidity";
+  }
+  return "lux";
+}
+
 function scoreClimate(value: number | null | undefined, range: { optimal: [number, number]; caution: [number, number] }) {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return { label: "Venter", level: "missing" as const, text: "Mangler måling." };
@@ -433,7 +476,7 @@ export function DashboardPage({ session }: DashboardPageProps) {
   const [sample, setSample] = useState<LatestSample | null>(null);
   const [soilPanelOpen, setSoilPanelOpen] = useState(false);
   const [reportMetric, setReportMetric] = useState<ClimateReportMetric | null>(null);
-  const [trendMetric, setTrendMetric] = useState<SoilMetricKey | null>(null);
+  const [trendMetric, setTrendMetric] = useState<TrendMetricKey | null>(null);
   const [trendRange, setTrendRange] = useState<TrendRange>("7d");
   const [trendPoints, setTrendPoints] = useState<HistoryPoint[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
@@ -505,7 +548,7 @@ export function DashboardPage({ session }: DashboardPageProps) {
     ...metric,
     value: formatTrendValue(sampleValue(sample, metric.key), metric.unit, metric.digits),
   }));
-  const activeTrendConfig = soilMetricConfigs.find((metric) => metric.key === trendMetric);
+  const activeTrendConfig = trendMetricConfigs.find((metric) => metric.key === trendMetric);
   const trendValues = trendPoints.map((point) => Number(point.value)).filter((value) => Number.isFinite(value));
   const latestTrendValue = trendValues.length ? trendValues[trendValues.length - 1] : null;
   const previousTrendValue = trendValues.length > 1 ? trendValues[trendValues.length - 2] : latestTrendValue;
@@ -516,8 +559,9 @@ export function DashboardPage({ session }: DashboardPageProps) {
   const trendStatus = trendReferenceStatus(latestTrendValue, activeTrendConfig);
   const hoverPoint = hoverIndex !== null ? trendChart.coords[hoverIndex] : null;
 
-  function openTrend(metric: SoilMetricKey) {
+  function openTrend(metric: TrendMetricKey) {
     setSoilPanelOpen(false);
+    setReportMetric(null);
     setTrendMetric(metric);
   }
 
@@ -660,6 +704,16 @@ export function DashboardPage({ session }: DashboardPageProps) {
                 </svg>
               </button>
             </div>
+
+            <button className="trend-launch-row" type="button" onClick={() => openTrend(climateTrendMetric(reportMetric))}>
+              <span>
+                <small>Historikk</small>
+                <strong>Se trend for {activeReportLabel.title.toLowerCase()}</strong>
+              </span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 16.5l4.6-4.6 3 3L19 8.5M15 8.5h4v4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+              </svg>
+            </button>
 
             <div className="climate-report-list">
               {dashboardPlants.map((plant) => {

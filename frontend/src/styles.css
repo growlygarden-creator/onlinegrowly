@@ -720,6 +720,45 @@ input {
   gap: 16px;
 }
 
+.trend-launch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(38, 98, 65, 0.08);
+  border-radius: 18px;
+  background: rgba(237, 245, 235, 0.72);
+  color: var(--accent-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.trend-launch-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.trend-launch-row small {
+  color: #2f8a54;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.trend-launch-row strong {
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+}
+
+.trend-launch-row svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
 .climate-report-list {
   display: grid;
   gap: 10px;
