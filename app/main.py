@@ -3,6 +3,7 @@ import base64
 import csv
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+import html
 import hashlib
 import hmac
 import json
@@ -546,6 +547,9 @@ def send_registration_email(user: dict[str, Any]) -> bool:
         return False
 
     display_name = str(user.get("full_name") or user.get("username") or "Growly-bruker").strip()
+    safe_name = html.escape(display_name)
+    app_url = os.getenv("APP_PUBLIC_URL", "https://onlinegrowly.onrender.com/app").strip()
+    safe_app_url = html.escape(app_url, quote=True)
     message = EmailMessage()
     message["Subject"] = "Velkommen til Growly Garden"
     message["From"] = SMTP_FROM
@@ -558,9 +562,56 @@ def send_registration_email(user: dict[str, Any]) -> bool:
                 "Kontoen din hos Growly Garden er opprettet.",
                 "Du kan nå logge inn og begynne å sette opp drivhuset ditt.",
                 "",
+                f"Åpne Growly Garden: {app_url}",
+                "",
                 "Hilsen Growly Garden",
             ]
         )
+    )
+    message.add_alternative(
+        f"""\
+<!doctype html>
+<html lang="no">
+  <body style="margin:0;padding:0;background:#f4f6ef;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#183322;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6ef;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;background:#ffffff;border:1px solid #dfeade;border-radius:28px;overflow:hidden;box-shadow:0 18px 42px rgba(24,51,34,0.10);">
+            <tr>
+              <td style="padding:34px 32px 22px;background:linear-gradient(135deg,#eef8e9 0%,#ffffff 56%,#dff2d6 100%);">
+                <div style="font-size:13px;line-height:1;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#2f8a54;">Growly Garden</div>
+                <h1 style="margin:14px 0 10px;font-size:34px;line-height:1.05;color:#142d1e;">Velkommen til Growly Garden</h1>
+                <p style="margin:0;font-size:18px;line-height:1.45;color:#657467;">Hei {safe_name}, kontoen din er klar.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 32px 8px;">
+                <p style="margin:0 0 16px;font-size:17px;line-height:1.55;color:#405244;">Du kan nå logge inn og begynne å sette opp drivhuset ditt. Growly hjelper deg med planter, sensordata, vanning og små grep som holder veksten i gang.</p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0;background:#eef7e8;border-radius:20px;border:1px solid #d9ead3;">
+                  <tr>
+                    <td style="padding:20px 22px;">
+                      <div style="font-size:13px;font-weight:800;letter-spacing:.10em;text-transform:uppercase;color:#2f8a54;">Neste steg</div>
+                      <p style="margin:8px 0 0;font-size:16px;line-height:1.45;color:#405244;">Logg inn, legg til planter, og koble til Growly Hub når du er klar for sensordata.</p>
+                    </td>
+                  </tr>
+                </table>
+                <a href="{safe_app_url}" style="display:inline-block;margin:8px 0 20px;padding:15px 24px;border-radius:999px;background:#246b43;color:#ffffff;text-decoration:none;font-size:16px;font-weight:800;">Åpne Growly Garden</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 32px 30px;border-top:1px solid #edf3ea;">
+                <p style="margin:0;font-size:14px;line-height:1.5;color:#7a887d;">Hvis du ikke opprettet denne kontoen, kan du bare se bort fra denne e-posten.</p>
+                <p style="margin:18px 0 0;font-size:15px;line-height:1.5;color:#405244;">Hilsen<br><strong style="color:#183322;">Growly Garden</strong></p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+""",
+        subtype="html",
     )
 
     try:
