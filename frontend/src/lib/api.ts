@@ -112,6 +112,7 @@ type ApiError = {
 };
 
 const REQUEST_TIMEOUT_MS = 3500;
+const AI_REQUEST_TIMEOUT_MS = 18000;
 const API_AUTH_TOKEN_KEY = "growly.apiToken";
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -158,9 +159,9 @@ function authHeaders(headers?: HeadersInit): HeadersInit {
   };
 }
 
-async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     return await fetch(input, {
@@ -369,5 +370,33 @@ export async function fetchPlantCatalog(query = ""): Promise<PlantCatalogItem[]>
     return Array.isArray(result.items) ? result.items : [];
   } catch {
     return [];
+  }
+}
+
+export async function askGrowlyAssistant(question: string): Promise<{ answer: string; model: string } | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl("/api/ai/assistant"), {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify({ question }),
+    }, AI_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      let error = `ai_http_${response.status}`;
+      try {
+        const result = await parseJson<ApiError>(response);
+        error = result.error || error;
+      } catch {
+        // Keep status-based error when the response is not JSON.
+      }
+      throw new Error(error);
+    }
+
+    const result = await parseJson<{ ok: true; answer: string; model: string }>(response);
+    return result.ok ? { answer: result.answer, model: result.model } : null;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("ai_unavailable");
   }
 }

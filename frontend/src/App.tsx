@@ -11,14 +11,37 @@ import { PlantHistoryPage } from "./pages/PlantHistoryPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
+const THEME_STORAGE_KEY = "growly.theme";
+type AppTheme = "light" | "dark";
+
 export function App() {
   const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
+  const [theme, setTheme] = useState<AppTheme>(() => {
+    try {
+      return window.localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  });
 
   useEffect(() => {
     fetchSession().then((result) => {
       setSession(result);
     });
   }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("theme-dark", theme === "dark");
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Ignore storage errors in embedded browser contexts.
+    }
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
+  }
 
   if (session === undefined) {
     return (
@@ -41,7 +64,11 @@ export function App() {
         <Route
           path="/"
           element={
-            isAuthenticated ? <DashboardPage session={authenticatedSession} /> : <Navigate to="/login" replace />
+            isAuthenticated ? (
+              <DashboardPage session={authenticatedSession} theme={theme} onToggleTheme={toggleTheme} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
           }
         />
         <Route

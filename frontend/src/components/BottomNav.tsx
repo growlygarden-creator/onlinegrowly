@@ -21,6 +21,22 @@ const tabs: Tab[] = [
     ),
   },
   {
+    label: "Kalender",
+    to: "/kalender",
+    icon: ({ className }) => (
+      <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.8"
+          d="M7 3.5v3M17 3.5v3M4.5 9h15M6.5 5.5h11A2.5 2.5 0 0 1 20 8v9.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5V8a2.5 2.5 0 0 1 2.5-2.5ZM8 12.5h.1M12 12.5h.1M16 12.5h.1M8 16h.1M12 16h.1"
+        />
+      </svg>
+    ),
+  },
+  {
     label: "Mine planter",
     shortLabel: "Planter",
     to: "/drivhus",
@@ -39,6 +55,7 @@ const tabs: Tab[] = [
   },
   {
     label: "Kartotek",
+    shortLabel: "Kart.",
     to: "/kartotek",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -55,7 +72,7 @@ const tabs: Tab[] = [
   },
   {
     label: "Innstillinger",
-    shortLabel: "Innst.",
+    shortLabel: "Mer",
     to: "/settings",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { AuthSession, PlantCatalogItem } from "../lib/api";
 import { PlantAvatar } from "../components/PlantAvatar";
@@ -27,6 +28,10 @@ type PlannerAction = {
   timing: string;
   note: string;
   group: "Så nå" | "Plant/flytt nå" | "Følg opp";
+};
+type CalendarEvent = PlannerAction & {
+  day: number;
+  marker: "sow" | "move" | "watch";
 };
 
 const mayPlannerActions: PlannerAction[] = [
@@ -260,29 +265,6 @@ const plannerCrops: PlannerCrop[] = [
   },
 ];
 
-const premiumFeatures = [
-  {
-    title: "Hva kan sås nå",
-    label: "Sesong",
-    text: "Forslag basert på måned, drivhusstatus og plantene du allerede dyrker.",
-  },
-  {
-    title: "Plantevenner",
-    label: "Naboer",
-    text: "Gode og dårlige naboer vises som rolige beslutningskort før du planter.",
-  },
-  {
-    title: "Plantehelse",
-    label: "Sjekk",
-    text: "Symptomer kobles mot fukt, lys og temperatur før vi foreslår tiltak.",
-  },
-  {
-    title: "Påminnelser",
-    label: "Rutine",
-    text: "Vanning, ompotting, herding og innflytting samles som neste handling.",
-  },
-];
-
 function catalogMatch(plantId: string): PlantCatalogItem | undefined {
   return bundledPlantCatalog.find((item) => item.profile_id === plantId && item.kind === "base");
 }
@@ -299,58 +281,150 @@ function currentMonthLabel(): string {
   return new Date().toLocaleDateString("nb-NO", { month: "long" });
 }
 
+function dateParam(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function monthGridDays() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const mondayIndex = (firstDay.getDay() + 6) % 7;
+  return [
+    ...Array.from({ length: mondayIndex }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
+  ];
+}
+
+function calendarEvents(today: number): CalendarEvent[] {
+  const events: CalendarEvent[] = [
+    { ...mayPlannerActions[0], day: today, marker: "sow" },
+    { ...mayPlannerActions[2], day: today + 1, marker: "sow" },
+    { ...mayPlannerActions[5], day: today + 5, marker: "sow" },
+    { ...mayPlannerActions[8], day: today + 9, marker: "move" },
+    { ...mayPlannerActions[10], day: today + 12, marker: "move" },
+    { ...mayPlannerActions[11], day: today + 15, marker: "watch" },
+    { ...mayPlannerActions[12], day: today + 20, marker: "watch" },
+  ];
+
+  return events.filter((event) => event.day <= 31);
+}
+
+function markerForDay(day: number, events: CalendarEvent[]): "sow" | "move" | "watch" | null {
+  return events.find((event) => event.day === day)?.marker ?? null;
+}
+
 export function CalendarPage({ session }: CalendarPageProps) {
+  const now = new Date();
+  const today = now.getDate();
+  const [selectedDay, setSelectedDay] = useState(today);
   const name = session?.user?.full_name || session?.username || "bruker";
   const groupedActions = actionGroups();
   const highlightedCrop = plannerCrops[0];
+  const calendarDays = monthGridDays();
+  const events = calendarEvents(today);
+  const selectedEvents = events.filter((event) => event.day === selectedDay);
+  const selectedDate = new Date(now.getFullYear(), now.getMonth(), selectedDay);
+  const selectedDateQuery = dateParam(selectedDate);
+  const selectedPrimaryAction = selectedEvents[0] ?? null;
 
   return (
     <main className="page-shell app-page planner-page">
       <section className="screen-header planner-header">
         <div>
-          <h1>Dyrkeplan <span className="leaf-mark">🌿</span></h1>
-          <p>En roligere og mer presis Growly-versjon av plantekalender, plantevenner, sykdomssjekk og påminnelser.</p>
+          <h1>Kalender</h1>
+          <p>Hei, {name}. Dette er det viktigste for drivhuset akkurat nå.</p>
         </div>
-        <Link className="planner-header-link" to="/kartotek">Kartotek</Link>
+        <Link className="planner-header-link" to="/kartotek">Legg til plante</Link>
       </section>
 
-      <section className="planner-hero soft-card">
-        <div className="planner-hero__copy">
-          <p className="section-kicker">Growly Planlegger · {currentMonthLabel()}</p>
-          <h2>Hei, {name}. Mai har mer enn tomat.</h2>
-          <p>
-            Her får du konkrete valg for hva som kan sås, flyttes og følges opp nå, med samme rolige
-            Growly-stil som resten av appen.
-          </p>
-        </div>
-        <div className="planner-hero__preview" aria-label="Planleggingskort">
-          <span>Aktuelt nå</span>
-          <strong>{mayPlannerActions.length} konkrete valg</strong>
-          <small>Så nye runder, flytt varme planter inn og følg opp det som allerede vokser.</small>
-          <div className="planner-now-summary">
-            {groupedActions.map((group) => (
-              <span key={group.label}>
-                <strong>{group.items.length}</strong>
-                {group.label}
-              </span>
-            ))}
+      <section className="calendar-overview soft-card">
+        <div className="calendar-overview__head">
+          <div>
+            <p className="section-kicker">Dyrkeplan · {currentMonthLabel()}</p>
+            <h2>{events.length} planlagte datoer</h2>
           </div>
+          <span>I dag {today}</span>
+        </div>
+        <div className="calendar-month-grid" aria-label={`${currentMonthLabel()} kalender`}>
+          {["M", "T", "O", "T", "F", "L", "S"].map((day) => (
+            <strong key={day}>{day}</strong>
+          ))}
+          {calendarDays.map((day, index) => {
+            const marker = day ? markerForDay(day, events) : null;
+            return (
+              <button
+                type="button"
+                disabled={!day}
+                className={`calendar-day${day === today ? " is-today" : ""}${day === selectedDay ? " is-selected" : ""}${marker ? ` calendar-day--${marker}` : ""}`}
+                key={`${day ?? "blank"}-${index}`}
+                onClick={() => day && setSelectedDay(day)}
+                aria-label={day ? `Velg ${day}. ${currentMonthLabel()}` : undefined}
+              >
+                {day}
+                {marker ? <i aria-hidden="true" /> : null}
+              </button>
+            );
+          })}
         </div>
       </section>
 
-      <section className="planner-feature-grid">
-        {premiumFeatures.map((feature) => (
-          <article className="planner-feature-card soft-card" key={feature.title}>
-            <span>{feature.label}</span>
-            <strong>{feature.title}</strong>
-            <p>{feature.text}</p>
-          </article>
-        ))}
+      <section className="today-focus-card soft-card">
+        <p className="section-kicker">{selectedDay === today ? "Dagens fokus" : `${selectedDay}. ${currentMonthLabel()}`}</p>
+        <h2>{selectedPrimaryAction ? selectedPrimaryAction.action : "Legg en planteplan på denne datoen"}</h2>
+        <p>
+          {selectedPrimaryAction
+            ? selectedPrimaryAction.note
+            : "Velg en plante fra kartoteket og bruk datoen som sådato, utplanting eller påminnelse."}
+        </p>
+        <div className="calendar-detail-actions">
+          <Link className="button planner-cta" to="/drivhus">Se mine planter</Link>
+          <Link className="button button--secondary planner-cta" to={`/kartotek?dato=${selectedDateQuery}`}>Legg til på dato</Link>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <p className="section-kicker">Valgt dato</p>
+        <div className="calendar-event-list">
+          {selectedEvents.length ? selectedEvents.map((event) => {
+            const match = catalogMatch(event.plantId);
+            return (
+              <article className={`calendar-event-card calendar-event-card--${event.marker} soft-card`} key={`${event.id}-${event.day}`}>
+                <PlantAvatar tone={match?.tone ?? "leafy"} plantId={event.plantId} name={event.title} family={match?.family ?? event.group} />
+                <div>
+                  <span>{event.group}</span>
+                  <strong>{event.title}</strong>
+                  <p>{event.action}</p>
+                  <small>{event.note}</small>
+                </div>
+                <Link to="/drivhus">Åpne</Link>
+              </article>
+            );
+          }) : (
+            <article className="calendar-event-card calendar-event-card--empty soft-card">
+              <div className="calendar-event-card__date">
+                <strong>{selectedDay}</strong>
+                <span>{currentMonthLabel().slice(0, 3)}</span>
+              </div>
+              <div>
+                <span>Planlegg</span>
+                <strong>Ingen oppgave ennå</strong>
+                <p>Legg til en plante, så kan Growly koble datoen til såing, utplanting eller oppfølging.</p>
+              </div>
+              <Link to={`/kartotek?dato=${selectedDateQuery}`}>Legg til</Link>
+            </article>
+          )}
+        </div>
       </section>
 
       <section className="settings-section">
         <p className="section-kicker">Kan gjøres nå</p>
-        <div className="planner-action-groups">
+        <div className="planner-action-groups planner-action-groups--calm">
           {groupedActions.map((group) => (
             <article className="planner-action-group soft-card" key={group.label}>
               <div className="planner-action-group__head">
@@ -361,7 +435,7 @@ export function CalendarPage({ session }: CalendarPageProps) {
                 {group.items.map((item) => {
                   const match = catalogMatch(item.plantId);
                   return (
-                    <div className="planner-action-row" key={item.id}>
+                    <Link className="planner-action-row" to="/drivhus" key={item.id}>
                       <PlantAvatar tone={match?.tone ?? "leafy"} plantId={item.plantId} name={item.title} family={match?.family ?? item.group} />
                       <div>
                         <strong>{item.title}</strong>
@@ -369,7 +443,7 @@ export function CalendarPage({ session }: CalendarPageProps) {
                         <small>{item.note}</small>
                       </div>
                       <em>{item.timing}</em>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
@@ -379,9 +453,15 @@ export function CalendarPage({ session }: CalendarPageProps) {
       </section>
 
       <section className="settings-section">
-        <p className="section-kicker">Dyrkeplaner</p>
+        <div className="home-section-head">
+          <div>
+            <p className="section-kicker">Dyrkeplaner</p>
+            <h2>Planter denne måneden</h2>
+          </div>
+          <Link to="/kartotek">Kartotek</Link>
+        </div>
         <div className="planner-crop-grid">
-          {plannerCrops.map((crop) => {
+          {plannerCrops.slice(0, 3).map((crop) => {
             const match = catalogMatch(crop.plantId);
             return (
               <article className="planner-crop-card soft-card" key={crop.id}>
@@ -407,7 +487,7 @@ export function CalendarPage({ session }: CalendarPageProps) {
         </div>
       </section>
 
-      <section className="planner-split-grid">
+      <section className="planner-split-grid planner-split-grid--quiet">
         <article className="planner-neighbor-card soft-card">
           <p className="section-kicker">Plantevenner</p>
           <h2>{highlightedCrop.title}</h2>
@@ -433,15 +513,6 @@ export function CalendarPage({ session }: CalendarPageProps) {
             <span>Se om lys eller lufting har vært utenfor område</span>
           </div>
         </article>
-      </section>
-
-      <section className="planner-reminder-card soft-card">
-        <div>
-          <p className="section-kicker">Neste handling</p>
-          <h2>{highlightedCrop.reminder}</h2>
-          <p>Dette kan senere bli ekte pushvarsler når vi kobler planleggeren mot logg, sådato og sensordata.</p>
-        </div>
-        <Link className="button planner-cta" to="/drivhus">Se mine planter</Link>
       </section>
     </main>
   );

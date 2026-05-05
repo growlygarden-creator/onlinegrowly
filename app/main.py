@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Form, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -32,6 +32,8 @@ except ImportError:  # pragma: no cover - production environments may rely on sy
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
 PLANT_IMPORT_DIR = ROOT_DIR / "data" / "imports"
+FRONTEND_DIST_DIR = ROOT_DIR / "frontend" / "dist"
+FRONTEND_INDEX = FRONTEND_DIST_DIR / "index.html"
 
 
 def load_local_env(path: Path) -> None:
@@ -3064,9 +3066,9 @@ def require_settings_page(request: Request) -> RedirectResponse | None:
     viewer_redirect = require_viewer_page(request)
     if viewer_redirect:
         return viewer_redirect
-    if is_admin_authenticated(request) or is_settings_authenticated(request):
+    if is_admin_authenticated(request):
         return None
-    return RedirectResponse(url="/settings-login", status_code=303)
+    return RedirectResponse(url="/app", status_code=303)
 
 
 def require_viewer_api(request: Request) -> JSONResponse | None:
@@ -3079,9 +3081,9 @@ def require_settings_api(request: Request) -> JSONResponse | None:
     viewer_error = require_viewer_api(request)
     if viewer_error:
         return viewer_error
-    if is_admin_authenticated(request) or is_settings_authenticated(request):
+    if is_admin_authenticated(request):
         return None
-    return JSONResponse(status_code=403, content={"ok": False, "error": "settings_password_required"})
+    return JSONResponse(status_code=403, content={"ok": False, "error": "admin_required"})
 
 
 def bearer_username(request: Request) -> str:
@@ -3145,7 +3147,7 @@ def template_auth_context(request: Request) -> dict[str, Any]:
     return {
         "current_username": current_username(request),
         "current_user_is_admin": is_admin_authenticated(request),
-        "settings_unlocked": is_admin_authenticated(request) or is_settings_authenticated(request),
+        "settings_unlocked": is_admin_authenticated(request),
         "current_hub_id": current_hub["hub_id"] if current_hub else "",
         "current_hub_name": current_hub["hub_name"] if current_hub else "",
     }
@@ -3162,7 +3164,7 @@ def session_auth_payload(request: Request) -> dict[str, Any]:
         "authenticated": is_viewer_authenticated(request),
         "username": username,
         "is_admin": is_admin_authenticated(request),
-        "settings_unlocked": is_admin_authenticated(request) or is_settings_authenticated(request),
+        "settings_unlocked": is_admin_authenticated(request),
         "user": {
             "username": user["username"],
             "full_name": user["full_name"],
@@ -3202,20 +3204,30 @@ app.add_middleware(
 )
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+if (FRONTEND_DIST_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST_DIR / "assets"), name="frontend-assets")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+def app_entry_response() -> FileResponse | JSONResponse:
+    if FRONTEND_INDEX.exists():
+        return FileResponse(FRONTEND_INDEX)
+    return JSONResponse(status_code=503, content={"ok": False, "error": "frontend_not_built"})
+
+
+def authenticated_entry_redirect(request: Request) -> RedirectResponse:
+    if is_admin_authenticated(request):
+        return RedirectResponse(url="/settings", status_code=303)
+    return RedirectResponse(url="/app", status_code=303)
 
 
 @app.get("/")
 async def landing_page(request: Request):
     user_is_authenticated = is_viewer_authenticated(request)
+    if user_is_authenticated:
+        return authenticated_entry_redirect(request)
     current_hub = None
     current_pairing = None
-    if user_is_authenticated:
-        try:
-            current_hub = resolve_request_hub(request)
-        except ValueError:
-            current_hub = None
-        current_pairing = active_pairing_for_user(current_username(request))
     return templates.TemplateResponse(
         "landing.html",
         {
@@ -3233,7 +3245,7 @@ async def landing_page(request: Request):
 @app.get("/login")
 async def login_page(request: Request):
     if is_viewer_authenticated(request):
-        return RedirectResponse(url="/", status_code=303)
+        return authenticated_entry_redirect(request)
     return templates.TemplateResponse(
         "login.html",
         {
@@ -3252,7 +3264,7 @@ async def login_page(request: Request):
 @app.get("/register")
 async def register_page(request: Request):
     if is_viewer_authenticated(request):
-        return RedirectResponse(url="/", status_code=303)
+        return authenticated_entry_redirect(request)
     return templates.TemplateResponse(
         "register.html",
         {
@@ -3331,12 +3343,32 @@ async def register_submit(
     request.session["settings_authenticated"] = False
     request.session["is_admin"] = bool(user["is_admin"])
     request.session["username"] = user["username"]
-    return RedirectResponse(url="/", status_code=303)
+    return authenticated_entry_redirect(request)
 
 
 @app.get("/api/auth/session")
 async def auth_session(request: Request):
     return {"ok": True, "session": session_auth_payload(request)}
+
+
+@app.get("/app")
+async def app_entry(request: Request):
+    redirect = require_viewer_page(request)
+    if redirect:
+        return redirect
+    if is_admin_authenticated(request):
+        return RedirectResponse(url="/settings", status_code=303)
+    return app_entry_response()
+
+
+@app.get("/app/{path:path}")
+async def app_deep_link(request: Request, path: str):
+    redirect = require_viewer_page(request)
+    if redirect:
+        return redirect
+    if is_admin_authenticated(request):
+        return RedirectResponse(url="/settings", status_code=303)
+    return app_entry_response()
 
 
 @app.post("/login")
@@ -3351,7 +3383,7 @@ async def login_submit(
         request.session["settings_authenticated"] = False
         request.session["is_admin"] = bool(user["is_admin"])
         request.session["username"] = user["username"]
-        return RedirectResponse(url="/", status_code=303)
+        return authenticated_entry_redirect(request)
 
     return templates.TemplateResponse(
         "login.html",
@@ -3423,6 +3455,8 @@ async def settings_login_page(request: Request):
     viewer_redirect = require_viewer_page(request)
     if viewer_redirect:
         return viewer_redirect
+    if not is_admin_authenticated(request):
+        return RedirectResponse(url="/app", status_code=303)
     if is_settings_authenticated(request):
         return RedirectResponse(url="/settings", status_code=303)
     return templates.TemplateResponse(
@@ -3448,6 +3482,8 @@ async def settings_login_submit(
     viewer_redirect = require_viewer_page(request)
     if viewer_redirect:
         return viewer_redirect
+    if not is_admin_authenticated(request):
+        return RedirectResponse(url="/app", status_code=303)
 
     if password == SETTINGS_PASSWORD:
         request.session["settings_authenticated"] = True
@@ -3477,7 +3513,7 @@ async def logout(request: Request):
 
 @app.get("/monitor")
 async def home(request: Request):
-    redirect = require_viewer_page(request)
+    redirect = require_settings_page(request)
     if redirect:
         return redirect
     hub = resolve_request_hub(request)
@@ -3494,7 +3530,7 @@ async def home(request: Request):
 
 @app.get("/monitor-test")
 async def monitor_test(request: Request):
-    redirect = require_viewer_page(request)
+    redirect = require_settings_page(request)
     if redirect:
         return redirect
     hub = resolve_request_hub(request)
@@ -3553,7 +3589,7 @@ async def management(request: Request):
 
 @app.get("/drivhus-test")
 async def greenhouse_test(request: Request):
-    redirect = require_viewer_page(request)
+    redirect = require_settings_page(request)
     if redirect:
         return redirect
     hub = resolve_request_hub(request)

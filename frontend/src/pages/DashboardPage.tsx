@@ -1,12 +1,17 @@
-import { useEffect, useState } from "react";
-import { fetchLatestSample, fetchMetricHistory, type AuthSession, type HistoryPoint, type LatestSample } from "../lib/api";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { askGrowlyAssistant, fetchLatestSample, fetchMetricHistory, type AuthSession, type HistoryPoint, type LatestSample } from "../lib/api";
+import { PlantAvatar } from "../components/PlantAvatar";
 import greenhouseDay from "../assets/greenhouse-assets/greenhouse-day.png";
+import greenhouseEvening from "../assets/greenhouse-assets/greenhouse-evening.png";
 import humidityDot from "../assets/greenhouse-assets/humidity-dot.png";
 import soilDot from "../assets/greenhouse-assets/soil-dot.png";
 import tempDot from "../assets/greenhouse-assets/temp-dot.png";
 
 type DashboardPageProps = {
   session: AuthSession | null;
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
 };
 
 type SoilMetricKey = "humidity" | "temperature" | "ph" | "conductivity" | "nitrogen" | "phosphorus" | "potassium" | "salinity" | "tds";
@@ -24,21 +29,42 @@ type TrendMetricConfig = {
 };
 
 type DashboardPlant = {
+  instanceId?: string;
   nickname: string;
   profileId: string;
+  catalogItemId?: string;
+  sowedAt?: string;
+};
+type HomeTask = {
+  title: string;
+  detail: string;
+  badge: string;
+  tone: "good" | "watch" | "bad";
+};
+type AssistantPrompt = { label: string; question: string };
+type AssistantMessage = {
+  id: string;
+  role: "assistant" | "user";
+  text: string;
+  isError?: boolean;
 };
 
 const GREENHOUSE_PLANTS_STORAGE_KEY = "growly.greenhousePlants";
+const currentMonthName = new Date().toLocaleDateString("nb-NO", { month: "long" });
 
 const dashboardPlantProfiles: Record<
   string,
   {
     name: string;
+    tone: "tomato" | "cucumber" | "basil" | "leafy" | "berry" | "pepper";
+    maturityDays: number;
     ranges: Record<ClimateReportMetric, { optimal: [number, number]; caution: [number, number] }>;
   }
 > = {
   tomato: {
     name: "Tomat",
+    tone: "tomato",
+    maturityDays: 90,
     ranges: {
       temperature: { optimal: [20, 26], caution: [16, 30] },
       humidity: { optimal: [45, 65], caution: [35, 78] },
@@ -47,6 +73,8 @@ const dashboardPlantProfiles: Record<
   },
   cucumber: {
     name: "Agurk",
+    tone: "cucumber",
+    maturityDays: 70,
     ranges: {
       temperature: { optimal: [22, 28], caution: [18, 31] },
       humidity: { optimal: [60, 80], caution: [48, 90] },
@@ -55,6 +83,8 @@ const dashboardPlantProfiles: Record<
   },
   basil: {
     name: "Basilikum",
+    tone: "basil",
+    maturityDays: 55,
     ranges: {
       temperature: { optimal: [20, 26], caution: [18, 30] },
       humidity: { optimal: [45, 65], caution: [35, 78] },
@@ -63,6 +93,8 @@ const dashboardPlantProfiles: Record<
   },
   pepper: {
     name: "Paprika",
+    tone: "pepper",
+    maturityDays: 85,
     ranges: {
       temperature: { optimal: [21, 28], caution: [18, 31] },
       humidity: { optimal: [45, 65], caution: [35, 78] },
@@ -71,6 +103,8 @@ const dashboardPlantProfiles: Record<
   },
   lettuce: {
     name: "Salat",
+    tone: "leafy",
+    maturityDays: 45,
     ranges: {
       temperature: { optimal: [10, 18], caution: [6, 24] },
       humidity: { optimal: [50, 75], caution: [40, 85] },
@@ -79,6 +113,8 @@ const dashboardPlantProfiles: Record<
   },
   strawberry: {
     name: "Jordbær",
+    tone: "berry",
+    maturityDays: 110,
     ranges: {
       temperature: { optimal: [16, 22], caution: [12, 28] },
       humidity: { optimal: [55, 75], caution: [45, 85] },
@@ -88,9 +124,9 @@ const dashboardPlantProfiles: Record<
 };
 
 const defaultDashboardPlants: DashboardPlant[] = [
-  { nickname: "Cherry tomat", profileId: "tomato" },
-  { nickname: "Agurk", profileId: "cucumber" },
-  { nickname: "Basilikum", profileId: "basil" },
+  { nickname: "Cherry tomat", profileId: "tomato", sowedAt: "2026-04-10" },
+  { nickname: "Agurk", profileId: "cucumber", sowedAt: "2026-04-18" },
+  { nickname: "Basilikum", profileId: "basil", sowedAt: "2026-04-14" },
 ];
 
 const trendMetricConfigs: TrendMetricConfig[] = [
@@ -165,6 +201,30 @@ const trendRangeOptions: Array<{ key: TrendRange; label: string }> = [
   { key: "3d", label: "3 dager" },
   { key: "7d", label: "7 dager" },
   { key: "all", label: "Alt" },
+];
+
+const quickTiles = [
+  { title: "For deg", label: "Dagens råd", to: "/kalender", tone: "rose" },
+  { title: "Påminnelser", label: "Neste handling", to: "/kalender", tone: "lime" },
+  { title: "Dyrkelogg", label: "Historikk", to: "/historikk", tone: "sky" },
+  { title: "Plantehelse", label: "Sjekkliste", to: "/kalender", tone: "pink" },
+  { title: "Kartotek", label: "Finn plante", to: "/kartotek", tone: "sand" },
+  { title: "Sensor", label: "Hub og måling", to: "/settings", tone: "lavender" },
+];
+
+const assistantPrompts: AssistantPrompt[] = [
+  { label: "Hva bør jeg gjøre nå?", question: "Hva bør jeg gjøre i drivhuset akkurat nå basert på sensorene?" },
+  { label: "Hvem trenger vann?", question: "Hvilke planter eller forhold tyder på at jeg bør vanne nå?" },
+  { label: "Tolk sensorene", question: "Tolk siste sensordata og si hva som er bra, hva jeg bør følge med på, og neste tiltak." },
+  { label: "Hva kan sås?", question: "Hva kan jeg så eller plante denne måneden i drivhuset?" },
+];
+
+const initialAssistantMessages: AssistantMessage[] = [
+  {
+    id: "welcome",
+    role: "assistant",
+    text: "Hei! Spør meg om vanning, sensorene eller hva du bør gjøre nå.",
+  },
 ];
 
 function metricText(value: number | null | undefined, suffix: string, digits = 0): string {
@@ -385,6 +445,146 @@ function growthStatus(sample: LatestSample | null): { title: string; note: strin
   };
 }
 
+function buildWeeklyTasks(sample: LatestSample | null): HomeTask[] {
+  const tasks: HomeTask[] = [];
+
+  if (!sample) {
+    return [
+      {
+        title: "Koble til hub",
+        detail: "Når første måling kommer inn, lager Growly konkrete tiltak for plantene dine.",
+        badge: "Venter",
+        tone: "watch",
+      },
+      {
+        title: "Legg inn plantene dine",
+        detail: "Da kan startskjermen vurdere klimaet mot riktige plantekrav.",
+        badge: "Oppsett",
+        tone: "good",
+      },
+    ];
+  }
+
+  if (typeof sample.humidity === "number" && sample.humidity < 45) {
+    tasks.push({
+      title: "Vann sonen med tørr jord",
+      detail: `Jordfukt ligger på ${sample.humidity.toFixed(0)} %. Sjekk potter før solen står høyt.`,
+      badge: "I dag",
+      tone: "bad",
+    });
+  } else {
+    tasks.push({
+      title: "Hold jevn fukt",
+      detail: "Jordfukten ser rolig ut. Følg trend før du vanner mer.",
+      badge: "Denne uken",
+      tone: "good",
+    });
+  }
+
+  const airHumidity = sample.air_humidity;
+  if (typeof airHumidity === "number" && airHumidity > 78) {
+    tasks.push({
+      title: "Luft drivhuset",
+      detail: `Luftfuktigheten er ${airHumidity.toFixed(0)} %. Lufting senker risiko for sopp og svakt bladverk.`,
+      badge: "Nå",
+      tone: "watch",
+    });
+  } else {
+    tasks.push({
+      title: "Sjekk bladverk",
+      detail: "Se raskt over underside av blader og nye skudd mens forholdene er stabile.",
+      badge: "2 min",
+      tone: "good",
+    });
+  }
+
+  const temperatureValue = sample.air_temperature ?? sample.temperature;
+  if (typeof temperatureValue === "number" && temperatureValue < 10) {
+    tasks.push({
+      title: "Beskytt varme planter",
+      detail: `Temperaturen er ${temperatureValue.toFixed(0)}°C. Vent med agurk, tomat og paprika ute i kald jord.`,
+      badge: "Kaldt",
+      tone: "bad",
+    });
+  } else {
+    tasks.push({
+      title: "Planlegg ompotting",
+      detail: `${currentMonthName} er riktig tid for flere varme planter når nettene holder seg stabile.`,
+      badge: "Plan",
+      tone: "good",
+    });
+  }
+
+  return tasks.slice(0, 3);
+}
+
+function dateFromInput(value: string | null | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function addDays(date: Date, days: number): Date {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function daysBetween(startDate: Date, endDate = new Date()): number {
+  const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime();
+  const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
+  return Math.max(0, Math.floor((end - start) / 86400000));
+}
+
+function formatShortDate(date: Date): string {
+  return date.toLocaleDateString("nb-NO", { day: "numeric", month: "short" }).replace(".", "");
+}
+
+function plantProgress(profileId: string, index: number, sample: LatestSample | null, sowedAt?: string): number {
+  const profile = dashboardPlantProfiles[profileId] ?? dashboardPlantProfiles.tomato;
+  const sowedDate = dateFromInput(sowedAt);
+  if (sowedDate) {
+    return Math.max(4, Math.min(100, Math.round((daysBetween(sowedDate) / profile.maturityDays) * 100)));
+  }
+
+  const base = profileId === "tomato" ? 68 : profileId === "cucumber" ? 54 : profileId === "basil" ? 72 : 48;
+  const moistureBoost = typeof sample?.humidity === "number" ? Math.max(-12, Math.min(12, (sample.humidity - 50) / 2)) : 0;
+  const lightBoost = typeof sample?.lux === "number" ? Math.max(-8, Math.min(10, sample.lux / 2500)) : 0;
+  return Math.max(12, Math.min(100, Math.round(base + moistureBoost + lightBoost - index * 5)));
+}
+
+function plantStage(profileId: string, progress: number): string {
+  if (progress > 78) return profileId === "basil" ? "Høsteklar" : "Sterk vekst";
+  if (progress > 58) return "Vokser";
+  if (progress > 36) return "Etablerer seg";
+  return "Følg opp";
+}
+
+function plantTimeline(profileId: string, progress: number, sowedAt?: string, index = 0) {
+  const profile = dashboardPlantProfiles[profileId] ?? dashboardPlantProfiles.tomato;
+  const fallbackSowedDate = addDays(new Date(), -Math.round((progress / 100) * profile.maturityDays) - index * 2);
+  const sowedDate = dateFromInput(sowedAt) ?? fallbackSowedDate;
+  const daysSince = daysBetween(sowedDate);
+  const harvestDate = addDays(sowedDate, profile.maturityDays);
+  const daysLeft = Math.max(0, profile.maturityDays - daysSince);
+
+  return {
+    sowedLabel: `Sådd ${formatShortDate(sowedDate)}`,
+    ageLabel: `${daysSince} ${daysSince === 1 ? "dag" : "dager"} siden`,
+    harvestLabel: `Høsting: ~${formatShortDate(harvestDate)}`,
+    daysLeftLabel: daysLeft === 0 ? "klar" : `${daysLeft}d igjen`,
+  };
+}
+
+function greenhouseScene(theme: "light" | "dark"): { image: string; mode: "day" | "evening" } {
+  if (theme === "dark") {
+    return { image: greenhouseEvening, mode: "evening" };
+  }
+  return { image: greenhouseDay, mode: "day" };
+}
+
 function formatUpdatedAt(value: string | null | undefined): string {
   if (!value) {
     return "Venter på første oppdatering";
@@ -401,6 +601,21 @@ function formatUpdatedAt(value: string | null | undefined): string {
   })}`;
 }
 
+function assistantAnswerItems(answer: string): string[] {
+  const cleanedAnswer = answer.replace(/\r/g, "").replace(/\*\*/g, "").trim();
+  const lines = cleanedAnswer
+    .split(/\n+/)
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+    .filter(Boolean);
+  const candidates = lines.length > 1 ? lines : (cleanedAnswer.match(/[^.!?]+[.!?]?/g) ?? [cleanedAnswer]);
+
+  return candidates
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((line) => (line.length > 120 ? `${line.slice(0, 117).trim()}...` : line));
+}
+
 function loadDashboardPlants(): DashboardPlant[] {
   try {
     const raw = window.localStorage.getItem(GREENHOUSE_PLANTS_STORAGE_KEY);
@@ -415,7 +630,13 @@ function loadDashboardPlants(): DashboardPlant[] {
 
     return parsed
       .filter((plant) => plant?.profileId && plant?.nickname)
-      .map((plant) => ({ profileId: plant.profileId, nickname: plant.nickname }));
+      .map((plant) => ({
+        instanceId: plant.instanceId,
+        profileId: plant.profileId,
+        catalogItemId: plant.catalogItemId,
+        nickname: plant.nickname,
+        sowedAt: plant.sowedAt,
+      }));
   } catch {
     return defaultDashboardPlants;
   }
@@ -472,7 +693,7 @@ function scoreClimate(value: number | null | undefined, range: { optimal: [numbe
   };
 }
 
-export function DashboardPage({ session }: DashboardPageProps) {
+export function DashboardPage({ session, theme, onToggleTheme }: DashboardPageProps) {
   const [sample, setSample] = useState<LatestSample | null>(null);
   const [soilPanelOpen, setSoilPanelOpen] = useState(false);
   const [reportMetric, setReportMetric] = useState<ClimateReportMetric | null>(null);
@@ -482,6 +703,10 @@ export function DashboardPage({ session }: DashboardPageProps) {
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState("");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [assistantQuestion, setAssistantQuestion] = useState("");
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(initialAssistantMessages);
+  const [assistantLoading, setAssistantLoading] = useState(false);
+  const assistantLogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchLatestSample().then((result) => {
@@ -535,13 +760,22 @@ export function DashboardPage({ session }: DashboardPageProps) {
     });
   }, [trendMetric, trendRange]);
 
+  useEffect(() => {
+    assistantLogRef.current?.scrollTo({
+      top: assistantLogRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [assistantMessages, assistantLoading]);
+
   const firstName = session?.user?.full_name?.split(" ")[0] || session?.username || "Geirij";
   const status = growthStatus(sample);
+  const scene = greenhouseScene(theme);
   const temperature = metricText(sample?.air_temperature ?? sample?.temperature, "°C", 0);
   const humidity = metricText(sample?.air_humidity, "%", 0);
   const lux = metricText(sample?.lux, " lx", 0);
   const updatedAt = formatUpdatedAt(sample?.recorded_at);
   const dashboardPlants = loadDashboardPlants();
+  const weeklyTasks = buildWeeklyTasks(sample);
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
   const activeReportValue = reportMetric ? climateValue(sample, reportMetric) : null;
   const soilMetrics = soilMetricConfigs.map((metric) => ({
@@ -558,11 +792,56 @@ export function DashboardPage({ session }: DashboardPageProps) {
   const trendChart = chartPath(trendPoints, activeTrendConfig, trendRange);
   const trendStatus = trendReferenceStatus(latestTrendValue, activeTrendConfig);
   const hoverPoint = hoverIndex !== null ? trendChart.coords[hoverIndex] : null;
-
   function openTrend(metric: TrendMetricKey) {
     setSoilPanelOpen(false);
     setReportMetric(null);
     setTrendMetric(metric);
+  }
+
+  async function askAssistant(question: string) {
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion || assistantLoading) {
+      return;
+    }
+    setAssistantQuestion("");
+    setAssistantMessages((messages) => [
+      ...messages,
+      { id: `user-${Date.now()}`, role: "user", text: trimmedQuestion },
+    ]);
+    setAssistantLoading(true);
+    try {
+      const result = await askGrowlyAssistant(trimmedQuestion);
+      if (!result) {
+        setAssistantMessages((messages) => [
+          ...messages,
+          {
+            id: `assistant-error-${Date.now()}`,
+            role: "assistant",
+            text: "Jeg fikk ikke kontakt med Growly AI akkurat nå. Prøv igjen om litt.",
+            isError: true,
+          },
+        ]);
+        return;
+      }
+      setAssistantMessages((messages) => [
+        ...messages,
+        { id: `assistant-${Date.now()}`, role: "assistant", text: result.answer },
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ai_unavailable";
+      const friendlyMessage =
+        message === "openai_key_missing"
+          ? "AI-nøkkelen mangler på serveren. Legg OPENAI_API_KEY inn i Render og deploy på nytt."
+          : message === "ai_http_404"
+            ? "AI-endepunktet finnes ikke på serveren ennå. Deploy siste versjon til Render."
+            : "Jeg fikk ikke kontakt med Growly AI akkurat nå. Prøv igjen om litt.";
+      setAssistantMessages((messages) => [
+        ...messages,
+        { id: `assistant-error-${Date.now()}`, role: "assistant", text: friendlyMessage, isError: true },
+      ]);
+    } finally {
+      setAssistantLoading(false);
+    }
   }
 
   return (
@@ -572,17 +851,34 @@ export function DashboardPage({ session }: DashboardPageProps) {
           <h1>Ditt drivhus <span className="leaf-mark">🌿</span></h1>
           <p>God morgen, {firstName}. Her er det viktigste akkurat nå.</p>
         </div>
-        <button className="icon-button" type="button" aria-label="Status">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-            <path
-              d="M12 2.5v2.3M12 19.2v2.3M21.5 12h-2.3M4.8 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9 5.3 5.3"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="1.6"
-            />
-          </svg>
+        <button
+          className="icon-button theme-toggle-button"
+          type="button"
+          aria-label={theme === "dark" ? "Bytt til lys modus" : "Bytt til mørk modus"}
+          onClick={onToggleTheme}
+        >
+          {theme === "dark" ? (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M20 14.4A7.8 7.8 0 0 1 9.6 4a8 8 0 1 0 10.4 10.4Z"
+                fill="none"
+                stroke="currentColor"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <path
+                d="M12 2.5v2.3M12 19.2v2.3M21.5 12h-2.3M4.8 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9 5.3 5.3"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.6"
+              />
+            </svg>
+          )}
         </button>
       </section>
 
@@ -600,8 +896,8 @@ export function DashboardPage({ session }: DashboardPageProps) {
             </span>
           </div>
 
-          <div className="overview-image-banner">
-            <img className="overview-image-banner__image" src={greenhouseDay} alt="" aria-hidden="true" />
+          <div className={`overview-image-banner overview-image-banner--${scene.mode}`}>
+            <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />
           </div>
 
           <div className="metric-strip">
@@ -638,14 +934,150 @@ export function DashboardPage({ session }: DashboardPageProps) {
       </section>
 
       <section className="settings-section">
-        <p className="section-kicker">Oversikt</p>
-        <div className="insight-grid insight-grid--compact">
-          <article className="soft-card insight-card insight-card--compact">
-            <span className="insight-card__label">Klima</span>
-            <strong>{status.title}</strong>
-            <p>{status.note}</p>
-          </article>
+        <div className="home-section-head">
+          <div>
+            <p className="section-kicker">Denne uken</p>
+            <h2>Sensorstyrte gjøremål</h2>
+          </div>
+          <Link to="/kalender">Kalender</Link>
         </div>
+        <div className="weekly-task-list">
+          {weeklyTasks.map((task) => (
+            <article className={`weekly-task-card weekly-task-card--${task.tone} soft-card`} key={task.title}>
+              <span>{task.badge}</span>
+              <div>
+                <strong>{task.title}</strong>
+                <p>{task.detail}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="home-section-head">
+          <div>
+            <p className="section-kicker">Vekstoversikt</p>
+            <h2>{dashboardPlants.length} aktive planter</h2>
+          </div>
+          <Link to="/drivhus">Mine planter</Link>
+        </div>
+        <div className="growth-list">
+          {dashboardPlants.slice(0, 4).map((plant, index) => {
+            const profile = dashboardPlantProfiles[plant.profileId] ?? dashboardPlantProfiles.tomato;
+            const progress = plantProgress(plant.profileId, index, sample, plant.sowedAt);
+            const timeline = plantTimeline(plant.profileId, progress, plant.sowedAt, index);
+            const stage = plantStage(plant.profileId, progress);
+            return (
+              <article className="growth-row growth-row--timeline soft-card" key={plant.instanceId ?? `${plant.profileId}-${plant.nickname}`}>
+                <PlantAvatar
+                  tone={profile.tone}
+                  plantId={plant.catalogItemId ?? plant.profileId}
+                  name={plant.nickname || profile.name}
+                  className="growth-row__avatar"
+                />
+                <div className="growth-row__body">
+                  <div className="growth-row__head">
+                    <span>
+                      <strong>{plant.nickname || profile.name}</strong>
+                      <em>{stage}</em>
+                    </span>
+                    <b>{progress}%</b>
+                  </div>
+                  <span className="growth-row__bar">
+                    <span style={{ width: `${progress}%` }} />
+                  </span>
+                  <div className="growth-row__meta">
+                    <small>{timeline.sowedLabel} · {timeline.ageLabel}</small>
+                    <span>
+                      <small>{timeline.harvestLabel}</small>
+                      <small>{timeline.daysLeftLabel}</small>
+                    </span>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="assistant-card assistant-chat-card soft-card">
+        <div className="assistant-chat-head">
+          <div className="assistant-card__avatar" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 20c4.4-2.2 7-5.5 7-9.2C19 6.5 16 3 12 3S5 6.5 5 10.8C5 14.5 7.6 17.8 12 20Z" fill="currentColor" opacity="0.16" />
+              <path d="M12 17c2.7-1.6 4.4-3.7 4.4-6.1A4.4 4.4 0 0 0 12 6.5a4.4 4.4 0 0 0-4.4 4.4c0 2.4 1.7 4.5 4.4 6.1Z" fill="none" stroke="currentColor" strokeWidth="1.7" />
+              <path d="M9.6 10.8h.1M14.3 10.8h.1M10 13.3c1.2.8 2.8.8 4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+            </svg>
+          </div>
+          <div>
+            <p className="section-kicker">Dyrkeassistent</p>
+            <h2>Chat med Growly</h2>
+          </div>
+        </div>
+
+        <div className="assistant-chat-log" aria-live="polite" ref={assistantLogRef}>
+          {assistantMessages.map((message) => {
+            const items = message.role === "assistant" && !message.isError ? assistantAnswerItems(message.text) : [];
+            return (
+              <article
+                className={`assistant-message assistant-message--${message.role}${message.isError ? " assistant-message--error" : ""}`}
+                key={message.id}
+              >
+                {items.length > 1 ? (
+                  <div className="assistant-answer-list">
+                    {items.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p>{items[0] ?? message.text}</p>
+                )}
+              </article>
+            );
+          })}
+          {assistantLoading ? (
+            <article className="assistant-message assistant-message--assistant assistant-message--thinking">
+              <span />
+              <span />
+              <span />
+            </article>
+          ) : null}
+        </div>
+
+        <div className="assistant-prompt-row assistant-suggestion-row">
+          {assistantPrompts.map((prompt) => (
+            <button type="button" key={prompt.label} onClick={() => askAssistant(prompt.question)} disabled={assistantLoading}>
+              {prompt.label}
+            </button>
+          ))}
+        </div>
+
+        <form
+          className="assistant-form assistant-chat-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            askAssistant(assistantQuestion);
+          }}
+        >
+          <input
+            value={assistantQuestion}
+            onChange={(event) => setAssistantQuestion(event.target.value)}
+            placeholder="Spør om vanning, såing eller sensorene..."
+          />
+          <button type="submit" disabled={assistantLoading || !assistantQuestion.trim()}>
+            Send
+          </button>
+        </form>
+      </section>
+
+      <section className="quick-tile-grid" aria-label="Snarveier">
+        {quickTiles.map((tile) => (
+          <Link className={`quick-tile quick-tile--${tile.tone}`} to={tile.to} key={tile.title}>
+            <strong>{tile.title}</strong>
+            <span>{tile.label}</span>
+          </Link>
+        ))}
       </section>
 
       {soilPanelOpen ? (
