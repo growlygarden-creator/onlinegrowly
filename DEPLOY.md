@@ -24,6 +24,8 @@ Sett egne verdier for:
 - `NATIVE_APP_ORIGINS=capacitor://localhost,http://localhost,http://127.0.0.1,ionic://localhost`
 - `ACTIVE_FIRMWARE_VERSION`
 - `ACTIVE_FIRMWARE_URL`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL=gpt-5.4-mini`
 - `SUPABASE_REST_ENDPOINT`
 - `SUPABASE_API_KEY`
 

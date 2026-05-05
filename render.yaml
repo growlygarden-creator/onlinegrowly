@@ -37,6 +37,10 @@ services:
         sync: false
       - key: ACTIVE_FIRMWARE_URL
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.4-mini
       - key: SUPABASE_REST_ENDPOINT
         sync: false
       - key: SUPABASE_API_KEY

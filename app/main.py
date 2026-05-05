@@ -58,6 +58,8 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Growly@Admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", APP_PASSWORD)
 ACTIVE_FIRMWARE_VERSION = os.getenv("ACTIVE_FIRMWARE_VERSION", "").strip()
 ACTIVE_FIRMWARE_URL = os.getenv("ACTIVE_FIRMWARE_URL", "").strip()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip()
 SETTINGS_PASSWORD = os.getenv("SETTINGS_PASSWORD", "growly-settings")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "growly-local-session-secret")
 SESSION_SAME_SITE = os.getenv("SESSION_SAME_SITE", "lax").strip().lower() or "lax"
@@ -2464,6 +2466,116 @@ def latest_sample(hub_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def ai_sample_context(hub_id: str) -> dict[str, Any] | None:
+    try:
+        if supabase_enabled():
+            return supabase_latest_sample(hub_id)
+    except (HTTPError, URLError, json.JSONDecodeError):
+        pass
+    return latest_sample(hub_id)
+
+
+def ai_plant_context(limit: int = 10) -> list[dict[str, Any]]:
+    plants: list[dict[str, Any]] = []
+    for item in list_plant_catalog("")[:limit]:
+        plants.append(
+            {
+                "name": item.get("display_name") or item.get("name"),
+                "type": item.get("kind"),
+                "category": item.get("category"),
+                "latin_name": item.get("latin_name"),
+                "ranges": item.get("ranges"),
+                "watering": item.get("watering"),
+                "notes": item.get("notes"),
+                "seed_guide": item.get("seed_guide"),
+            }
+        )
+    return plants
+
+
+def openai_response_text(payload: dict[str, Any]) -> str:
+    text = str(payload.get("output_text") or "").strip()
+    if text:
+        return text
+
+    output = payload.get("output")
+    if isinstance(output, list):
+        parts: list[str] = []
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for content_item in content:
+                if not isinstance(content_item, dict):
+                    continue
+                item_text = content_item.get("text")
+                if isinstance(item_text, str) and item_text.strip():
+                    parts.append(item_text.strip())
+        if parts:
+            return "\n\n".join(parts)
+
+    return ""
+
+
+def ask_openai_growly(question: str, context: dict[str, Any]) -> str:
+    if not OPENAI_API_KEY:
+        raise ValueError("openai_key_missing")
+
+    request_payload = {
+        "model": OPENAI_MODEL,
+        "input": [
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "Du er Growly Dyrkeassistent, en rolig norsk hageassistent for drivhus. "
+                            "Svar kort, konkret og handlingsorientert på norsk. Bruk sensordata og plantekrav når de finnes. "
+                            "Hvis data mangler, si det tydelig. Ikke gi bastante sykdomsdiagnoser; gi sannsynlige årsaker og trygge tiltak."
+                        ),
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": json.dumps(
+                            {
+                                "sporsmal": question,
+                                "growly_kontekst": context,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                ],
+            },
+        ],
+        "max_output_tokens": 500,
+    }
+    request = UrlRequest(
+        "https://api.openai.com/v1/responses",
+        data=json.dumps(request_payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    request_ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    with urlopen(request, timeout=25, context=request_ssl_context) as response:
+        response_payload = json.loads(response.read().decode("utf-8"))
+
+    answer = openai_response_text(response_payload)
+    if not answer:
+        raise ValueError("empty_ai_response")
+    return answer
+
+
 def recent_sensor_targets(hub_id: str, limit: int = 5) -> list[str]:
     with db_connection() as connection:
         rows = connection.execute(
@@ -3660,6 +3772,47 @@ async def day_summary(request: Request):
         source = "local_fallback"
         fallback_reason = str(exc)
     return {"ok": True, "hub_id": hub_id, "summary": summary, "source": source, "fallback_reason": fallback_reason}
+
+
+@app.post("/api/ai/assistant")
+async def ai_assistant(request: Request, payload: dict[str, Any]):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    question = str(payload.get("question") or "").strip()
+    if not question:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "missing_question"})
+    if len(question) > 900:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "question_too_long"})
+    if not OPENAI_API_KEY:
+        return JSONResponse(status_code=503, content={"ok": False, "error": "openai_key_missing"})
+
+    try:
+        hub = resolve_request_hub(request)
+    except ValueError as exc:
+        return hub_error_response(str(exc))
+
+    hub_id = str(hub["hub_id"])
+    context = {
+        "dato": datetime.now(ZoneInfo("Europe/Oslo")).date().isoformat(),
+        "hub": {
+            "hub_id": hub_id,
+            "hub_name": hub.get("hub_name"),
+            "online": bool(hub.get("is_active")),
+        },
+        "siste_maling": ai_sample_context(hub_id),
+        "plantekartotek_utdrag": ai_plant_context(),
+        "bruker_merknad": payload.get("context") if isinstance(payload.get("context"), dict) else {},
+    }
+
+    try:
+        answer = ask_openai_growly(question, context)
+    except HTTPError as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": f"openai_http_{exc.code}"})
+    except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "ai_unavailable"})
+
+    return {"ok": True, "answer": answer, "model": OPENAI_MODEL}
 
 
 @app.get("/api/plant-profiles")
