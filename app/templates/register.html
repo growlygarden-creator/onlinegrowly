@@ -44,6 +44,9 @@
         {% if error %}
         <p class="form-error">{{ error }}</p>
         {% endif %}
+        {% if success %}
+        <p class="form-success">{{ success }}</p>
+        {% endif %}
 
         <p class="auth-footer">Har du allerede konto? <a href="/login">Logg inn her</a>.</p>
     </section>

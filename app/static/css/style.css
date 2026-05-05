@@ -268,7 +268,8 @@ a {
 }
 
 .auth-footer,
-.form-error {
+.form-error,
+.form-success {
     margin: 14px 0 0;
 }
 
@@ -283,6 +284,11 @@ a {
 
 .form-error {
     color: var(--danger);
+    font-weight: 700;
+}
+
+.form-success {
+    color: var(--accent);
     font-weight: 700;
 }
 

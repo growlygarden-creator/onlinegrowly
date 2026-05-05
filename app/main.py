@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Form, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -85,6 +85,7 @@ SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER).strip()
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}
+APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "https://onlinegrowly.onrender.com/app").strip()
 SETTINGS_PASSWORD = os.getenv("SETTINGS_PASSWORD", "growly-settings")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "growly-local-session-secret")
 SESSION_SAME_SITE = os.getenv("SESSION_SAME_SITE", "lax").strip().lower() or "lax"
@@ -541,35 +542,21 @@ def mail_is_configured() -> bool:
     return bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD and SMTP_FROM)
 
 
-def send_registration_email(user: dict[str, Any]) -> bool:
-    recipient = str(user.get("email") or "").strip()
-    if not mail_is_configured() or not recipient:
-        return False
+def public_base_url() -> str:
+    return APP_PUBLIC_URL.removesuffix("/app").rstrip("/")
 
-    display_name = str(user.get("full_name") or user.get("username") or "Growly-bruker").strip()
-    safe_name = html.escape(display_name)
-    app_url = os.getenv("APP_PUBLIC_URL", "https://onlinegrowly.onrender.com/app").strip()
-    safe_app_url = html.escape(app_url, quote=True)
-    message = EmailMessage()
-    message["Subject"] = "Velkommen til Growly Garden"
-    message["From"] = SMTP_FROM
-    message["To"] = recipient
-    message.set_content(
-        "\n".join(
-            [
-                f"Hei {display_name},",
-                "",
-                "Kontoen din hos Growly Garden er opprettet.",
-                "Du kan nå logge inn og begynne å sette opp drivhuset ditt.",
-                "",
-                f"Åpne Growly Garden: {app_url}",
-                "",
-                "Hilsen Growly Garden",
-            ]
-        )
-    )
-    message.add_alternative(
-        f"""\
+
+def build_email_shell(title: str, intro: str, body: str, next_label: str, next_text: str, button_label: str, button_url: str, footer: str) -> str:
+    safe_title = html.escape(title)
+    safe_intro = html.escape(intro)
+    safe_body = html.escape(body)
+    safe_next_label = html.escape(next_label)
+    safe_next_text = html.escape(next_text)
+    safe_button_label = html.escape(button_label)
+    safe_button_url = html.escape(button_url, quote=True)
+    safe_footer = html.escape(footer)
+    safe_logo_url = html.escape(f"{public_base_url()}/static/logo.png", quote=True)
+    return f"""\
 <!doctype html>
 <html lang="no">
   <body style="margin:0;padding:0;background:#f4f6ef;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#183322;">
@@ -579,28 +566,29 @@ def send_registration_email(user: dict[str, Any]) -> bool:
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;background:#ffffff;border:1px solid #dfeade;border-radius:28px;overflow:hidden;box-shadow:0 18px 42px rgba(24,51,34,0.10);">
             <tr>
               <td style="padding:34px 32px 22px;background:linear-gradient(135deg,#eef8e9 0%,#ffffff 56%,#dff2d6 100%);">
+                <img src="{safe_logo_url}" width="92" alt="Growly Garden" style="display:block;width:92px;max-width:92px;height:auto;margin:0 0 18px;border:0;">
                 <div style="font-size:13px;line-height:1;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#2f8a54;">Growly Garden</div>
-                <h1 style="margin:14px 0 10px;font-size:34px;line-height:1.05;color:#142d1e;">Velkommen til Growly Garden</h1>
-                <p style="margin:0;font-size:18px;line-height:1.45;color:#657467;">Hei {safe_name}, kontoen din er klar.</p>
+                <h1 style="margin:14px 0 10px;font-size:34px;line-height:1.05;color:#142d1e;">{safe_title}</h1>
+                <p style="margin:0;font-size:18px;line-height:1.45;color:#657467;">{safe_intro}</p>
               </td>
             </tr>
             <tr>
               <td style="padding:28px 32px 8px;">
-                <p style="margin:0 0 16px;font-size:17px;line-height:1.55;color:#405244;">Du kan nå logge inn og begynne å sette opp drivhuset ditt. Growly hjelper deg med planter, sensordata, vanning og små grep som holder veksten i gang.</p>
+                <p style="margin:0 0 16px;font-size:17px;line-height:1.55;color:#405244;">{safe_body}</p>
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0;background:#eef7e8;border-radius:20px;border:1px solid #d9ead3;">
                   <tr>
                     <td style="padding:20px 22px;">
-                      <div style="font-size:13px;font-weight:800;letter-spacing:.10em;text-transform:uppercase;color:#2f8a54;">Neste steg</div>
-                      <p style="margin:8px 0 0;font-size:16px;line-height:1.45;color:#405244;">Logg inn, legg til planter, og koble til Growly Hub når du er klar for sensordata.</p>
+                      <div style="font-size:13px;font-weight:800;letter-spacing:.10em;text-transform:uppercase;color:#2f8a54;">{safe_next_label}</div>
+                      <p style="margin:8px 0 0;font-size:16px;line-height:1.45;color:#405244;">{safe_next_text}</p>
                     </td>
                   </tr>
                 </table>
-                <a href="{safe_app_url}" style="display:inline-block;margin:8px 0 20px;padding:15px 24px;border-radius:999px;background:#246b43;color:#ffffff;text-decoration:none;font-size:16px;font-weight:800;">Åpne Growly Garden</a>
+                <a href="{safe_button_url}" style="display:inline-block;margin:8px 0 20px;padding:15px 24px;border-radius:999px;background:#246b43;color:#ffffff;text-decoration:none;font-size:16px;font-weight:800;">{safe_button_label}</a>
               </td>
             </tr>
             <tr>
               <td style="padding:20px 32px 30px;border-top:1px solid #edf3ea;">
-                <p style="margin:0;font-size:14px;line-height:1.5;color:#7a887d;">Hvis du ikke opprettet denne kontoen, kan du bare se bort fra denne e-posten.</p>
+                <p style="margin:0;font-size:14px;line-height:1.5;color:#7a887d;">{safe_footer}</p>
                 <p style="margin:18px 0 0;font-size:15px;line-height:1.5;color:#405244;">Hilsen<br><strong style="color:#183322;">Growly Garden</strong></p>
               </td>
             </tr>
@@ -610,9 +598,18 @@ def send_registration_email(user: dict[str, Any]) -> bool:
     </table>
   </body>
 </html>
-""",
-        subtype="html",
-    )
+"""
+
+
+def send_email(recipient: str, subject: str, text_body: str, html_body: str) -> bool:
+    if not mail_is_configured() or not recipient:
+        return False
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = SMTP_FROM
+    message["To"] = recipient
+    message.set_content(text_body)
+    message.add_alternative(html_body, subtype="html")
 
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as smtp:
@@ -623,6 +620,175 @@ def send_registration_email(user: dict[str, Any]) -> bool:
         return True
     except (OSError, smtplib.SMTPException):
         return False
+
+
+def send_email_verification(user: dict[str, Any]) -> bool:
+    recipient = str(user.get("email") or "").strip()
+    token = str(user.get("email_verification_token") or "").strip()
+    if not recipient or not token:
+        return False
+
+    display_name = str(user.get("full_name") or user.get("username") or "Growly-bruker").strip()
+    verification_url = f"{public_base_url()}/verify-email/{token}"
+    text_body = "\n".join(
+        [
+            f"Hei {display_name},",
+            "",
+            "Velkommen til Growly Garden.",
+            "Bekreft e-postadressen din for å aktivere kontoen.",
+            "",
+            f"Bekreft kontoen: {verification_url}",
+            "",
+            "Hvis du ikke opprettet denne kontoen, kan du se bort fra denne e-posten.",
+            "",
+            "Hilsen Growly Garden",
+        ]
+    )
+    html_body = build_email_shell(
+        "Bekreft Growly-kontoen din",
+        f"Hei {display_name}, velkommen inn.",
+        "Før du kan bruke Growly Garden må du bekrefte e-postadressen din. Det hjelper oss å sikre at kontoen faktisk tilhører deg.",
+        "Aktiver kontoen",
+        "Trykk på knappen under. Etter bekreftelsen sender vi deg en velkomstmail og du kan logge inn.",
+        "Bekreft kontoen",
+        verification_url,
+        "Hvis du ikke opprettet denne kontoen, kan du bare se bort fra denne e-posten. Kontoen blir ikke aktivert uten bekreftelse.",
+    )
+    return send_email(recipient, "Bekreft Growly Garden-kontoen din", text_body, html_body)
+
+
+def send_welcome_email(user: dict[str, Any]) -> bool:
+    recipient = str(user.get("email") or "").strip()
+    if not recipient:
+        return False
+
+    display_name = str(user.get("full_name") or user.get("username") or "Growly-bruker").strip()
+    text_body = "\n".join(
+        [
+            f"Hei {display_name},",
+            "",
+            "Kontoen din hos Growly Garden er bekreftet og klar.",
+            "Du kan nå logge inn og begynne å sette opp drivhuset ditt.",
+            "",
+            f"Åpne Growly Garden: {APP_PUBLIC_URL}",
+            "",
+            "Hilsen Growly Garden",
+        ]
+    )
+    html_body = build_email_shell(
+        "Velkommen til Growly Garden",
+        f"Hei {display_name}, kontoen din er klar.",
+        "Nå kan du logge inn og begynne å sette opp drivhuset ditt. Growly hjelper deg med planter, sensordata, vanning og små grep som holder veksten i gang.",
+        "Neste steg",
+        "Logg inn, legg til planter, og koble til Growly Hub når du er klar for sensordata.",
+        "Åpne Growly Garden",
+        APP_PUBLIC_URL,
+        "Denne e-posten ble sendt fordi kontoen din nettopp ble bekreftet.",
+    )
+    return send_email(recipient, "Velkommen til Growly Garden", text_body, html_body)
+
+
+def find_user_by_verification_token(token: str) -> dict[str, Any] | None:
+    normalized_token = token.strip()
+    if len(normalized_token) < 20:
+        return None
+    with db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT username, full_name, phone, email, password_hash,
+                   is_active, is_admin, email_verified,
+                   email_verification_token, email_verification_sent_at,
+                   created_at, updated_at
+            FROM app_users
+            WHERE email_verification_token = ?
+              AND email_verification_token != ''
+            LIMIT 1
+            """,
+            (normalized_token,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def mark_email_verified(token: str) -> dict[str, Any] | None:
+    user = find_user_by_verification_token(token)
+    if not user:
+        return None
+    now = utc_now_iso()
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE app_users
+            SET email_verified = 1,
+                email_verification_token = '',
+                email_verification_sent_at = '',
+                updated_at = ?
+            WHERE username = ?
+            """,
+            (now, user["username"]),
+        )
+        connection.commit()
+    return find_app_user(str(user["username"]))
+
+
+def verification_result_page(title: str, message: str, button_label: str = "Logg inn") -> HTMLResponse:
+    safe_title = html.escape(title)
+    safe_message = html.escape(message)
+    safe_button_label = html.escape(button_label)
+    login_url = html.escape(f"{public_base_url()}/login", quote=True)
+    logo_url = html.escape(f"{public_base_url()}/static/logo.png", quote=True)
+    body = f"""\
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{safe_title} · Growly Garden</title>
+    <style>
+      body {{
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at 25% 12%, #e6f7db 0, transparent 34%), #f4f6ef;
+        color: #183322;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      }}
+      main {{
+        width: min(560px, calc(100vw - 32px));
+        background: #fff;
+        border: 1px solid #dfeade;
+        border-radius: 30px;
+        padding: 34px;
+        box-shadow: 0 22px 54px rgba(24, 51, 34, .12);
+      }}
+      img {{ width: 96px; height: auto; display: block; margin-bottom: 20px; }}
+      p.kicker {{ margin: 0 0 10px; color: #2f8a54; font-size: 13px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }}
+      h1 {{ margin: 0 0 14px; font-size: clamp(34px, 8vw, 56px); line-height: .95; }}
+      p {{ margin: 0; color: #657467; font-size: 18px; line-height: 1.5; }}
+      a {{
+        display: inline-block;
+        margin-top: 26px;
+        padding: 15px 24px;
+        border-radius: 999px;
+        background: #246b43;
+        color: #fff;
+        text-decoration: none;
+        font-weight: 800;
+      }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="{logo_url}" alt="Growly Garden">
+      <p class="kicker">Growly Garden</p>
+      <h1>{safe_title}</h1>
+      <p>{safe_message}</p>
+      <a href="{login_url}">{safe_button_label}</a>
+    </main>
+  </body>
+</html>
+"""
+    return HTMLResponse(body)
 
 
 def db_connection() -> sqlite3.Connection:
@@ -924,6 +1090,9 @@ def init_db() -> None:
                 password_hash TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 is_admin INTEGER NOT NULL DEFAULT 0,
+                email_verified INTEGER NOT NULL DEFAULT 1,
+                email_verification_token TEXT NOT NULL DEFAULT '',
+                email_verification_sent_at TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
@@ -1127,6 +1296,12 @@ def init_db() -> None:
             connection.execute("ALTER TABLE app_users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
         if "is_admin" not in existing_user_columns:
             connection.execute("ALTER TABLE app_users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+        if "email_verified" not in existing_user_columns:
+            connection.execute("ALTER TABLE app_users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1")
+        if "email_verification_token" not in existing_user_columns:
+            connection.execute("ALTER TABLE app_users ADD COLUMN email_verification_token TEXT NOT NULL DEFAULT ''")
+        if "email_verification_sent_at" not in existing_user_columns:
+            connection.execute("ALTER TABLE app_users ADD COLUMN email_verification_sent_at TEXT NOT NULL DEFAULT ''")
         existing_hub_columns = {
             row["name"]
             for row in connection.execute("PRAGMA table_info(hubs)").fetchall()
@@ -1192,8 +1367,11 @@ def init_db() -> None:
             now = utc_now_iso()
             connection.execute(
                 """
-                INSERT INTO app_users (username, password_hash, is_active, is_admin, created_at, updated_at)
-                VALUES (?, ?, 1, 1, ?, ?)
+                INSERT INTO app_users (
+                    username, password_hash, is_active, is_admin,
+                    email_verified, created_at, updated_at
+                )
+                VALUES (?, ?, 1, 1, 1, ?, ?)
                 """,
                 (ADMIN_USERNAME, hash_password(ADMIN_PASSWORD), now, now),
             )
@@ -1201,7 +1379,7 @@ def init_db() -> None:
             connection.execute(
                 """
                 UPDATE app_users
-                SET is_active = 1, is_admin = 1, updated_at = ?
+                SET is_active = 1, is_admin = 1, email_verified = 1, updated_at = ?
                 WHERE username = ?
                 """,
                 (utc_now_iso(), ADMIN_USERNAME),
@@ -1219,7 +1397,7 @@ def init_db() -> None:
                 connection.execute(
                     """
                     UPDATE app_users
-                    SET is_active = 1, is_admin = 0, updated_at = ?
+                    SET is_active = 1, is_admin = 0, email_verified = 1, updated_at = ?
                     WHERE username = ?
                     """,
                     (utc_now_iso(), APP_USERNAME),
@@ -1236,8 +1414,11 @@ def init_db() -> None:
             now = utc_now_iso()
             connection.execute(
                 """
-                INSERT INTO app_users (username, password_hash, is_active, is_admin, created_at, updated_at)
-                VALUES (?, ?, 1, 0, ?, ?)
+                INSERT INTO app_users (
+                    username, password_hash, is_active, is_admin,
+                    email_verified, created_at, updated_at
+                )
+                VALUES (?, ?, 1, 0, 1, ?, ?)
                 """,
                 (DEFAULT_VIEWER_USERNAME, hash_password(DEFAULT_VIEWER_PASSWORD), now, now),
             )
@@ -1245,7 +1426,7 @@ def init_db() -> None:
             connection.execute(
                 """
                 UPDATE app_users
-                SET is_active = 1, is_admin = 0, updated_at = ?
+                SET is_active = 1, is_admin = 0, email_verified = 1, updated_at = ?
                 WHERE username = ?
                 """,
                 (utc_now_iso(), DEFAULT_VIEWER_USERNAME),
@@ -2227,7 +2408,8 @@ def list_app_users() -> list[dict[str, Any]]:
         rows = connection.execute(
             """
             SELECT u.username, u.full_name, u.phone, u.email,
-                   u.is_active, u.is_admin, u.created_at, u.updated_at,
+                   u.is_active, u.is_admin, u.email_verified,
+                   u.created_at, u.updated_at,
                    h.hub_id, h.hub_name, h.owner_username
             FROM app_users u
             LEFT JOIN hubs h ON h.owner_username = u.username
@@ -2244,7 +2426,10 @@ def find_app_user(username: str) -> dict[str, Any] | None:
     with db_connection() as connection:
         row = connection.execute(
             """
-            SELECT username, full_name, phone, email, password_hash, is_active, is_admin, created_at, updated_at
+            SELECT username, full_name, phone, email, password_hash,
+                   is_active, is_admin, email_verified,
+                   email_verification_token, email_verification_sent_at,
+                   created_at, updated_at
             FROM app_users
             WHERE lower(username) = lower(?)
                OR lower(email) = lower(?)
@@ -2293,6 +2478,7 @@ def create_app_user(
     full_name: str = "",
     phone: str = "",
     email: str = "",
+    email_verified: bool = True,
 ) -> dict[str, Any]:
     normalized_username = username.strip().lower() if "@" in username else username.strip()
     normalized_full_name = full_name.strip()
@@ -2322,14 +2508,18 @@ def create_app_user(
         raise ValueError("email_exists")
 
     now = utc_now_iso()
+    verification_token = "" if email_verified else secrets.token_urlsafe(32)
+    verification_sent_at = "" if email_verified else now
     with db_connection() as connection:
         connection.execute(
             """
             INSERT INTO app_users (
                 username, full_name, phone, email, password_hash,
-                is_active, is_admin, created_at, updated_at
+                is_active, is_admin, email_verified,
+                email_verification_token, email_verification_sent_at,
+                created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalized_username,
@@ -2338,6 +2528,9 @@ def create_app_user(
                 normalized_email,
                 hash_password(password),
                 1 if is_admin else 0,
+                1 if email_verified else 0,
+                verification_token,
+                verification_sent_at,
                 now,
                 now,
             ),
@@ -2355,6 +2548,9 @@ def create_app_user(
         "email": user["email"],
         "is_active": user["is_active"],
         "is_admin": user["is_admin"],
+        "email_verified": user["email_verified"],
+        "email_verification_token": user["email_verification_token"],
+        "email_verification_sent_at": user["email_verification_sent_at"],
         "created_at": user["created_at"],
         "updated_at": user["updated_at"],
         "hub_id": assigned_hub["hub_id"] if assigned_hub else None,
@@ -2424,6 +2620,7 @@ def update_app_user(
             "email": user["email"],
             "is_active": user["is_active"],
             "is_admin": user["is_admin"],
+            "email_verified": user["email_verified"],
             "created_at": user["created_at"],
             "updated_at": user["updated_at"],
         }
@@ -2456,6 +2653,7 @@ def update_app_user(
         "email": updated["email"],
         "is_active": updated["is_active"],
         "is_admin": updated["is_admin"],
+        "email_verified": updated["email_verified"],
         "created_at": updated["created_at"],
         "updated_at": updated["updated_at"],
         "hub_id": assigned_hub["hub_id"] if assigned_hub else None,
@@ -3332,6 +3530,7 @@ def session_auth_payload(request: Request) -> dict[str, Any]:
             "email": user["email"],
             "is_active": user["is_active"],
             "is_admin": user["is_admin"],
+            "email_verified": user["email_verified"],
         } if user else None,
         "hub": hub,
         "api_token": issue_api_token(username) if user and is_viewer_authenticated(request) and not bool(user["is_admin"]) else "",
@@ -3437,6 +3636,7 @@ async def register_page(request: Request):
             "prefill_full_name": "",
             "prefill_phone": "",
             "prefill_email": "",
+            "success": "",
         },
     )
 
@@ -3463,6 +3663,7 @@ async def register_submit(
                 "prefill_full_name": normalized_full_name,
                 "prefill_phone": normalized_phone,
                 "prefill_email": normalized_email,
+                "success": "",
             },
             status_code=400,
         )
@@ -3476,6 +3677,7 @@ async def register_submit(
             full_name=normalized_full_name,
             phone=normalized_phone,
             email=normalized_email,
+            email_verified=False,
         )
     except ValueError as exc:
         error_map = {
@@ -3499,16 +3701,24 @@ async def register_submit(
                 "prefill_full_name": normalized_full_name,
                 "prefill_phone": normalized_phone,
                 "prefill_email": normalized_email,
+                "success": "",
             },
             status_code=400,
         )
 
-    request.session["viewer_authenticated"] = True
-    request.session["settings_authenticated"] = False
-    request.session["is_admin"] = bool(user["is_admin"])
-    request.session["username"] = user["username"]
-    send_registration_email(user)
-    return authenticated_entry_redirect(request)
+    sent = send_email_verification(user)
+    return templates.TemplateResponse(
+        "register.html",
+        {
+            "request": request,
+            "error": "" if sent else "Kontoen ble opprettet, men vi klarte ikke sende bekreftelsesmail akkurat nå.",
+            "prefill_full_name": "",
+            "prefill_phone": "",
+            "prefill_email": "",
+            "success": "Kontoen er opprettet. Sjekk e-posten din og bekreft kontoen før du logger inn." if sent else "",
+        },
+        status_code=200 if sent else 503,
+    )
 
 
 @app.get("/api/auth/session")
@@ -3536,6 +3746,22 @@ async def app_deep_link(request: Request, path: str):
     return app_entry_response()
 
 
+@app.get("/verify-email/{token}")
+async def verify_email(token: str):
+    user = mark_email_verified(token)
+    if not user:
+        return verification_result_page(
+            "Lenken virker ikke",
+            "Bekreftelseslenken er allerede brukt, utløpt, eller ikke gyldig. Prøv å logge inn eller opprett kontoen på nytt.",
+        )
+    send_welcome_email(user)
+    return verification_result_page(
+        "Kontoen er bekreftet",
+        "Takk, e-postadressen din er bekreftet. Du kan nå logge inn og begynne å sette opp Growly Garden.",
+        "Logg inn",
+    )
+
+
 @app.post("/login")
 async def login_submit(
     request: Request,
@@ -3544,6 +3770,21 @@ async def login_submit(
 ):
     user = find_app_user(username.strip())
     if user and user["is_active"] and verify_password(password, user["password_hash"]):
+        if not bool(user["is_admin"]) and not bool(user.get("email_verified")):
+            return templates.TemplateResponse(
+                "login.html",
+                {
+                    "request": request,
+                    "title": "Logg inn",
+                    "heading": "Velkommen tilbake",
+                    "helper_text": "Logg inn for å se sensordataene dine.",
+                    "action": "/login",
+                    "submit_label": "Logg inn",
+                    "error": "Bekreft e-postadressen din før du logger inn.",
+                    "show_username": True,
+                },
+                status_code=403,
+            )
         request.session["viewer_authenticated"] = True
         request.session["settings_authenticated"] = False
         request.session["is_admin"] = bool(user["is_admin"])
@@ -3575,6 +3816,8 @@ async def auth_login(request: Request, payload: dict[str, Any]):
         return JSONResponse(status_code=401, content={"ok": False, "error": "invalid_credentials"})
     if bool(user["is_admin"]):
         return JSONResponse(status_code=403, content={"ok": False, "error": "admin_web_only"})
+    if not bool(user.get("email_verified")):
+        return JSONResponse(status_code=403, content={"ok": False, "error": "email_not_verified"})
 
     request.session["viewer_authenticated"] = True
     request.session["settings_authenticated"] = False
@@ -3604,16 +3847,15 @@ async def auth_register(request: Request, payload: dict[str, Any]):
             full_name=full_name,
             phone=phone,
             email=email,
+            email_verified=False,
         )
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
-    request.session["viewer_authenticated"] = True
-    request.session["settings_authenticated"] = False
-    request.session["is_admin"] = bool(user["is_admin"])
-    request.session["username"] = user["username"]
-    send_registration_email(user)
-    return {"ok": True, "session": session_auth_payload(request)}
+    sent = send_email_verification(user)
+    if not sent:
+        return JSONResponse(status_code=503, content={"ok": False, "error": "verification_email_failed"})
+    return {"ok": True, "session": None, "email_verification_required": True, "email": user["email"]}
 
 
 @app.get("/settings-login")

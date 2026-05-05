@@ -272,12 +272,13 @@
                 const state = user.is_active ? "Aktiv" : "Av";
                 const statusClass = user.is_active ? "online" : "offline";
                 const hub = user.hub_id ? escapeHtml(user.hub_id) : "Ingen hub";
+                const emailState = user.is_admin || user.email_verified ? "E-post bekreftet" : "Venter på bekreftelse";
                 return `
                     <button class="customer-row${selected}" type="button" data-user-select="${escapeHtml(user.username)}">
                         <span class="customer-avatar">${escapeHtml(userInitials(user))}</span>
                         <span class="customer-row-main">
                             <strong>${escapeHtml(displayName(user))}</strong>
-                            <small>${escapeHtml(user.email || "Ingen e-post")} · ${hub}</small>
+                            <small>${escapeHtml(user.email || "Ingen e-post")} · ${hub} · ${emailState}</small>
                         </span>
                         <span class="customer-row-meta">
                             <span class="mini-pill ${statusClass}">${state}</span>
@@ -333,6 +334,10 @@
                     <div>
                         <span>Hub-navn</span>
                         <strong>${escapeHtml(user.hub_name || "Ikke satt")}</strong>
+                    </div>
+                    <div>
+                        <span>E-poststatus</span>
+                        <strong>${user.is_admin || user.email_verified ? "Bekreftet" : "Ikke bekreftet"}</strong>
                     </div>
                 </div>
 

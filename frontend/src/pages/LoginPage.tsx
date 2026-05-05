@@ -9,11 +9,13 @@ type LoginPageProps = {
 export function LoginPage({ setSession }: LoginPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const locationState = location.state as { registrationSuccess?: boolean; username?: string } | null;
+  const locationState = location.state as { registrationSuccess?: boolean; emailVerificationRequired?: boolean; username?: string } | null;
   const [username, setUsername] = useState(locationState?.username ?? "");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState(
-    locationState?.registrationSuccess ? "Konto opprettet. Logg inn for å fortsette." : "",
+    locationState?.emailVerificationRequired
+      ? "Sjekk e-posten din og bekreft kontoen før du logger inn."
+      : locationState?.registrationSuccess ? "Konto opprettet. Logg inn for å fortsette." : "",
   );
   const [submitting, setSubmitting] = useState(false);
 
@@ -35,6 +37,11 @@ export function LoginPage({ setSession }: LoginPageProps) {
 
       if (code === "admin_web_only") {
         setStatus("Admin-kontoen brukes i Growly Management på web.");
+        return;
+      }
+
+      if (code === "email_not_verified") {
+        setStatus("Bekreft e-postadressen din før du logger inn.");
         return;
       }
 

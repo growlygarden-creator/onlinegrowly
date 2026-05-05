@@ -96,6 +96,7 @@ export type AuthSession = {
     email: string;
     is_active: boolean;
     is_admin: boolean;
+    email_verified?: boolean | number;
   } | null;
   hub: {
     hub_id: string;
@@ -233,7 +234,11 @@ export async function registerAccount(payload: {
   email: string;
   password: string;
   password_confirm: string;
-}): Promise<AuthSession> {
+}): Promise<{
+  session: AuthSession | null;
+  email_verification_required?: boolean;
+  email?: string;
+}> {
   const response = await fetchWithTimeout(apiUrl("/api/auth/register"), {
     method: "POST",
     credentials: "include",
@@ -248,9 +253,18 @@ export async function registerAccount(payload: {
     throw new Error(result.error);
   }
 
-  const result = await parseJson<{ ok: true; session: AuthSession }>(response);
+  const result = await parseJson<{
+    ok: true;
+    session: AuthSession | null;
+    email_verification_required?: boolean;
+    email?: string;
+  }>(response);
   persistApiToken(result.session);
-  return result.session;
+  return {
+    session: result.session,
+    email_verification_required: result.email_verification_required,
+    email: result.email,
+  };
 }
 
 export async function logout(): Promise<void> {

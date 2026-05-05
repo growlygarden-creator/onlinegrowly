@@ -33,6 +33,8 @@ services:
         value: "true"
       - key: NATIVE_APP_ORIGINS
         value: capacitor://localhost,http://localhost,http://127.0.0.1,ionic://localhost
+      - key: APP_PUBLIC_URL
+        value: https://onlinegrowly.onrender.com/app
       - key: ACTIVE_FIRMWARE_VERSION
         sync: false
       - key: ACTIVE_FIRMWARE_URL

@@ -36,14 +36,31 @@ export function RegisterPage({ setSession }: RegisterPageProps) {
     setSubmitting(true);
     setStatus("Oppretter konto...");
     try {
-      const session = await registerAccount(form);
-      setSession(session);
-      setStatus("Konto opprettet.");
-      navigate("/", { replace: true });
+      const result = await registerAccount(form);
+      if (result.email_verification_required) {
+        setSession(null);
+        setStatus(`Kontoen er opprettet. Sjekk e-posten ${result.email ?? form.email} og bekreft kontoen før du logger inn.`);
+        return;
+      }
+
+      if (result.session) {
+        setSession(result.session);
+        setStatus("Konto opprettet.");
+        navigate("/", { replace: true });
+        return;
+      }
+
+      setSession(null);
+      setStatus("Kontoen er opprettet. Sjekk e-posten din og bekreft kontoen før du logger inn.");
     } catch (error) {
       const code = error instanceof Error ? error.message : "unknown_error";
       if (code === "backend_unavailable") {
         setStatus("Backend svarer ikke akkurat nå. Registrering virker når API-et er oppe igjen.");
+        return;
+      }
+
+      if (code === "verification_email_failed") {
+        setStatus("Kontoen ble opprettet, men vi klarte ikke sende bekreftelsesmail akkurat nå.");
         return;
       }
 
