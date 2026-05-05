@@ -1726,7 +1726,7 @@ def create_hub_for_user(username: str) -> dict[str, Any]:
                 hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
                 sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                 sample_time_cloud_ms, history_start_at, created_at, updated_at
-            ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 hub_id,

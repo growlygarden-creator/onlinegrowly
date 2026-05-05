@@ -11,6 +11,7 @@ import {
 import { bundledPlantCatalog } from "../data/plantCatalog";
 import { PlantAvatar } from "../components/PlantAvatar";
 import { plantCareGuide } from "../lib/plantCare";
+import { readUserArray, writeUserArray } from "../lib/userStorage";
 
 type GreenhousePageProps = {
   session: AuthSession | null;
@@ -149,12 +150,6 @@ const fallbackPlantProfiles: PlantProfile[] = [
       lux: { optimal: [4000, 20000], caution: [1800, 32000] },
     },
   },
-];
-
-const defaultPlants: GreenhousePlant[] = [
-  { instanceId: "tomato-1", profileId: "tomato", nickname: "Cherry tomat", location: "greenhouse", hasSevenInOne: true, wateringEnabled: false },
-  { instanceId: "cucumber-1", profileId: "cucumber", nickname: "Agurk", location: "greenhouse", hasSevenInOne: false, wateringEnabled: false },
-  { instanceId: "basil-1", profileId: "basil", nickname: "Basilikum", location: "greenhouse", hasSevenInOne: false, wateringEnabled: false },
 ];
 
 const soilMetricConfigs: Array<{ key: SoilMetricKey; label: string; unit: string; digits: number }> = [
@@ -381,30 +376,16 @@ function plantStatus(plant: GreenhousePlant, profile: PlantProfile, sample: Late
   return { title, note, level: worst.result.level, checks };
 }
 
-function loadPlants(): GreenhousePlant[] {
-  try {
-    const raw = window.localStorage.getItem(PLANTS_STORAGE_KEY);
-    if (!raw) {
-      return defaultPlants;
-    }
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return defaultPlants;
-    }
-
-    return parsed
-      .filter((plant) => plant?.instanceId && plant?.profileId && plant?.nickname)
-      .map((plant) => {
-        const nickname = String(plant.nickname || "").toLowerCase();
-        if (nickname.includes("chili") && plant.profileId === "tomato") {
-          return { ...plant, profileId: "chili", catalogItemId: "chili", location: plant.location ?? "greenhouse" };
-        }
-        return { ...plant, location: plant.location ?? "greenhouse" };
-      });
-  } catch {
-    return defaultPlants;
-  }
+function loadPlants(session: AuthSession | null): GreenhousePlant[] {
+  return readUserArray<GreenhousePlant>(PLANTS_STORAGE_KEY, session)
+    .filter((plant) => plant?.instanceId && plant?.profileId && plant?.nickname)
+    .map((plant) => {
+      const nickname = String(plant.nickname || "").toLowerCase();
+      if (nickname.includes("chili") && plant.profileId === "tomato") {
+        return { ...plant, profileId: "chili", catalogItemId: "chili", location: plant.location ?? "greenhouse" };
+      }
+      return { ...plant, location: plant.location ?? "greenhouse" };
+    });
 }
 
 function detailTrendPath(points: HistoryPoint[], range: { optimal: [number, number]; caution: [number, number] }) {
@@ -458,7 +439,8 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
   const [detailTrendMetric, setDetailTrendMetric] = useState<DetailTrendMetric>("airTemperature");
   const [detailTrendPoints, setDetailTrendPoints] = useState<HistoryPoint[]>([]);
   const [detailTrendLoading, setDetailTrendLoading] = useState(false);
-  const [plants, setPlants] = useState<GreenhousePlant[]>(loadPlants);
+  const [plants, setPlants] = useState<GreenhousePlant[]>([]);
+  const [plantsLoaded, setPlantsLoaded] = useState(false);
   const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null);
   const [finishPlantId, setFinishPlantId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -485,8 +467,18 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(PLANTS_STORAGE_KEY, JSON.stringify(plants));
-  }, [plants]);
+    setPlantsLoaded(false);
+    setPlants(loadPlants(session));
+    setSelectedPlantId(null);
+    setPlantsLoaded(true);
+  }, [session?.username, session?.hub?.hub_id]);
+
+  useEffect(() => {
+    if (!plantsLoaded) {
+      return;
+    }
+    writeUserArray(PLANTS_STORAGE_KEY, session, plants);
+  }, [plants, plantsLoaded, session?.username, session?.hub?.hub_id]);
 
   useEffect(() => {
     if (!selectedPlantId) {
@@ -661,10 +653,8 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
     };
 
     try {
-      const raw = window.localStorage.getItem(PLANT_HISTORY_STORAGE_KEY);
-      const current = raw ? JSON.parse(raw) : [];
-      const next = Array.isArray(current) ? [historyItem, ...current] : [historyItem];
-      window.localStorage.setItem(PLANT_HISTORY_STORAGE_KEY, JSON.stringify(next));
+      const current = readUserArray<typeof historyItem>(PLANT_HISTORY_STORAGE_KEY, session);
+      writeUserArray(PLANT_HISTORY_STORAGE_KEY, session, [historyItem, ...current]);
     } catch {
       // If localStorage is unavailable, still remove the active card.
     }
@@ -694,7 +684,7 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
           <button className="text-action" type="button" onClick={() => setAddOpen(true)}>Legg til</button>
         </div>
         <div className="plant-card-grid">
-          {plantSummaries.map(({ plant, profile, catalogItem, status }) => (
+          {plantSummaries.length ? plantSummaries.map(({ plant, profile, catalogItem, status }) => (
             <button className="greenhouse-plant-card soft-card" type="button" key={plant.instanceId} onClick={() => setSelectedPlantId(plant.instanceId)}>
               <div className="greenhouse-plant-card__top">
                 <PlantAvatar tone={profile.tone} plantId={profile.id} name={plant.nickname || profile.name} family={profile.family} />
@@ -720,7 +710,13 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
                 </div>
               )}
             </button>
-          ))}
+          )) : (
+            <article className="soft-card empty-state-card">
+              <strong>Start med blankt drivhus</strong>
+              <p>Denne brukeren har ingen planter enda. Legg til første plante når du er klar.</p>
+              <button type="button" onClick={() => setAddOpen(true)}>Legg til plante</button>
+            </article>
+          )}
         </div>
       </section>
 

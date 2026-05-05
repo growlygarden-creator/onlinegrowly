@@ -81,7 +81,7 @@ export function App() {
         />
         <Route
           path="/historikk"
-          element={isAuthenticated ? <PlantHistoryPage /> : <Navigate to="/login" replace />}
+          element={isAuthenticated ? <PlantHistoryPage session={authenticatedSession} /> : <Navigate to="/login" replace />}
         />
         <Route
           path="/kalender"

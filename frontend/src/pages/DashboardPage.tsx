@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { askGrowlyAssistant, fetchLatestSample, fetchMetricHistory, type AuthSession, type GrowlyAssistantImage, type HistoryPoint, type LatestSample } from "../lib/api";
 import { PlantAvatar } from "../components/PlantAvatar";
+import { readUserArray } from "../lib/userStorage";
 import greenhouseDay from "../assets/greenhouse-assets/greenhouse-day.png";
 import greenhouseEvening from "../assets/greenhouse-assets/greenhouse-evening.png";
 import humidityDot from "../assets/greenhouse-assets/humidity-dot.png";
@@ -123,12 +124,6 @@ const dashboardPlantProfiles: Record<
     },
   },
 };
-
-const defaultDashboardPlants: DashboardPlant[] = [
-  { nickname: "Cherry tomat", profileId: "tomato", sowedAt: "2026-04-10" },
-  { nickname: "Agurk", profileId: "cucumber", sowedAt: "2026-04-18" },
-  { nickname: "Basilikum", profileId: "basil", sowedAt: "2026-04-14" },
-];
 
 const trendMetricConfigs: TrendMetricConfig[] = [
   {
@@ -645,30 +640,16 @@ function assistantAnswerItems(answer: string): string[] {
     .map((line) => (line.length > 120 ? `${line.slice(0, 117).trim()}...` : line));
 }
 
-function loadDashboardPlants(): DashboardPlant[] {
-  try {
-    const raw = window.localStorage.getItem(GREENHOUSE_PLANTS_STORAGE_KEY);
-    if (!raw) {
-      return defaultDashboardPlants;
-    }
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return defaultDashboardPlants;
-    }
-
-    return parsed
-      .filter((plant) => plant?.profileId && plant?.nickname)
-      .map((plant) => ({
-        instanceId: plant.instanceId,
-        profileId: plant.profileId,
-        catalogItemId: plant.catalogItemId,
-        nickname: plant.nickname,
-        sowedAt: plant.sowedAt,
-      }));
-  } catch {
-    return defaultDashboardPlants;
-  }
+function loadDashboardPlants(session: AuthSession | null): DashboardPlant[] {
+  return readUserArray<DashboardPlant>(GREENHOUSE_PLANTS_STORAGE_KEY, session)
+    .filter((plant) => plant?.profileId && plant?.nickname)
+    .map((plant) => ({
+      instanceId: plant.instanceId,
+      profileId: plant.profileId,
+      catalogItemId: plant.catalogItemId,
+      nickname: plant.nickname,
+      sowedAt: plant.sowedAt,
+    }));
 }
 
 function climateValue(sample: LatestSample | null, metric: ClimateReportMetric): number | null | undefined {
@@ -803,11 +784,12 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
   const firstName = session?.user?.full_name?.split(" ")[0] || session?.username || "Geirij";
   const status = growthStatus(sample);
   const scene = greenhouseScene(theme);
+  const hubOnline = !!session?.hub?.is_active;
   const temperature = metricText(sample?.air_temperature ?? sample?.temperature, "°C", 0);
   const humidity = metricText(sample?.air_humidity, "%", 0);
   const lux = metricText(sample?.lux, " lx", 0);
   const updatedAt = formatUpdatedAt(sample?.recorded_at);
-  const dashboardPlants = loadDashboardPlants();
+  const dashboardPlants = loadDashboardPlants(session);
   const weeklyTasks = buildWeeklyTasks(sample);
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
   const activeReportValue = reportMetric ? climateValue(sample, reportMetric) : null;
@@ -952,7 +934,7 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
               </div>
               <span className="status-pill status-pill--live">
                 <span className="online-dot" aria-hidden="true" />
-                {session?.hub ? "Hub online" : "Hub offline"}
+                {hubOnline ? "Hub online" : "Hub ikke koblet"}
               </span>
             </div>
 
@@ -1024,7 +1006,7 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
           <Link to="/drivhus">Mine planter</Link>
         </div>
         <div className="growth-list">
-          {dashboardPlants.slice(0, 4).map((plant, index) => {
+          {dashboardPlants.length ? dashboardPlants.slice(0, 4).map((plant, index) => {
             const profile = dashboardPlantProfiles[plant.profileId] ?? dashboardPlantProfiles.tomato;
             const progress = plantProgress(plant.profileId, index, sample, plant.sowedAt);
             const timeline = plantTimeline(plant.profileId, progress, plant.sowedAt, index);
@@ -1080,7 +1062,13 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
                 </div>
               </article>
             );
-          })}
+          }) : (
+            <article className="soft-card empty-state-card">
+              <strong>Ingen planter enda</strong>
+              <p>Legg til den første planten din for å starte din egen dyrkeoversikt.</p>
+              <Link to="/drivhus">Legg til plante</Link>
+            </article>
+          )}
         </div>
       </section>
 

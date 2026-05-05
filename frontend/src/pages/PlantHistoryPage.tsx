@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { PlantAvatar } from "../components/PlantAvatar";
-import type { PlantCatalogItem } from "../lib/api";
+import type { AuthSession, PlantCatalogItem } from "../lib/api";
+import { readUserArray } from "../lib/userStorage";
 
 type PlantTone = PlantCatalogItem["tone"];
 
@@ -20,14 +21,12 @@ type PlantHistoryItem = {
 
 const PLANT_HISTORY_STORAGE_KEY = "growly.plantHistory";
 
-function loadPlantHistory(): PlantHistoryItem[] {
-  try {
-    const raw = window.localStorage.getItem(PLANT_HISTORY_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+type PlantHistoryPageProps = {
+  session: AuthSession | null;
+};
+
+function loadPlantHistory(session: AuthSession | null): PlantHistoryItem[] {
+  return readUserArray<PlantHistoryItem>(PLANT_HISTORY_STORAGE_KEY, session);
 }
 
 function formatHistoryDate(value: string | undefined): string {
@@ -47,8 +46,8 @@ function toneForHistory(item: PlantHistoryItem): PlantTone {
   return "leafy";
 }
 
-export function PlantHistoryPage() {
-  const plantHistory = loadPlantHistory();
+export function PlantHistoryPage({ session }: PlantHistoryPageProps) {
+  const plantHistory = loadPlantHistory(session);
 
   return (
     <main className="page-shell app-page history-page">

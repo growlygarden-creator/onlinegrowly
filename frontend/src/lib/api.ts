@@ -101,6 +101,7 @@ export type AuthSession = {
     hub_id: string;
     hub_name: string;
     owner_username: string;
+    is_active?: boolean | number;
     sensor_url: string;
     local_ip: string;
   } | null;

@@ -1193,6 +1193,46 @@ input {
   line-height: 1.32;
 }
 
+.empty-state-card {
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+  border-style: dashed;
+  background:
+    radial-gradient(circle at top right, rgba(220, 239, 208, 0.72), transparent 36%),
+    rgba(255, 255, 255, 0.86);
+}
+
+.empty-state-card strong {
+  font-size: 1.05rem;
+}
+
+.empty-state-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.empty-state-card a,
+.empty-state-card button {
+  justify-self: start;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.theme-dark .empty-state-card {
+  background:
+    radial-gradient(circle at top right, rgba(97, 156, 83, 0.22), transparent 36%),
+    rgba(238, 246, 235, 0.06);
+}
+
 .growth-sensor-pill {
   display: inline-flex;
   align-items: center;

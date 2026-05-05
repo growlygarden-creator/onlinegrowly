@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { createPairing, fetchActivePairing, logout, type AuthSession, type PairingInfo } from "../lib/api";
+import { readUserArray } from "../lib/userStorage";
 
 type SettingsPageProps = {
   session: AuthSession | null;
@@ -30,27 +31,25 @@ function initialsFromName(name: string): string {
     .join("");
 }
 
-function loadPlantHistory(): PlantHistoryItem[] {
-  try {
-    const raw = window.localStorage.getItem(PLANT_HISTORY_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+function loadPlantHistory(session: AuthSession | null): PlantHistoryItem[] {
+  return readUserArray<PlantHistoryItem>(PLANT_HISTORY_STORAGE_KEY, session);
 }
 
 export function SettingsPage({ session, setSession }: SettingsPageProps) {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
-  const [plantHistory] = useState<PlantHistoryItem[]>(loadPlantHistory);
+  const [plantHistory, setPlantHistory] = useState<PlantHistoryItem[]>(() => loadPlantHistory(session));
 
   useEffect(() => {
     fetchActivePairing().then((activePairing) => {
       setPairing(activePairing);
     });
   }, []);
+
+  useEffect(() => {
+    setPlantHistory(loadPlantHistory(session));
+  }, [session?.username, session?.hub?.hub_id]);
 
   async function handleLogout() {
     setBusy(true);
