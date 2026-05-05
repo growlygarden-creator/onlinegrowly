@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import ssl
 import sqlite3
 from typing import Any
@@ -51,7 +52,17 @@ def load_local_env(path: Path) -> None:
 
 load_local_env(ROOT_DIR / ".env")
 
-PREFERRED_DATA_DIR = Path(os.getenv("GROWLY_DATA_DIR", str(ROOT_DIR / "data")))
+def resolve_preferred_data_dir() -> Path:
+    configured_data_dir = os.getenv("GROWLY_DATA_DIR", "").strip()
+    if configured_data_dir:
+        return Path(configured_data_dir)
+    if os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"):
+        return Path("/var/data")
+    return ROOT_DIR / "data"
+
+
+LEGACY_DATA_DIR = ROOT_DIR / "data"
+PREFERRED_DATA_DIR = resolve_preferred_data_dir()
 FALLBACK_DATA_DIR = Path("/tmp/growly-data")
 DATA_DIR = PREFERRED_DATA_DIR
 DB_PATH = DATA_DIR / "growly.db"
@@ -531,6 +542,9 @@ def ensure_data_dir() -> None:
         FALLBACK_DATA_DIR.mkdir(parents=True, exist_ok=True)
         DATA_DIR = FALLBACK_DATA_DIR
     DB_PATH = DATA_DIR / "growly.db"
+    legacy_db_path = LEGACY_DATA_DIR / "growly.db"
+    if DATA_DIR != LEGACY_DATA_DIR and not DB_PATH.exists() and legacy_db_path.exists():
+        shutil.copy2(legacy_db_path, DB_PATH)
 
 
 def storage_status() -> dict[str, Any]:
