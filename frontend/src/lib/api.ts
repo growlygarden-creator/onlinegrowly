@@ -112,6 +112,7 @@ type ApiError = {
 };
 
 const REQUEST_TIMEOUT_MS = 3500;
+const AUTH_REQUEST_TIMEOUT_MS = 12000;
 const AI_REQUEST_TIMEOUT_MS = 18000;
 const API_AUTH_TOKEN_KEY = "growly.apiToken";
 
@@ -185,7 +186,7 @@ export async function fetchSession(): Promise<AuthSession | null> {
       credentials: "include",
       cache: "no-store",
       headers: authHeaders(),
-    });
+    }, AUTH_REQUEST_TIMEOUT_MS);
     if (!response.ok) {
       return null;
     }
@@ -208,7 +209,7 @@ export async function login(username: string, password: string): Promise<AuthSes
       ...authHeaders({ "Content-Type": "application/json" }),
     },
     body: JSON.stringify({ username, password }),
-  });
+  }, AUTH_REQUEST_TIMEOUT_MS);
 
   if (!response.ok) {
     const result = await parseJson<ApiError>(response);
@@ -234,7 +235,7 @@ export async function registerAccount(payload: {
       ...authHeaders({ "Content-Type": "application/json" }),
     },
     body: JSON.stringify(payload),
-  });
+  }, AUTH_REQUEST_TIMEOUT_MS);
 
   if (!response.ok) {
     const result = await parseJson<ApiError>(response);
