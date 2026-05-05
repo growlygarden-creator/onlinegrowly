@@ -91,81 +91,247 @@ const turnipImage = svgPlantImage(`
   <path d="M82 48c11-9 25-12 42-6-7 13-20 20-39 18" fill="#7dc37a"/>
 </svg>`);
 
+const kohlrabiImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <circle cx="80" cy="94" r="38" fill="#bcd88e"/>
+  <path d="M52 94c8-17 33-25 55-10-6-24-43-34-58-7-4 7-5 14-4 21 2-2 4-3 7-4Z" fill="#d8e8ac" opacity=".8"/>
+  <path d="M59 67c-21-5-34-16-40-34 20-2 36 7 50 26" fill="#4d9651"/>
+  <path d="M77 58c-4-21 2-38 18-51 11 18 9 37-5 55" fill="#61aa61"/>
+  <path d="M99 64c14-17 31-25 52-22-5 20-20 33-43 38" fill="#77bd71"/>
+  <path d="M62 75c14 7 28 7 42 0" fill="none" stroke="#6a9848" stroke-width="6" stroke-linecap="round"/>
+</svg>`);
+
+const potatoImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M39 83c0-25 21-43 49-43 24 0 43 17 43 40 0 27-21 45-52 45-24 0-40-17-40-42Z" fill="#c89a62"/>
+  <path d="M55 72c7-14 27-22 48-15-13-13-43-11-55 7-6 9-7 21-2 31 1-8 4-16 9-23Z" fill="#e0bc82" opacity=".7"/>
+  <circle cx="72" cy="82" r="4" fill="#8e663f"/>
+  <circle cx="101" cy="93" r="4" fill="#8e663f"/>
+  <circle cx="88" cy="63" r="3" fill="#8e663f"/>
+</svg>`);
+
+const celeryImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M56 132c6-29 8-58 6-89" stroke="#9ccf79" stroke-width="12" stroke-linecap="round"/>
+  <path d="M80 134c2-34 2-66 0-97" stroke="#76b95f" stroke-width="13" stroke-linecap="round"/>
+  <path d="M104 132c-6-29-8-58-6-89" stroke="#8bc86c" stroke-width="12" stroke-linecap="round"/>
+  <path d="M57 42c-18-5-28-15-31-30 15 1 27 9 36 25" fill="#55a35b"/>
+  <path d="M82 36c-5-16 0-29 13-39 8 14 7 27-4 40" fill="#66b864"/>
+  <path d="M101 43c11-15 25-22 42-20-4 15-16 25-36 30" fill="#5daa60"/>
+</svg>`);
+
+const rhubarbImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M55 135 72 55" stroke="#d8647a" stroke-width="12" stroke-linecap="round"/>
+  <path d="M82 136 83 50" stroke="#c64c66" stroke-width="13" stroke-linecap="round"/>
+  <path d="M109 134 94 56" stroke="#dc7890" stroke-width="12" stroke-linecap="round"/>
+  <path d="M80 42C52 14 25 18 13 42c24 22 48 22 67 0Z" fill="#69aa61"/>
+  <path d="M82 42c25-28 53-24 65 0-24 22-48 22-65 0Z" fill="#5d9c59"/>
+</svg>`);
+
+const cauliflowerImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M38 105c5-29 21-48 42-48s38 18 42 48c-22 22-61 22-84 0Z" fill="#5f9f5d"/>
+  <circle cx="63" cy="75" r="20" fill="#f4edd8"/>
+  <circle cx="88" cy="68" r="23" fill="#fff6df"/>
+  <circle cx="101" cy="91" r="22" fill="#efe5c9"/>
+  <circle cx="70" cy="99" r="22" fill="#fff8e8"/>
+</svg>`);
+
+const herbImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M80 132V32" stroke="#4c8d52" stroke-width="8" stroke-linecap="round"/>
+  <path d="M78 52c-24-18-43-19-58-5 14 17 34 20 58 5Z" fill="#66b86c"/>
+  <path d="M82 68c25-18 45-20 59-5-14 17-35 20-59 5Z" fill="#58a95f"/>
+  <path d="M78 86c-24-17-43-19-58-4 14 17 34 20 58 4Z" fill="#74c579"/>
+  <path d="M82 103c23-16 41-17 55-4-13 16-32 19-55 4Z" fill="#5dab62"/>
+</svg>`);
+
+const mintImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M80 132V38" stroke="#398a4e" stroke-width="8" stroke-linecap="round"/>
+  <ellipse cx="56" cy="63" rx="28" ry="18" fill="#5cbf73" transform="rotate(22 56 63)"/>
+  <ellipse cx="102" cy="76" rx="31" ry="19" fill="#4ba965" transform="rotate(-24 102 76)"/>
+  <ellipse cx="56" cy="99" rx="28" ry="18" fill="#75cc84" transform="rotate(24 56 99)"/>
+  <ellipse cx="102" cy="111" rx="27" ry="17" fill="#5eba70" transform="rotate(-20 102 111)"/>
+</svg>`);
+
+const parsleyImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M79 134V72" stroke="#4f9d50" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="80" cy="55" r="17" fill="#66b85c"/>
+  <circle cx="61" cy="65" r="16" fill="#74c96b"/>
+  <circle cx="99" cy="66" r="16" fill="#5aa954"/>
+  <circle cx="52" cy="86" r="16" fill="#68ba5f"/>
+  <circle cx="108" cy="87" r="16" fill="#76c96b"/>
+  <circle cx="79" cy="84" r="18" fill="#4f9f4f"/>
+</svg>`);
+
+const lavenderImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M80 136c0-36 0-70 1-103" stroke="#6b985a" stroke-width="7" stroke-linecap="round"/>
+  <path d="M62 135c7-32 15-62 25-91" stroke="#7aa866" stroke-width="5" stroke-linecap="round"/>
+  <path d="M99 135c-6-33-12-64-19-93" stroke="#6d9d5f" stroke-width="5" stroke-linecap="round"/>
+  <g fill="#8d71c7">
+    <ellipse cx="80" cy="32" rx="9" ry="13"/><ellipse cx="74" cy="50" rx="8" ry="12"/><ellipse cx="87" cy="49" rx="8" ry="12"/>
+    <ellipse cx="70" cy="68" rx="7" ry="11"/><ellipse cx="92" cy="67" rx="7" ry="11"/>
+  </g>
+</svg>`);
+
+const flowerImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M80 135V82" stroke="#5d9f57" stroke-width="8" stroke-linecap="round"/>
+  <path d="M77 108c-18-12-33-13-45-3 12 14 27 16 45 3Z" fill="#75bd68"/>
+  <g transform="translate(80 64)">
+    <ellipse rx="17" ry="29" fill="#f0a7c8" transform="rotate(0) translate(0 -18)"/>
+    <ellipse rx="17" ry="29" fill="#e58db9" transform="rotate(72) translate(0 -18)"/>
+    <ellipse rx="17" ry="29" fill="#f0a7c8" transform="rotate(144) translate(0 -18)"/>
+    <ellipse rx="17" ry="29" fill="#e58db9" transform="rotate(216) translate(0 -18)"/>
+    <ellipse rx="17" ry="29" fill="#f0a7c8" transform="rotate(288) translate(0 -18)"/>
+    <circle r="14" fill="#f1c35b"/>
+  </g>
+</svg>`);
+
+const marigoldImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M80 136V88" stroke="#5d9f57" stroke-width="8" stroke-linecap="round"/>
+  <g transform="translate(80 66)">
+    <circle r="36" fill="#f2a534"/><circle r="27" fill="#f7c150"/><circle r="17" fill="#c87824"/>
+    <path d="M0-46 9-28 28-36 23-15 44-8 25 4 37 22 15 19 8 41-5 23-25 35-19 13-42 5-20-7-31-26-10-22Z" fill="#f08f2f" opacity=".78"/>
+  </g>
+</svg>`);
+
+const chamomileImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M80 136V88" stroke="#5d9f57" stroke-width="8" stroke-linecap="round"/>
+  <g transform="translate(80 64)">
+    <ellipse rx="10" ry="26" fill="#ffffff" transform="rotate(0) translate(0 -19)"/>
+    <ellipse rx="10" ry="26" fill="#ffffff" transform="rotate(45) translate(0 -19)"/>
+    <ellipse rx="10" ry="26" fill="#ffffff" transform="rotate(90) translate(0 -19)"/>
+    <ellipse rx="10" ry="26" fill="#ffffff" transform="rotate(135) translate(0 -19)"/>
+    <ellipse rx="10" ry="26" fill="#ffffff" transform="rotate(180) translate(0 -19)"/>
+    <ellipse rx="10" ry="26" fill="#ffffff" transform="rotate(225) translate(0 -19)"/>
+    <ellipse rx="10" ry="26" fill="#ffffff" transform="rotate(270) translate(0 -19)"/>
+    <ellipse rx="10" ry="26" fill="#ffffff" transform="rotate(315) translate(0 -19)"/>
+    <circle r="15" fill="#f2c64d"/>
+  </g>
+</svg>`);
+
+const currantImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M82 34c-8 36-8 67-1 94" stroke="#6a8b45" stroke-width="6" stroke-linecap="round"/>
+  <path d="M81 50c-16-13-32-15-48-5 11 15 28 19 48 5Z" fill="#6aae5c"/>
+  <path d="M83 66c18-13 35-15 51-4-12 16-29 19-51 4Z" fill="#77bd68"/>
+  <g fill="#b3263e"><circle cx="67" cy="85" r="11"/><circle cx="93" cy="93" r="11"/><circle cx="76" cy="113" r="11"/></g>
+</svg>`);
+
+const gooseberryImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M80 36c-12 35-12 66 0 94" stroke="#6b8d45" stroke-width="6" stroke-linecap="round"/>
+  <path d="M78 54c-20-12-38-12-52 2 15 14 33 15 52-2Z" fill="#73b76a"/>
+  <circle cx="80" cy="100" r="30" fill="#9dcf64"/>
+  <path d="M66 78c14 10 28 10 42 0" fill="none" stroke="#d6e9a6" stroke-width="5" stroke-linecap="round"/>
+  <path d="M59 100c17 8 34 8 51 0" fill="none" stroke="#d6e9a6" stroke-width="5" stroke-linecap="round"/>
+</svg>`);
+
+const figImage = svgPlantImage(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <rect width="160" height="160" rx="28" fill="#f8fbf3"/>
+  <path d="M80 38c28 25 41 48 41 69 0 24-17 39-41 39s-41-15-41-39c0-21 13-44 41-69Z" fill="#7b5aa6"/>
+  <path d="M80 58c17 18 25 34 25 49 0 16-10 25-25 25s-25-9-25-25c0-15 8-31 25-49Z" fill="#d77987"/>
+  <circle cx="80" cy="103" r="18" fill="#f0c15f" opacity=".72"/>
+  <path d="M76 42c-13-12-27-15-42-9 8 13 22 19 40 16" fill="#6baa5f"/>
+</svg>`);
+
 const exactPlantImages: Record<string, string> = {
   arugula: leafyImage,
   basil: basilImage,
-  bay: basilImage,
+  bay: herbImage,
   bean: beanImage,
   beetroot: beetrootImage,
   begonia: begoniaImage,
   blackberry: blackberryImage,
-  black_currant: blackberryImage,
+  black_currant: currantImage,
   blueberry: blueberryImage,
-  borage: begoniaImage,
+  borage: flowerImage,
   broad_bean: beanImage,
   broccoli: broccoliImage,
   cabbage: leafyImage,
-  calendula: begoniaImage,
+  calendula: marigoldImage,
   carrot: carrotImage,
-  cauliflower: broccoliImage,
-  celery: watercressImage,
-  chamomile: begoniaImage,
-  chervil: dillImage,
+  cauliflower: cauliflowerImage,
+  celery: celeryImage,
+  chamomile: chamomileImage,
+  chervil: parsleyImage,
   chili: pepperImage,
   chinese_cabbage: leafyImage,
   chives: alliumImage,
-  coriander: basilImage,
-  cosmos: begoniaImage,
+  coriander: parsleyImage,
+  cosmos: flowerImage,
   cucumber: cucumberImage,
   dill: dillImage,
   eggplant: eggplantImage,
   endive: radicchioImage,
   fennel_bulb: fennelImage,
   fennel_leaf: fennelImage,
-  fig: grapeImage,
-  fuchsia: begoniaImage,
+  fig: figImage,
+  fuchsia: flowerImage,
   garlic: alliumImage,
-  geranium: begoniaImage,
-  gooseberry: blueberryImage,
+  geranium: flowerImage,
+  gooseberry: gooseberryImage,
   grape: grapeImage,
-  impatiens: begoniaImage,
+  impatiens: flowerImage,
   kale: leafyImage,
-  kohlrabi: turnipImage,
+  kohlrabi: kohlrabiImage,
   lambs_lettuce: leafyImage,
-  lavender: basilImage,
+  lavender: lavenderImage,
   leek: alliumImage,
-  lemon_balm: basilImage,
-  lemon_verbena: basilImage,
+  lemon_balm: mintImage,
+  lemon_verbena: herbImage,
   lettuce: leafyImage,
-  lobelia: begoniaImage,
-  lovage: basilImage,
-  marjoram: basilImage,
+  lobelia: flowerImage,
+  lovage: herbImage,
+  marjoram: herbImage,
   melon: squashImage,
-  mint: basilImage,
+  mint: mintImage,
   mizuna: leafyImage,
   mustard_greens: leafyImage,
-  nasturtium: begoniaImage,
+  nasturtium: flowerImage,
   okra: okraImage,
   onion: alliumImage,
-  oregano: basilImage,
+  oregano: herbImage,
   pak_choi: leafyImage,
-  parsley: basilImage,
+  parsley: parsleyImage,
   parsnip: parsnipImage,
   pea_garden: beanImage,
   pea_sugar: beanImage,
   pepper: pepperImage,
-  petunia: begoniaImage,
-  potato: carrotImage,
+  petunia: flowerImage,
+  potato: potatoImage,
   pumpkin: squashImage,
   purslane: leafyImage,
   radicchio: radicchioImage,
   radish: radishImage,
   raspberry: raspberryImage,
-  red_currant: raspberryImage,
-  rhubarb: watercressImage,
+  red_currant: currantImage,
+  rhubarb: rhubarbImage,
   romaine_lettuce: leafyImage,
-  rosemary: basilImage,
-  sage: basilImage,
+  rosemary: herbImage,
+  sage: herbImage,
   spinach: leafyImage,
   spring_onion: alliumImage,
   squash: squashImage,
@@ -174,26 +340,26 @@ const exactPlantImages: Record<string, string> = {
   sweet_pea: sweetPeaImage,
   sweetcorn: cornImage,
   swiss_chard: leafyImage,
-  tagetes: begoniaImage,
-  tarragon: basilImage,
-  thyme: basilImage,
+  tagetes: marigoldImage,
+  tarragon: herbImage,
+  thyme: herbImage,
   tomato: tomatoImage,
   turnip: turnipImage,
-  verbena: begoniaImage,
+  verbena: flowerImage,
   watercress: watercressImage,
   zucchini: squashImage,
 };
 
 const namedPlantImages: Record<string, string> = {
   agurk: cucumberImage,
-  agurkurt: begoniaImage,
+  agurkurt: flowerImage,
   aubergine: eggplantImage,
   basilikum: basilImage,
   begonia: begoniaImage,
   bjørnebær: blackberryImage,
   bladfennikel: fennelImage,
   blåbær: blueberryImage,
-  blomkarse: begoniaImage,
+  blomkarse: flowerImage,
   bondebønne: beanImage,
   brokkoli: broccoliImage,
   bringebær: raspberryImage,
@@ -203,53 +369,53 @@ const namedPlantImages: Record<string, string> = {
   drue: grapeImage,
   endive: radicchioImage,
   erteblomst: sweetPeaImage,
-  estragon: basilImage,
+  estragon: herbImage,
   fennel: fennelImage,
-  fiken: grapeImage,
-  flittig_lise: begoniaImage,
+  fiken: figImage,
+  flittig_lise: flowerImage,
   gresskar: squashImage,
   gressløk: alliumImage,
   gulrot: carrotImage,
   hvitløk: alliumImage,
   jordbær: berryImage,
   jordbærspinat: leafyImage,
-  kamille: begoniaImage,
+  kamille: chamomileImage,
   kål: leafyImage,
   kinakål: leafyImage,
-  koriander: basilImage,
-  kosmosblomst: begoniaImage,
-  lavendel: basilImage,
+  koriander: parsleyImage,
+  kosmosblomst: flowerImage,
+  lavendel: lavenderImage,
   løk: alliumImage,
-  løpstikke: basilImage,
+  løpstikke: herbImage,
   mangold: leafyImage,
   melon: squashImage,
-  mynte: basilImage,
+  mynte: mintImage,
   nepe: turnipImage,
   okra: okraImage,
-  oregano: basilImage,
+  oregano: herbImage,
   paprika: pepperImage,
   pastinakk: parsnipImage,
-  persille: basilImage,
-  potet: carrotImage,
+  persille: parsleyImage,
+  potet: potatoImage,
   purre: alliumImage,
-  rabarbra: watercressImage,
+  rabarbra: rhubarbImage,
   radicchio: radicchioImage,
   reddik: radishImage,
-  rips: raspberryImage,
-  rosmarin: basilImage,
+  rips: currantImage,
+  rosmarin: herbImage,
   rødbete: beetrootImage,
   salat: leafyImage,
-  salvie: basilImage,
-  selleri: watercressImage,
-  sitronmelisse: basilImage,
-  sitronverbena: basilImage,
-  solbær: blackberryImage,
+  salvie: herbImage,
+  selleri: celeryImage,
+  sitronmelisse: mintImage,
+  sitronverbena: herbImage,
+  solbær: currantImage,
   spinat: leafyImage,
   squash: squashImage,
-  stikkelsbær: blueberryImage,
+  stikkelsbær: gooseberryImage,
   sukkererter: beanImage,
   sukkermais: cornImage,
-  timian: basilImage,
+  timian: herbImage,
   tomat: tomatoImage,
   vårløk: alliumImage,
   zucchini: squashImage,
