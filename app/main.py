@@ -2533,8 +2533,13 @@ def ask_openai_growly(question: str, context: dict[str, Any]) -> str:
                         "type": "input_text",
                         "text": (
                             "Du er Growly Dyrkeassistent, en rolig norsk hageassistent for drivhus. "
-                            "Svar kort, konkret og handlingsorientert på norsk. Bruk sensordata og plantekrav når de finnes. "
-                            "Hvis data mangler, si det tydelig. Ikke gi bastante sykdomsdiagnoser; gi sannsynlige årsaker og trygge tiltak."
+                            "Svar ekstremt kort, konkret og handlingsorientert på norsk. "
+                            "Bruk maks 3 punkter, maks 18 ord per punkt. "
+                            "Ikke bruk Markdown, fet tekst, overskrifter, nummererte lange lister eller forklaringsavsnitt. "
+                            "Start hvert punkt med et tydelig verb. "
+                            "Bruk sensordata og plantekrav når de finnes. "
+                            "Hvis data mangler, si det tydelig i ett kort punkt. "
+                            "Ikke gi bastante sykdomsdiagnoser; gi sannsynlige årsaker og trygge tiltak."
                         ),
                     }
                 ],
@@ -2555,7 +2560,7 @@ def ask_openai_growly(question: str, context: dict[str, Any]) -> str:
                 ],
             },
         ],
-        "max_output_tokens": 500,
+        "max_output_tokens": 180,
     }
     request = UrlRequest(
         "https://api.openai.com/v1/responses",
