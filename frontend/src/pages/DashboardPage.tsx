@@ -203,15 +203,6 @@ const trendRangeOptions: Array<{ key: TrendRange; label: string }> = [
   { key: "all", label: "Alt" },
 ];
 
-const quickTiles = [
-  { title: "For deg", label: "Dagens råd", to: "/kalender", tone: "rose" },
-  { title: "Påminnelser", label: "Neste handling", to: "/kalender", tone: "lime" },
-  { title: "Dyrkelogg", label: "Historikk", to: "/historikk", tone: "sky" },
-  { title: "Plantehelse", label: "Sjekkliste", to: "/kalender", tone: "pink" },
-  { title: "Kartotek", label: "Finn plante", to: "/kartotek", tone: "sand" },
-  { title: "Sensor", label: "Hub og måling", to: "/settings", tone: "lavender" },
-];
-
 const assistantPrompts: AssistantPrompt[] = [
   { label: "Hva bør jeg gjøre nå?", question: "Hva bør jeg gjøre i drivhuset akkurat nå basert på sensorene?" },
   { label: "Hvem trenger vann?", question: "Hvilke planter eller forhold tyder på at jeg bør vanne nå?" },
@@ -569,13 +560,50 @@ function plantTimeline(profileId: string, progress: number, sowedAt?: string, in
   const daysSince = daysBetween(sowedDate);
   const harvestDate = addDays(sowedDate, profile.maturityDays);
   const daysLeft = Math.max(0, profile.maturityDays - daysSince);
+  const activeStep = progress >= 85 ? 3 : progress >= 55 ? 2 : progress >= 22 ? 1 : 0;
 
   return {
     sowedLabel: `Sådd ${formatShortDate(sowedDate)}`,
     ageLabel: `${daysSince} ${daysSince === 1 ? "dag" : "dager"} siden`,
+    dayLabel: `Dag ${daysSince}`,
     harvestLabel: `Høsting: ~${formatShortDate(harvestDate)}`,
     daysLeftLabel: daysLeft === 0 ? "klar" : `${daysLeft}d igjen`,
+    activeStep,
   };
+}
+
+function plantSensorSignal(sample: LatestSample | null): { label: string; tone: "good" | "watch" | "bad" } {
+  const soilHumidity = sample?.humidity;
+  const airTemperature = sample?.air_temperature ?? sample?.temperature;
+  const airHumidity = sample?.air_humidity;
+
+  if (typeof soilHumidity === "number" && soilHumidity < 42) {
+    return { label: "Tørr sone", tone: "bad" };
+  }
+  if (typeof airTemperature === "number" && airTemperature > 29) {
+    return { label: "Varmt klima", tone: "watch" };
+  }
+  if (typeof airHumidity === "number" && airHumidity > 78) {
+    return { label: "Lufting", tone: "watch" };
+  }
+  return { label: "I balanse", tone: "good" };
+}
+
+function plantNextAction(profileId: string, progress: number, sample: LatestSample | null): string {
+  const soilHumidity = sample?.humidity;
+  if (typeof soilHumidity === "number" && soilHumidity < 42) {
+    return "Vann rolig og sjekk jorda igjen senere.";
+  }
+  if (progress >= 88) {
+    return profileId === "basil" ? "Klipp litt og la planten buske seg." : "Sjekk modning og høst det som er klart.";
+  }
+  if (progress >= 58) {
+    return "Hold jevn fukt og følg med på varme dager.";
+  }
+  if (progress >= 24) {
+    return "Gi lys, jevn fukt og rolig videre vekst.";
+  }
+  return "La spirene etablere seg før store endringer.";
 }
 
 function greenhouseScene(theme: "light" | "dark"): { image: string; mode: "day" | "evening" } {
@@ -968,8 +996,10 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
             const progress = plantProgress(plant.profileId, index, sample, plant.sowedAt);
             const timeline = plantTimeline(plant.profileId, progress, plant.sowedAt, index);
             const stage = plantStage(plant.profileId, progress);
+            const sensorSignal = plantSensorSignal(sample);
+            const nextAction = plantNextAction(plant.profileId, progress, sample);
             return (
-              <article className="growth-row growth-row--timeline soft-card" key={plant.instanceId ?? `${plant.profileId}-${plant.nickname}`}>
+              <article className="growth-row growth-story-card soft-card" key={plant.instanceId ?? `${plant.profileId}-${plant.nickname}`}>
                 <PlantAvatar
                   tone={profile.tone}
                   plantId={plant.catalogItemId ?? plant.profileId}
@@ -982,17 +1012,37 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
                       <strong>{plant.nickname || profile.name}</strong>
                       <em>{stage}</em>
                     </span>
-                    <b>{progress}%</b>
+                    <b>{timeline.dayLabel}</b>
                   </div>
-                  <span className="growth-row__bar">
-                    <span style={{ width: `${progress}%` }} />
-                  </span>
-                  <div className="growth-row__meta">
-                    <small>{timeline.sowedLabel} · {timeline.ageLabel}</small>
+
+                  <div className="growth-journey" aria-label={`Dyrkereise for ${plant.nickname || profile.name}`}>
+                    {["Sådd", "Spirer", "Vekst", "Høst"].map((label, stepIndex) => (
+                      <span
+                        className={stepIndex <= timeline.activeStep ? "is-active" : ""}
+                        key={label}
+                      >
+                        <i />
+                        <small>{label}</small>
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="growth-story-meta">
+                    <span>
+                      <small>{timeline.sowedLabel}</small>
+                      <strong>{timeline.ageLabel}</strong>
+                    </span>
                     <span>
                       <small>{timeline.harvestLabel}</small>
-                      <small>{timeline.daysLeftLabel}</small>
+                      <strong>{timeline.daysLeftLabel}</strong>
                     </span>
+                  </div>
+
+                  <div className="growth-story-action">
+                    <span className={`growth-sensor-pill growth-sensor-pill--${sensorSignal.tone}`}>
+                      {sensorSignal.label}
+                    </span>
+                    <p>{nextAction}</p>
                   </div>
                 </div>
               </article>
@@ -1069,15 +1119,6 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
             Send
           </button>
         </form>
-      </section>
-
-      <section className="quick-tile-grid" aria-label="Snarveier">
-        {quickTiles.map((tile) => (
-          <Link className={`quick-tile quick-tile--${tile.tone}`} to={tile.to} key={tile.title}>
-            <strong>{tile.title}</strong>
-            <span>{tile.label}</span>
-          </Link>
-        ))}
       </section>
 
       {soilPanelOpen ? (
