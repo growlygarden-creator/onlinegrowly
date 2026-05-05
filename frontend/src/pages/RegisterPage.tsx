@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { registerAccount, type AuthSession } from "../lib/api";
 
 const errorMap: Record<string, string> = {
@@ -118,7 +118,7 @@ export function RegisterPage({ setSession }: RegisterPageProps) {
 
         <p className="auth-status">{status}</p>
         <p className="auth-link-row">
-          Har du allerede konto? <a href="/login">Logg inn</a>
+          Har du allerede konto? <Link to="/login">Logg inn</Link>
         </p>
         </section>
       </section>

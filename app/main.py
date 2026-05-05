@@ -2102,14 +2102,20 @@ def list_app_users() -> list[dict[str, Any]]:
 
 
 def find_app_user(username: str) -> dict[str, Any] | None:
+    lookup = username.strip()
+    if not lookup:
+        return None
     with db_connection() as connection:
         row = connection.execute(
             """
             SELECT username, full_name, phone, email, password_hash, is_active, is_admin, created_at, updated_at
             FROM app_users
-            WHERE username = ?
+            WHERE lower(username) = lower(?)
+               OR lower(email) = lower(?)
+            ORDER BY CASE WHEN lower(username) = lower(?) THEN 0 ELSE 1 END
+            LIMIT 1
             """,
-            (username,),
+            (lookup, lookup, lookup),
         ).fetchone()
     return dict(row) if row else None
 
@@ -2152,7 +2158,7 @@ def create_app_user(
     phone: str = "",
     email: str = "",
 ) -> dict[str, Any]:
-    normalized_username = username.strip()
+    normalized_username = username.strip().lower() if "@" in username else username.strip()
     normalized_full_name = full_name.strip()
     normalized_phone = phone.strip()
     normalized_email = email.strip().lower()

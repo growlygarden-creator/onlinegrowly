@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { login, type AuthSession } from "../lib/api";
 
 type LoginPageProps = {
@@ -67,7 +67,7 @@ export function LoginPage({ setSession }: LoginPageProps) {
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field">
-            <span>Brukernavn</span>
+            <span>E-post</span>
             <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
           </label>
 
@@ -89,7 +89,7 @@ export function LoginPage({ setSession }: LoginPageProps) {
 
         <p className="auth-status">{status}</p>
         <p className="auth-link-row">
-          Har du ikke konto ennå? <a href="/register">Opprett konto</a>
+          Har du ikke konto ennå? <Link to="/register">Opprett konto</Link>
         </p>
         </section>
       </section>
