@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import base64
 import csv
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 import hashlib
 import hmac
 import json
@@ -9,6 +10,7 @@ import os
 from pathlib import Path
 import secrets
 import shutil
+import smtplib
 import ssl
 import sqlite3
 from typing import Any
@@ -76,6 +78,12 @@ ACTIVE_FIRMWARE_VERSION = os.getenv("ACTIVE_FIRMWARE_VERSION", "").strip()
 ACTIVE_FIRMWARE_URL = os.getenv("ACTIVE_FIRMWARE_URL", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip()
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587").strip() or "587")
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER).strip()
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}
 SETTINGS_PASSWORD = os.getenv("SETTINGS_PASSWORD", "growly-settings")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "growly-local-session-secret")
 SESSION_SAME_SITE = os.getenv("SESSION_SAME_SITE", "lax").strip().lower() or "lax"
@@ -526,6 +534,44 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
     expected = hash_password(password, salt_value)
     return hmac.compare_digest(expected, password_hash)
+
+
+def mail_is_configured() -> bool:
+    return bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD and SMTP_FROM)
+
+
+def send_registration_email(user: dict[str, Any]) -> bool:
+    recipient = str(user.get("email") or "").strip()
+    if not mail_is_configured() or not recipient:
+        return False
+
+    display_name = str(user.get("full_name") or user.get("username") or "Growly-bruker").strip()
+    message = EmailMessage()
+    message["Subject"] = "Velkommen til Growly Garden"
+    message["From"] = SMTP_FROM
+    message["To"] = recipient
+    message.set_content(
+        "\n".join(
+            [
+                f"Hei {display_name},",
+                "",
+                "Kontoen din hos Growly Garden er opprettet.",
+                "Du kan nå logge inn og begynne å sette opp drivhuset ditt.",
+                "",
+                "Hilsen Growly Garden",
+            ]
+        )
+    )
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as smtp:
+            if SMTP_USE_TLS:
+                smtp.starttls()
+            smtp.login(SMTP_USER, SMTP_PASSWORD)
+            smtp.send_message(message)
+        return True
+    except (OSError, smtplib.SMTPException):
+        return False
 
 
 def db_connection() -> sqlite3.Connection:
@@ -3410,6 +3456,7 @@ async def register_submit(
     request.session["settings_authenticated"] = False
     request.session["is_admin"] = bool(user["is_admin"])
     request.session["username"] = user["username"]
+    send_registration_email(user)
     return authenticated_entry_redirect(request)
 
 
@@ -3514,6 +3561,7 @@ async def auth_register(request: Request, payload: dict[str, Any]):
     request.session["settings_authenticated"] = False
     request.session["is_admin"] = bool(user["is_admin"])
     request.session["username"] = user["username"]
+    send_registration_email(user)
     return {"ok": True, "session": session_auth_payload(request)}
 
 
