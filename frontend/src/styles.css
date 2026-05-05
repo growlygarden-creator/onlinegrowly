@@ -21,16 +21,16 @@
 }
 
 :root.theme-dark {
-  --bg: #111812;
-  --bg-tint: #172018;
-  --card: rgba(28, 38, 29, 0.94);
-  --card-strong: #223024;
+  --bg: #0f1711;
+  --bg-tint: #162218;
+  --card: rgba(25, 39, 28, 0.94);
+  --card-strong: #213524;
   --text: #eef6eb;
-  --muted: #a9b6a7;
+  --muted: #b7c5b3;
   --line: rgba(230, 244, 224, 0.1);
-  --accent: #79c46f;
-  --accent-strong: #d7f0cf;
-  --accent-soft: rgba(81, 129, 72, 0.22);
+  --accent: #79d084;
+  --accent-strong: #e0f7d8;
+  --accent-soft: rgba(121, 196, 111, 0.22);
   --shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
   color: var(--text);
   background:
@@ -95,6 +95,8 @@ input {
 .theme-dark .auth-card,
 .theme-dark .soft-card {
   border-color: rgba(235, 250, 229, 0.08);
+  background:
+    linear-gradient(180deg, rgba(31, 49, 35, 0.98) 0%, rgba(23, 36, 27, 0.96) 100%);
 }
 
 .hero-card,
@@ -128,6 +130,11 @@ input {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.theme-dark .section-kicker,
+.theme-dark .eyebrow {
+  color: #7bd28a;
 }
 
 .screen-header {
@@ -1002,8 +1009,12 @@ input {
 .theme-dark .planner-header-link,
 .theme-dark .catalog-filter-row button.is-selected,
 .theme-dark .bottom-nav__item.is-active {
-  background: rgba(121, 196, 111, 0.18);
+  background: rgba(121, 196, 111, 0.22);
   color: #d7f0cf;
+}
+
+.theme-dark .text-action {
+  color: #f1faee;
 }
 
 .weekly-task-card--watch > span {
@@ -2218,6 +2229,22 @@ input {
   font-weight: 800;
 }
 
+.theme-dark .greenhouse-plant-card {
+  background:
+    radial-gradient(circle at top right, rgba(73, 111, 69, 0.2), transparent 38%),
+    linear-gradient(180deg, rgba(31, 52, 36, 0.98), rgba(24, 39, 29, 0.98));
+  border-color: rgba(235, 250, 229, 0.12);
+}
+
+.theme-dark .greenhouse-plant-card span,
+.theme-dark .greenhouse-plant-card .plant-sowed-date {
+  color: #ddf6d5;
+}
+
+.theme-dark .greenhouse-plant-card small {
+  color: #becbb9;
+}
+
 .plant-avatar {
   position: relative;
   display: inline-grid;
@@ -2473,6 +2500,12 @@ input {
   white-space: nowrap;
 }
 
+.theme-dark .plant-mini-metrics span {
+  background: rgba(235, 250, 229, 0.14);
+  border: 1px solid rgba(235, 250, 229, 0.1);
+  color: #e0f7d8;
+}
+
 .plant-info-card,
 .plant-step-panel,
 .plant-choice-group {
@@ -2651,6 +2684,36 @@ input {
   border-color: rgba(47, 138, 84, 0.28);
   background: #edf5eb;
   color: var(--accent-strong);
+}
+
+.theme-dark .planner-entry-card,
+.theme-dark .calendar-overview,
+.theme-dark .today-focus-card,
+.theme-dark .planner-hero,
+.theme-dark .catalog-list-item,
+.theme-dark .catalog-detail,
+.theme-dark .catalog-range-grid article {
+  background:
+    radial-gradient(circle at top right, rgba(87, 132, 78, 0.18), transparent 38%),
+    linear-gradient(180deg, rgba(31, 49, 35, 0.98), rgba(23, 36, 27, 0.96));
+  border-color: rgba(235, 250, 229, 0.11);
+}
+
+.theme-dark .catalog-filter-row button {
+  background: rgba(235, 250, 229, 0.11);
+  border-color: rgba(235, 250, 229, 0.12);
+  color: #cbd8c7;
+}
+
+.theme-dark .catalog-filter-row button.is-selected {
+  background: rgba(121, 196, 111, 0.24);
+  border-color: rgba(121, 196, 111, 0.46);
+  color: #f1faee;
+}
+
+.theme-dark .catalog-list-item.is-selected {
+  background: rgba(121, 196, 111, 0.18);
+  border-color: rgba(121, 196, 111, 0.38);
 }
 
 .catalog-list {
@@ -2853,6 +2916,122 @@ input {
 
 .calendar-day--watch i {
   background: #5a9fd8;
+}
+
+.theme-dark .calendar-overview__head > span {
+  background: rgba(121, 196, 111, 0.2);
+  color: #e0f7d8;
+}
+
+.theme-dark .calendar-month-grid > strong {
+  color: #8ddb8d;
+}
+
+.theme-dark .calendar-day {
+  background: rgba(235, 250, 229, 0.1);
+  border-color: rgba(235, 250, 229, 0.06);
+  color: #c9d6c5;
+}
+
+.theme-dark .calendar-day:disabled {
+  background: transparent;
+  color: rgba(201, 214, 197, 0.45);
+}
+
+.theme-dark .calendar-day.is-today,
+.theme-dark .calendar-day.is-selected {
+  background: rgba(121, 196, 111, 0.18);
+  border-color: rgba(121, 196, 111, 0.42);
+  color: #f1faee;
+  outline-color: rgba(121, 196, 111, 0.44);
+}
+
+.theme-dark .calendar-event-card__date,
+.theme-dark .calendar-event-card > a,
+.theme-dark .calendar-event-card--empty > a,
+.theme-dark .planner-entry-card > strong {
+  background: rgba(121, 196, 111, 0.18);
+  color: #e0f7d8;
+}
+
+.theme-dark .calendar-event-card--move > a {
+  background: rgba(225, 174, 61, 0.18);
+  color: #ffe7a4;
+}
+
+.theme-dark .calendar-event-card--watch > a {
+  background: rgba(90, 159, 216, 0.18);
+  color: #cbe8ff;
+}
+
+.theme-dark .button--secondary,
+.theme-dark .planner-hero__preview,
+.theme-dark .planner-now-summary span,
+.theme-dark .planner-month,
+.theme-dark .planner-timeline__item,
+.theme-dark .planner-action-row,
+.theme-dark .planner-action-row em,
+.theme-dark .plant-history-item,
+.theme-dark .plant-history-item--page,
+.theme-dark .plant-info-card,
+.theme-dark .plant-step-panel,
+.theme-dark .plant-choice-group,
+.theme-dark .placement-toggle button,
+.theme-dark .finish-plant-button,
+.theme-dark .archive-choice,
+.theme-dark .greenhouse-sheet__panel,
+.theme-dark .plant-condition-row,
+.theme-dark .plant-zone-card,
+.theme-dark .zone-range-pill,
+.theme-dark .zone-metric-tabs button,
+.theme-dark .plant-zone-chart,
+.theme-dark .toggle-row,
+.theme-dark .plant-search-result,
+.theme-dark .plant-search-preview {
+  background: rgba(235, 250, 229, 0.08);
+  border-color: rgba(235, 250, 229, 0.11);
+  color: var(--text);
+}
+
+.theme-dark .planner-month--now,
+.theme-dark .planner-timeline__item--now,
+.theme-dark .planner-action-group__head strong,
+.theme-dark .planner-now-summary strong,
+.theme-dark .zone-metric-tabs button.active,
+.theme-dark .condition-badge--good,
+.theme-dark .module-chip,
+.theme-dark .plant-search-result.is-selected {
+  background: rgba(121, 196, 111, 0.2);
+  border-color: rgba(121, 196, 111, 0.34);
+  color: #e0f7d8;
+}
+
+.theme-dark .planner-month--soon,
+.theme-dark .planner-timeline__item--soon,
+.theme-dark .condition-badge--watch {
+  background: rgba(225, 174, 61, 0.16);
+  color: #ffe7a4;
+}
+
+.theme-dark .condition-badge--bad {
+  background: rgba(223, 105, 89, 0.16);
+  color: #ffc2b9;
+}
+
+.theme-dark .condition-badge--missing,
+.theme-dark .module-chip--muted {
+  background: rgba(235, 250, 229, 0.09);
+  color: #becbb9;
+}
+
+.theme-dark .plant-zone-chart__grid {
+  stroke: rgba(235, 250, 229, 0.12);
+}
+
+.theme-dark .plant-zone-chart__y-axis,
+.theme-dark .plant-zone-chart__x-axis,
+.theme-dark .plant-zone-chart__notice {
+  color: #aebdad;
 }
 
 .today-focus-card {
