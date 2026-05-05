@@ -1067,10 +1067,10 @@ def init_db() -> None:
             connection.execute(
                 """
                 UPDATE app_users
-                SET password_hash = ?, is_active = 1, is_admin = 1, updated_at = ?
+                SET is_active = 1, is_admin = 1, updated_at = ?
                 WHERE username = ?
                 """,
-                (hash_password(ADMIN_PASSWORD), utc_now_iso(), ADMIN_USERNAME),
+                (utc_now_iso(), ADMIN_USERNAME),
             )
         if APP_USERNAME != ADMIN_USERNAME:
             legacy_user = connection.execute(
@@ -2529,9 +2529,37 @@ def openai_response_text(payload: dict[str, Any]) -> str:
     return ""
 
 
-def ask_openai_growly(question: str, context: dict[str, Any]) -> str:
+def clean_ai_image_payload(image: Any) -> dict[str, str] | None:
+    if not isinstance(image, dict):
+        return None
+    data_url = str(image.get("dataUrl") or image.get("data_url") or "").strip()
+    if not data_url.startswith("data:image/") or ";base64," not in data_url:
+        return None
+    if len(data_url) > 7_000_000:
+        raise ValueError("image_too_large")
+    name = str(image.get("name") or "plantebilde").strip()[:80]
+    return {"data_url": data_url, "name": name}
+
+
+def ask_openai_growly(question: str, context: dict[str, Any], image: dict[str, str] | None = None) -> str:
     if not OPENAI_API_KEY:
         raise ValueError("openai_key_missing")
+
+    user_content: list[dict[str, Any]] = [
+        {
+            "type": "input_text",
+            "text": json.dumps(
+                {
+                    "sporsmal": question,
+                    "growly_kontekst": context,
+                    "bilde": image["name"] if image else None,
+                },
+                ensure_ascii=False,
+            ),
+        }
+    ]
+    if image:
+        user_content.append({"type": "input_image", "image_url": image["data_url"]})
 
     request_payload = {
         "model": OPENAI_MODEL,
@@ -2548,6 +2576,7 @@ def ask_openai_growly(question: str, context: dict[str, Any]) -> str:
                             "Ikke bruk Markdown, fet tekst, overskrifter, nummererte lange lister eller forklaringsavsnitt. "
                             "Start hvert punkt med et tydelig verb. "
                             "Bruk sensordata og plantekrav når de finnes. "
+                            "Hvis brukeren sender bilde, vurder synlige tegn på planten og foreslå trygg neste handling. "
                             "Hvis data mangler, si det tydelig i ett kort punkt. "
                             "Ikke gi bastante sykdomsdiagnoser; gi sannsynlige årsaker og trygge tiltak."
                         ),
@@ -2556,18 +2585,7 @@ def ask_openai_growly(question: str, context: dict[str, Any]) -> str:
             },
             {
                 "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": json.dumps(
-                            {
-                                "sporsmal": question,
-                                "growly_kontekst": context,
-                            },
-                            ensure_ascii=False,
-                        ),
-                    }
-                ],
+                "content": user_content,
             },
         ],
         "max_output_tokens": 180,
@@ -3833,12 +3851,18 @@ async def ai_assistant(request: Request, payload: dict[str, Any]):
     if auth_error:
         return auth_error
     question = str(payload.get("question") or "").strip()
-    if not question:
-        return JSONResponse(status_code=400, content={"ok": False, "error": "missing_question"})
     if len(question) > 900:
         return JSONResponse(status_code=400, content={"ok": False, "error": "question_too_long"})
     if not OPENAI_API_KEY:
         return JSONResponse(status_code=503, content={"ok": False, "error": "openai_key_missing"})
+    try:
+        image = clean_ai_image_payload(payload.get("image"))
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    if not question and not image:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "missing_question"})
+    if not question and image:
+        question = "Se på plantebildet og gi korte, trygge råd."
 
     try:
         hub = resolve_request_hub(request)
@@ -3859,7 +3883,7 @@ async def ai_assistant(request: Request, payload: dict[str, Any]):
     }
 
     try:
-        answer = ask_openai_growly(question, context)
+        answer = ask_openai_growly(question, context, image)
     except HTTPError as exc:
         return JSONResponse(status_code=502, content={"ok": False, "error": f"openai_http_{exc.code}"})
     except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:

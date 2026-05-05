@@ -106,6 +106,11 @@ export type AuthSession = {
   } | null;
 };
 
+export type GrowlyAssistantImage = {
+  dataUrl: string;
+  name?: string;
+};
+
 type ApiError = {
   ok: false;
   error: string;
@@ -374,7 +379,7 @@ export async function fetchPlantCatalog(query = ""): Promise<PlantCatalogItem[]>
   }
 }
 
-export async function askGrowlyAssistant(question: string): Promise<{ answer: string; model: string } | null> {
+export async function askGrowlyAssistant(question: string, image?: GrowlyAssistantImage | null): Promise<{ answer: string; model: string } | null> {
   try {
     const response = await fetchWithTimeout(apiUrl("/api/ai/assistant"), {
       method: "POST",
@@ -382,7 +387,7 @@ export async function askGrowlyAssistant(question: string): Promise<{ answer: st
       headers: {
         ...authHeaders({ "Content-Type": "application/json" }),
       },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, image: image ?? null }),
     }, AI_REQUEST_TIMEOUT_MS);
     if (!response.ok) {
       let error = `ai_http_${response.status}`;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { askGrowlyAssistant, fetchLatestSample, fetchMetricHistory, type AuthSession, type HistoryPoint, type LatestSample } from "../lib/api";
+import { askGrowlyAssistant, fetchLatestSample, fetchMetricHistory, type AuthSession, type GrowlyAssistantImage, type HistoryPoint, type LatestSample } from "../lib/api";
 import { PlantAvatar } from "../components/PlantAvatar";
 import greenhouseDay from "../assets/greenhouse-assets/greenhouse-day.png";
 import greenhouseEvening from "../assets/greenhouse-assets/greenhouse-evening.png";
@@ -47,6 +47,7 @@ type AssistantMessage = {
   role: "assistant" | "user";
   text: string;
   isError?: boolean;
+  imageName?: string;
 };
 
 const GREENHOUSE_PLANTS_STORAGE_KEY = "growly.greenhousePlants";
@@ -734,7 +735,11 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
   const [assistantQuestion, setAssistantQuestion] = useState("");
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(initialAssistantMessages);
   const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantImage, setAssistantImage] = useState<GrowlyAssistantImage | null>(null);
+  const [assistantImageError, setAssistantImageError] = useState("");
   const assistantLogRef = useRef<HTMLDivElement | null>(null);
+  const assistantFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     fetchLatestSample().then((result) => {
@@ -826,19 +831,45 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
     setTrendMetric(metric);
   }
 
-  async function askAssistant(question: string) {
-    const trimmedQuestion = question.trim();
-    if (!trimmedQuestion || assistantLoading) {
+  function handleAssistantImage(file: File | undefined) {
+    setAssistantImageError("");
+    if (!file) {
       return;
     }
+    if (!file.type.startsWith("image/")) {
+      setAssistantImageError("Velg et bilde.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setAssistantImageError("Bildet er for stort. Velg et under 5 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setAssistantImage({ dataUrl: reader.result, name: file.name });
+      }
+    };
+    reader.onerror = () => setAssistantImageError("Kunne ikke lese bildet.");
+    reader.readAsDataURL(file);
+  }
+
+  async function askAssistant(question: string, image: GrowlyAssistantImage | null = assistantImage) {
+    const trimmedQuestion = question.trim() || (image ? "Se på plantebildet og gi korte, trygge råd." : "");
+    if ((!trimmedQuestion && !image) || assistantLoading) {
+      return;
+    }
+    setAssistantOpen(true);
     setAssistantQuestion("");
+    setAssistantImage(null);
+    setAssistantImageError("");
     setAssistantMessages((messages) => [
       ...messages,
-      { id: `user-${Date.now()}`, role: "user", text: trimmedQuestion },
+      { id: `user-${Date.now()}`, role: "user", text: trimmedQuestion, imageName: image?.name },
     ]);
     setAssistantLoading(true);
     try {
-      const result = await askGrowlyAssistant(trimmedQuestion);
+      const result = await askGrowlyAssistant(trimmedQuestion, image);
       if (!result) {
         setAssistantMessages((messages) => [
           ...messages,
@@ -1053,75 +1084,119 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
         </div>
       </section>
 
-      <section className="assistant-card assistant-chat-card soft-card">
-        <div className="assistant-chat-head">
-          <div className="assistant-card__avatar" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 20c4.4-2.2 7-5.5 7-9.2C19 6.5 16 3 12 3S5 6.5 5 10.8C5 14.5 7.6 17.8 12 20Z" fill="currentColor" opacity="0.16" />
-              <path d="M12 17c2.7-1.6 4.4-3.7 4.4-6.1A4.4 4.4 0 0 0 12 6.5a4.4 4.4 0 0 0-4.4 4.4c0 2.4 1.7 4.5 4.4 6.1Z" fill="none" stroke="currentColor" strokeWidth="1.7" />
-              <path d="M9.6 10.8h.1M14.3 10.8h.1M10 13.3c1.2.8 2.8.8 4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
-            </svg>
-          </div>
-          <div>
-            <p className="section-kicker">Dyrkeassistent</p>
-            <h2>Chat med Growly</h2>
-          </div>
-        </div>
+      <div className={`assistant-dock${assistantOpen ? " is-open" : ""}`}>
+        {assistantOpen ? (
+          <section className="assistant-card assistant-chat-card soft-card" aria-label="Chat med Growly">
+            <div className="assistant-chat-head">
+              <div className="assistant-card__avatar" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 20c4.4-2.2 7-5.5 7-9.2C19 6.5 16 3 12 3S5 6.5 5 10.8C5 14.5 7.6 17.8 12 20Z" fill="currentColor" opacity="0.16" />
+                  <path d="M12 17c2.7-1.6 4.4-3.7 4.4-6.1A4.4 4.4 0 0 0 12 6.5a4.4 4.4 0 0 0-4.4 4.4c0 2.4 1.7 4.5 4.4 6.1Z" fill="none" stroke="currentColor" strokeWidth="1.7" />
+                  <path d="M9.6 10.8h.1M14.3 10.8h.1M10 13.3c1.2.8 2.8.8 4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+                </svg>
+              </div>
+              <div>
+                <p className="section-kicker">Dyrkeassistent</p>
+                <h2>Chat med Growly</h2>
+              </div>
+              <button className="assistant-close-button" type="button" onClick={() => setAssistantOpen(false)} aria-label="Lukk chat">
+                x
+              </button>
+            </div>
 
-        <div className="assistant-chat-log" aria-live="polite" ref={assistantLogRef}>
-          {assistantMessages.map((message) => {
-            const items = message.role === "assistant" && !message.isError ? assistantAnswerItems(message.text) : [];
-            return (
-              <article
-                className={`assistant-message assistant-message--${message.role}${message.isError ? " assistant-message--error" : ""}`}
-                key={message.id}
+            <div className="assistant-chat-log" aria-live="polite" ref={assistantLogRef}>
+              {assistantMessages.map((message) => {
+                const items = message.role === "assistant" && !message.isError ? assistantAnswerItems(message.text) : [];
+                return (
+                  <article
+                    className={`assistant-message assistant-message--${message.role}${message.isError ? " assistant-message--error" : ""}`}
+                    key={message.id}
+                  >
+                    {message.imageName ? <span className="assistant-attachment-pill">Bilde: {message.imageName}</span> : null}
+                    {items.length > 1 ? (
+                      <div className="assistant-answer-list">
+                        {items.map((item) => (
+                          <span key={item}>{item}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p>{items[0] ?? message.text}</p>
+                    )}
+                  </article>
+                );
+              })}
+              {assistantLoading ? (
+                <article className="assistant-message assistant-message--assistant assistant-message--thinking">
+                  <span />
+                  <span />
+                  <span />
+                </article>
+              ) : null}
+            </div>
+
+            <div className="assistant-prompt-row assistant-suggestion-row">
+              {assistantPrompts.map((prompt) => (
+                <button type="button" key={prompt.label} onClick={() => askAssistant(prompt.question, null)} disabled={assistantLoading}>
+                  {prompt.label}
+                </button>
+              ))}
+            </div>
+
+            {assistantImage || assistantImageError ? (
+              <div className={`assistant-image-preview${assistantImageError ? " assistant-image-preview--error" : ""}`}>
+                <span>{assistantImageError || `Bilde klart: ${assistantImage?.name || "plantebilde"}`}</span>
+                {assistantImage ? (
+                  <button type="button" onClick={() => setAssistantImage(null)} aria-label="Fjern bilde">
+                    Fjern
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            <form
+              className="assistant-form assistant-chat-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                askAssistant(assistantQuestion);
+              }}
+            >
+              <input
+                ref={assistantFileInputRef}
+                className="assistant-file-input"
+                type="file"
+                accept="image/*"
+                onChange={(event) => {
+                  handleAssistantImage(event.target.files?.[0]);
+                  event.currentTarget.value = "";
+                }}
+              />
+              <button
+                className="assistant-image-button"
+                type="button"
+                onClick={() => assistantFileInputRef.current?.click()}
+                aria-label="Legg ved bilde"
               >
-                {items.length > 1 ? (
-                  <div className="assistant-answer-list">
-                    {items.map((item) => (
-                      <span key={item}>{item}</span>
-                    ))}
-                  </div>
-                ) : (
-                  <p>{items[0] ?? message.text}</p>
-                )}
-              </article>
-            );
-          })}
-          {assistantLoading ? (
-            <article className="assistant-message assistant-message--assistant assistant-message--thinking">
-              <span />
-              <span />
-              <span />
-            </article>
-          ) : null}
-        </div>
-
-        <div className="assistant-prompt-row assistant-suggestion-row">
-          {assistantPrompts.map((prompt) => (
-            <button type="button" key={prompt.label} onClick={() => askAssistant(prompt.question)} disabled={assistantLoading}>
-              {prompt.label}
-            </button>
-          ))}
-        </div>
-
-        <form
-          className="assistant-form assistant-chat-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            askAssistant(assistantQuestion);
-          }}
-        >
-          <input
-            value={assistantQuestion}
-            onChange={(event) => setAssistantQuestion(event.target.value)}
-            placeholder="Spør om vanning, såing eller sensorene..."
-          />
-          <button type="submit" disabled={assistantLoading || !assistantQuestion.trim()}>
-            Send
-          </button>
-        </form>
-      </section>
+                +
+              </button>
+              <input
+                value={assistantQuestion}
+                onChange={(event) => setAssistantQuestion(event.target.value)}
+                placeholder="Spør om planten..."
+              />
+              <button type="submit" disabled={assistantLoading || (!assistantQuestion.trim() && !assistantImage)}>
+                Send
+              </button>
+            </form>
+          </section>
+        ) : null}
+        <button className="assistant-bubble-button" type="button" onClick={() => setAssistantOpen((open) => !open)} aria-label="Åpne Growly-chat">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 20c4.4-2.2 7-5.5 7-9.2C19 6.5 16 3 12 3S5 6.5 5 10.8C5 14.5 7.6 17.8 12 20Z" fill="currentColor" opacity="0.18" />
+            <path d="M12 17c2.7-1.6 4.4-3.7 4.4-6.1A4.4 4.4 0 0 0 12 6.5a4.4 4.4 0 0 0-4.4 4.4c0 2.4 1.7 4.5 4.4 6.1Z" fill="none" stroke="currentColor" strokeWidth="1.7" />
+            <path d="M9.6 10.8h.1M14.3 10.8h.1M10 13.3c1.2.8 2.8.8 4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+          </svg>
+        </button>
+      </div>
 
       {soilPanelOpen ? (
         <div className="soil-modal" role="dialog" aria-modal="true" aria-labelledby="soil-modal-title">

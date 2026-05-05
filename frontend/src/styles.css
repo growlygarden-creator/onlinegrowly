@@ -1234,6 +1234,65 @@ input {
   padding: 18px;
 }
 
+.assistant-dock {
+  position: fixed;
+  right: max(22px, env(safe-area-inset-right));
+  bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 22px);
+  z-index: 80;
+  display: grid;
+  justify-items: end;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.assistant-dock .assistant-chat-card,
+.assistant-dock .assistant-bubble-button {
+  pointer-events: auto;
+}
+
+.assistant-dock .assistant-chat-card {
+  width: min(420px, calc(100vw - 28px));
+  max-height: min(680px, calc(100vh - var(--bottom-nav-height) - 54px));
+  overflow: hidden;
+  box-shadow: 0 24px 70px rgba(25, 42, 30, 0.22);
+}
+
+.assistant-bubble-button {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.78), transparent 32%),
+    linear-gradient(145deg, #2f8a54, #1f6842);
+  color: #ffffff;
+  box-shadow: 0 18px 38px rgba(28, 84, 51, 0.34);
+  cursor: pointer;
+}
+
+.assistant-bubble-button svg {
+  width: 42px;
+  height: 42px;
+}
+
+.assistant-close-button {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(38, 98, 65, 0.1);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  font: inherit;
+  font-weight: 850;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .theme-dark .assistant-card {
   background:
     linear-gradient(180deg, rgba(40, 31, 37, 0.52), rgba(32, 43, 33, 0.94)),
@@ -1293,6 +1352,18 @@ input {
 .assistant-message p {
   margin: 0;
   white-space: pre-line;
+}
+
+.assistant-attachment-pill {
+  display: inline-flex;
+  max-width: 100%;
+  margin-bottom: 7px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: inherit;
+  font-size: 0.76rem;
+  font-weight: 750;
 }
 
 .assistant-message--assistant {
@@ -1391,12 +1462,12 @@ input {
 
 .assistant-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   margin-top: 12px;
 }
 
-.assistant-form input {
+.assistant-form input:not([type="file"]) {
   min-width: 0;
   min-height: 46px;
   padding: 0 14px;
@@ -1406,7 +1477,50 @@ input {
   color: var(--text);
 }
 
-.theme-dark .assistant-form input,
+.assistant-file-input {
+  display: none;
+}
+
+.assistant-image-button {
+  width: 46px;
+  padding: 0;
+  border: 1px solid rgba(38, 98, 65, 0.12);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--accent-strong);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.assistant-image-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: rgba(237, 245, 235, 0.86);
+  color: var(--accent-strong);
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
+.assistant-image-preview--error {
+  background: rgba(255, 227, 222, 0.78);
+  color: var(--danger);
+}
+
+.assistant-image-preview button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.theme-dark .assistant-form input:not([type="file"]),
+.theme-dark .assistant-image-button,
 .theme-dark .assistant-prompt-row button,
 .theme-dark .assistant-prompt-row a {
   border-color: rgba(235, 250, 229, 0.1);
@@ -1423,6 +1537,21 @@ input {
   color: #ffffff;
   font: inherit;
   font-weight: 850;
+}
+
+.assistant-form .assistant-image-button {
+  width: 46px;
+  padding: 0;
+  border: 1px solid rgba(38, 98, 65, 0.12);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--accent-strong);
+  font-size: 1.4rem;
+}
+
+.theme-dark .assistant-form .assistant-image-button {
+  border-color: rgba(235, 250, 229, 0.1);
+  background: rgba(238, 246, 235, 0.08);
+  color: var(--text);
 }
 
 .assistant-chat-form {
@@ -3959,6 +4088,25 @@ input {
 
   .assistant-form {
     grid-template-columns: 1fr;
+  }
+
+  .assistant-dock {
+    right: 12px;
+    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 12px);
+  }
+
+  .assistant-dock .assistant-chat-card {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - var(--bottom-nav-height) - 36px);
+  }
+
+  .assistant-dock .assistant-form {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .assistant-bubble-button {
+    width: 60px;
+    height: 60px;
   }
 
   .greenhouse-climate-grid,
