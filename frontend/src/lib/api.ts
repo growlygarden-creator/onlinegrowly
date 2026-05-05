@@ -118,7 +118,7 @@ type ApiError = {
 };
 
 const REQUEST_TIMEOUT_MS = 3500;
-const AUTH_REQUEST_TIMEOUT_MS = 12000;
+const AUTH_REQUEST_TIMEOUT_MS = 30000;
 const AI_REQUEST_TIMEOUT_MS = 18000;
 const API_AUTH_TOKEN_KEY = "growly.apiToken";
 

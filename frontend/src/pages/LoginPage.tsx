@@ -22,7 +22,7 @@ export function LoginPage({ setSession }: LoginPageProps) {
     setSubmitting(true);
     setStatus("Logger inn...");
     try {
-      const session = await login(username, password);
+      const session = await login(username.trim(), password);
       setSession(session);
       setStatus("Innlogging vellykket.");
       navigate("/");
@@ -68,7 +68,15 @@ export function LoginPage({ setSession }: LoginPageProps) {
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field">
             <span>E-post</span>
-            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
+            <input
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoCapitalize="none"
+              autoComplete="username"
+              autoCorrect="off"
+              spellCheck={false}
+              required
+            />
           </label>
 
           <label className="field">
