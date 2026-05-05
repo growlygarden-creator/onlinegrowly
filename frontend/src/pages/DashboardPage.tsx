@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { askGrowlyAssistant, fetchLatestSample, fetchMetricHistory, type AuthSession, type GrowlyAssistantImage, type HistoryPoint, type LatestSample } from "../lib/api";
+import { fetchLatestSample, fetchMetricHistory, type AuthSession, type HistoryPoint, type LatestSample } from "../lib/api";
 import { PlantAvatar } from "../components/PlantAvatar";
 import { readUserArray } from "../lib/userStorage";
 import greenhouseDay from "../assets/greenhouse-assets/greenhouse-day.png";
@@ -41,14 +41,6 @@ type HomeTask = {
   detail: string;
   badge: string;
   tone: "good" | "watch" | "bad";
-};
-type AssistantPrompt = { label: string; question: string };
-type AssistantMessage = {
-  id: string;
-  role: "assistant" | "user";
-  text: string;
-  isError?: boolean;
-  imageName?: string;
 };
 
 const GREENHOUSE_PLANTS_STORAGE_KEY = "growly.greenhousePlants";
@@ -197,21 +189,6 @@ const trendRangeOptions: Array<{ key: TrendRange; label: string }> = [
   { key: "3d", label: "3 dager" },
   { key: "7d", label: "7 dager" },
   { key: "all", label: "Alt" },
-];
-
-const assistantPrompts: AssistantPrompt[] = [
-  { label: "Hva bør jeg gjøre nå?", question: "Hva bør jeg gjøre i drivhuset akkurat nå basert på sensorene?" },
-  { label: "Hvem trenger vann?", question: "Hvilke planter eller forhold tyder på at jeg bør vanne nå?" },
-  { label: "Tolk sensorene", question: "Tolk siste sensordata og si hva som er bra, hva jeg bør følge med på, og neste tiltak." },
-  { label: "Hva kan sås?", question: "Hva kan jeg så eller plante denne måneden i drivhuset?" },
-];
-
-const initialAssistantMessages: AssistantMessage[] = [
-  {
-    id: "welcome",
-    role: "assistant",
-    text: "Hei! Spør meg om vanning, sensorene eller hva du bør gjøre nå.",
-  },
 ];
 
 function metricText(value: number | null | undefined, suffix: string, digits = 0): string {
@@ -625,21 +602,6 @@ function formatUpdatedAt(value: string | null | undefined): string {
   })}`;
 }
 
-function assistantAnswerItems(answer: string): string[] {
-  const cleanedAnswer = answer.replace(/\r/g, "").replace(/\*\*/g, "").trim();
-  const lines = cleanedAnswer
-    .split(/\n+/)
-    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
-    .filter(Boolean);
-  const candidates = lines.length > 1 ? lines : (cleanedAnswer.match(/[^.!?]+[.!?]?/g) ?? [cleanedAnswer]);
-
-  return candidates
-    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
-    .filter(Boolean)
-    .slice(0, 3)
-    .map((line) => (line.length > 120 ? `${line.slice(0, 117).trim()}...` : line));
-}
-
 function loadDashboardPlants(session: AuthSession | null): DashboardPlant[] {
   return readUserArray<DashboardPlant>(GREENHOUSE_PLANTS_STORAGE_KEY, session)
     .filter((plant) => plant?.profileId && plant?.nickname)
@@ -713,14 +675,6 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState("");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const [assistantQuestion, setAssistantQuestion] = useState("");
-  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(initialAssistantMessages);
-  const [assistantLoading, setAssistantLoading] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
-  const [assistantImage, setAssistantImage] = useState<GrowlyAssistantImage | null>(null);
-  const [assistantImageError, setAssistantImageError] = useState("");
-  const assistantLogRef = useRef<HTMLDivElement | null>(null);
-  const assistantFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     fetchLatestSample().then((result) => {
@@ -774,13 +728,6 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
     });
   }, [trendMetric, trendRange]);
 
-  useEffect(() => {
-    assistantLogRef.current?.scrollTo({
-      top: assistantLogRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [assistantMessages, assistantLoading]);
-
   const firstName = session?.user?.full_name?.split(" ")[0] || session?.username || "Geirij";
   const status = growthStatus(sample);
   const scene = greenhouseScene(theme);
@@ -811,78 +758,6 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
     setSoilPanelOpen(false);
     setReportMetric(null);
     setTrendMetric(metric);
-  }
-
-  function handleAssistantImage(file: File | undefined) {
-    setAssistantImageError("");
-    if (!file) {
-      return;
-    }
-    if (!file.type.startsWith("image/")) {
-      setAssistantImageError("Velg et bilde.");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setAssistantImageError("Bildet er for stort. Velg et under 5 MB.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setAssistantImage({ dataUrl: reader.result, name: file.name });
-      }
-    };
-    reader.onerror = () => setAssistantImageError("Kunne ikke lese bildet.");
-    reader.readAsDataURL(file);
-  }
-
-  async function askAssistant(question: string, image: GrowlyAssistantImage | null = assistantImage) {
-    const trimmedQuestion = question.trim() || (image ? "Se på plantebildet og gi korte, trygge råd." : "");
-    if ((!trimmedQuestion && !image) || assistantLoading) {
-      return;
-    }
-    setAssistantOpen(true);
-    setAssistantQuestion("");
-    setAssistantImage(null);
-    setAssistantImageError("");
-    setAssistantMessages((messages) => [
-      ...messages,
-      { id: `user-${Date.now()}`, role: "user", text: trimmedQuestion, imageName: image?.name },
-    ]);
-    setAssistantLoading(true);
-    try {
-      const result = await askGrowlyAssistant(trimmedQuestion, image);
-      if (!result) {
-        setAssistantMessages((messages) => [
-          ...messages,
-          {
-            id: `assistant-error-${Date.now()}`,
-            role: "assistant",
-            text: "Jeg fikk ikke kontakt med Growly AI akkurat nå. Prøv igjen om litt.",
-            isError: true,
-          },
-        ]);
-        return;
-      }
-      setAssistantMessages((messages) => [
-        ...messages,
-        { id: `assistant-${Date.now()}`, role: "assistant", text: result.answer },
-      ]);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "ai_unavailable";
-      const friendlyMessage =
-        message === "openai_key_missing"
-          ? "AI-nøkkelen mangler på serveren. Legg OPENAI_API_KEY inn i Render og deploy på nytt."
-          : message === "ai_http_404"
-            ? "AI-endepunktet finnes ikke på serveren ennå. Deploy siste versjon til Render."
-            : "Jeg fikk ikke kontakt med Growly AI akkurat nå. Prøv igjen om litt.";
-      setAssistantMessages((messages) => [
-        ...messages,
-        { id: `assistant-error-${Date.now()}`, role: "assistant", text: friendlyMessage, isError: true },
-      ]);
-    } finally {
-      setAssistantLoading(false);
-    }
   }
 
   return (
@@ -1071,120 +946,6 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
           )}
         </div>
       </section>
-
-      <div className={`assistant-dock${assistantOpen ? " is-open" : ""}`}>
-        {assistantOpen ? (
-          <section className="assistant-card assistant-chat-card soft-card" aria-label="Chat med Growly">
-            <div className="assistant-chat-head">
-              <div className="assistant-card__avatar" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 20c4.4-2.2 7-5.5 7-9.2C19 6.5 16 3 12 3S5 6.5 5 10.8C5 14.5 7.6 17.8 12 20Z" fill="currentColor" opacity="0.16" />
-                  <path d="M12 17c2.7-1.6 4.4-3.7 4.4-6.1A4.4 4.4 0 0 0 12 6.5a4.4 4.4 0 0 0-4.4 4.4c0 2.4 1.7 4.5 4.4 6.1Z" fill="none" stroke="currentColor" strokeWidth="1.7" />
-                  <path d="M9.6 10.8h.1M14.3 10.8h.1M10 13.3c1.2.8 2.8.8 4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
-                </svg>
-              </div>
-              <div>
-                <p className="section-kicker">Dyrkeassistent</p>
-                <h2>Chat med Growly</h2>
-              </div>
-              <button className="assistant-close-button" type="button" onClick={() => setAssistantOpen(false)} aria-label="Lukk chat">
-                x
-              </button>
-            </div>
-
-            <div className="assistant-chat-log" aria-live="polite" ref={assistantLogRef}>
-              {assistantMessages.map((message) => {
-                const items = message.role === "assistant" && !message.isError ? assistantAnswerItems(message.text) : [];
-                return (
-                  <article
-                    className={`assistant-message assistant-message--${message.role}${message.isError ? " assistant-message--error" : ""}`}
-                    key={message.id}
-                  >
-                    {message.imageName ? <span className="assistant-attachment-pill">Bilde: {message.imageName}</span> : null}
-                    {items.length > 1 ? (
-                      <div className="assistant-answer-list">
-                        {items.map((item) => (
-                          <span key={item}>{item}</span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p>{items[0] ?? message.text}</p>
-                    )}
-                  </article>
-                );
-              })}
-              {assistantLoading ? (
-                <article className="assistant-message assistant-message--assistant assistant-message--thinking">
-                  <span />
-                  <span />
-                  <span />
-                </article>
-              ) : null}
-            </div>
-
-            <div className="assistant-prompt-row assistant-suggestion-row">
-              {assistantPrompts.map((prompt) => (
-                <button type="button" key={prompt.label} onClick={() => askAssistant(prompt.question, null)} disabled={assistantLoading}>
-                  {prompt.label}
-                </button>
-              ))}
-            </div>
-
-            {assistantImage || assistantImageError ? (
-              <div className={`assistant-image-preview${assistantImageError ? " assistant-image-preview--error" : ""}`}>
-                <span>{assistantImageError || `Bilde klart: ${assistantImage?.name || "plantebilde"}`}</span>
-                {assistantImage ? (
-                  <button type="button" onClick={() => setAssistantImage(null)} aria-label="Fjern bilde">
-                    Fjern
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-
-            <form
-              className="assistant-form assistant-chat-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                askAssistant(assistantQuestion);
-              }}
-            >
-              <input
-                ref={assistantFileInputRef}
-                className="assistant-file-input"
-                type="file"
-                accept="image/*"
-                onChange={(event) => {
-                  handleAssistantImage(event.target.files?.[0]);
-                  event.currentTarget.value = "";
-                }}
-              />
-              <button
-                className="assistant-image-button"
-                type="button"
-                onClick={() => assistantFileInputRef.current?.click()}
-                aria-label="Legg ved bilde"
-              >
-                +
-              </button>
-              <input
-                value={assistantQuestion}
-                onChange={(event) => setAssistantQuestion(event.target.value)}
-                placeholder="Spør om planten..."
-              />
-              <button type="submit" disabled={assistantLoading || (!assistantQuestion.trim() && !assistantImage)}>
-                Send
-              </button>
-            </form>
-          </section>
-        ) : null}
-        <button className="assistant-bubble-button" type="button" onClick={() => setAssistantOpen((open) => !open)} aria-label="Åpne Growly-chat">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 20c4.4-2.2 7-5.5 7-9.2C19 6.5 16 3 12 3S5 6.5 5 10.8C5 14.5 7.6 17.8 12 20Z" fill="currentColor" opacity="0.18" />
-            <path d="M12 17c2.7-1.6 4.4-3.7 4.4-6.1A4.4 4.4 0 0 0 12 6.5a4.4 4.4 0 0 0-4.4 4.4c0 2.4 1.7 4.5 4.4 6.1Z" fill="none" stroke="currentColor" strokeWidth="1.7" />
-            <path d="M9.6 10.8h.1M14.3 10.8h.1M10 13.3c1.2.8 2.8.8 4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
-          </svg>
-        </button>
-      </div>
 
       {soilPanelOpen ? (
         <div className="soil-modal" role="dialog" aria-modal="true" aria-labelledby="soil-modal-title">

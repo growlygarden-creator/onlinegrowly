@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { fetchSession, type AuthSession } from "./lib/api";
 import { BottomNav } from "./components/BottomNav";
+import { GrowlyAssistantDock } from "./components/GrowlyAssistantDock";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { GreenhousePage } from "./pages/GreenhousePage";
@@ -102,7 +103,12 @@ export function App() {
         <Route path="*" element={<Navigate to={isAuthenticated ? "/" : "/login"} replace />} />
       </Routes>
 
-      {isAuthenticated ? <BottomNav /> : null}
+      {isAuthenticated ? (
+        <>
+          <GrowlyAssistantDock />
+          <BottomNav />
+        </>
+      ) : null}
     </div>
   );
 }
