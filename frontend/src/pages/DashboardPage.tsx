@@ -913,19 +913,21 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
       <section className="settings-section">
         <p className="section-kicker">Vekstforhold</p>
         <article className="soft-card premium-hero premium-hero--climate">
-          <div className="premium-hero__head">
-            <div>
-              <strong>{status.title}</strong>
-              <span>{status.note}</span>
+          <div className="climate-hero-grid">
+            <div className="premium-hero__head">
+              <div>
+                <strong>{status.title}</strong>
+                <span>{status.note}</span>
+              </div>
+              <span className="status-pill status-pill--live">
+                <span className="online-dot" aria-hidden="true" />
+                {session?.hub ? "Hub online" : "Hub offline"}
+              </span>
             </div>
-            <span className="status-pill status-pill--live">
-              <span className="online-dot" aria-hidden="true" />
-              {session?.hub ? "Hub online" : "Hub offline"}
-            </span>
-          </div>
 
-          <div className={`overview-image-banner overview-image-banner--${scene.mode}`}>
-            <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />
+            <div className={`overview-image-banner overview-image-banner--${scene.mode}`}>
+              <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />
+            </div>
           </div>
 
           <div className="metric-strip">
