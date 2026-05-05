@@ -32,8 +32,10 @@ except ImportError:  # pragma: no cover - production environments may rely on sy
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
 PLANT_IMPORT_DIR = ROOT_DIR / "data" / "imports"
-FRONTEND_DIST_DIR = ROOT_DIR / "frontend" / "dist"
-FRONTEND_INDEX = FRONTEND_DIST_DIR / "index.html"
+FRONTEND_DIST_CANDIDATES = (
+    ROOT_DIR / "frontend" / "dist",
+    BASE_DIR / "frontend_dist",
+)
 
 
 def load_local_env(path: Path) -> None:
@@ -3210,14 +3212,18 @@ app.add_middleware(
 )
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-if (FRONTEND_DIST_DIR / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST_DIR / "assets"), name="frontend-assets")
+for frontend_dist_dir in FRONTEND_DIST_CANDIDATES:
+    if (frontend_dist_dir / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=frontend_dist_dir / "assets"), name="frontend-assets")
+        break
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 def app_entry_response() -> FileResponse | JSONResponse:
-    if FRONTEND_INDEX.exists():
-        return FileResponse(FRONTEND_INDEX)
+    for frontend_dist_dir in FRONTEND_DIST_CANDIDATES:
+        frontend_index = frontend_dist_dir / "index.html"
+        if frontend_index.exists():
+            return FileResponse(frontend_index)
     return JSONResponse(status_code=503, content={"ok": False, "error": "frontend_not_built"})
 
 
