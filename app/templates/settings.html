@@ -45,8 +45,23 @@
                 <span>Aktiv databaseplassering</span>
                 <strong>{{ storage_status.active_path }}</strong>
             </div>
+            <div class="detail-row">
+                <span>Ønsket databaseplassering</span>
+                <strong>{{ storage_status.preferred_path }}</strong>
+            </div>
+            <div class="detail-row">
+                <span>GROWLY_DATA_DIR</span>
+                <strong>{{ storage_status.env_data_dir or "Ikke satt" }}</strong>
+            </div>
+            <div class="detail-row">
+                <span>/var/data finnes og kan skrives til</span>
+                <strong>{{ "Ja" if storage_status.preferred_writable else "Nei" }}</strong>
+            </div>
             {% if not storage_status.persistent %}
             <p class="helper-text">For Render bør persistent disk være koblet til <strong>{{ storage_status.preferred_path }}</strong>. Hvis ikke vil brukere og innstillinger forsvinne når appen deployes på nytt.</p>
+            {% if storage_status.fallback_reason or storage_status.preferred_write_error %}
+            <p class="helper-text">Teknisk feil: <strong>{{ storage_status.fallback_reason or storage_status.preferred_write_error }}</strong></p>
+            {% endif %}
             {% endif %}
         </section>
 

@@ -66,6 +66,7 @@ PREFERRED_DATA_DIR = resolve_preferred_data_dir()
 FALLBACK_DATA_DIR = Path("/tmp/growly-data")
 DATA_DIR = PREFERRED_DATA_DIR
 DB_PATH = DATA_DIR / "growly.db"
+DATA_DIR_FALLBACK_REASON = ""
 DEFAULT_SENSOR_URL = "http://192.168.0.133/sensor"
 APP_USERNAME = os.getenv("APP_USERNAME", "growly")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "growly-view")
@@ -534,11 +535,16 @@ def db_connection() -> sqlite3.Connection:
 
 
 def ensure_data_dir() -> None:
-    global DATA_DIR, DB_PATH
+    global DATA_DIR, DB_PATH, DATA_DIR_FALLBACK_REASON
+    DATA_DIR_FALLBACK_REASON = ""
     try:
         PREFERRED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        probe_path = PREFERRED_DATA_DIR / ".growly-write-test"
+        probe_path.write_text("ok", encoding="utf-8")
+        probe_path.unlink(missing_ok=True)
         DATA_DIR = PREFERRED_DATA_DIR
-    except PermissionError:
+    except OSError as exc:
+        DATA_DIR_FALLBACK_REASON = f"{type(exc).__name__}: {exc}"
         FALLBACK_DATA_DIR.mkdir(parents=True, exist_ok=True)
         DATA_DIR = FALLBACK_DATA_DIR
     DB_PATH = DATA_DIR / "growly.db"
@@ -551,13 +557,24 @@ def storage_status() -> dict[str, Any]:
     preferred_path = str(PREFERRED_DATA_DIR)
     active_path = str(DATA_DIR)
     render_runtime = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
-    preferred_is_mount = DATA_DIR.exists() and os.path.ismount(DATA_DIR)
-    persistent = DATA_DIR == PREFERRED_DATA_DIR and (not render_runtime or preferred_is_mount)
+    preferred_exists = PREFERRED_DATA_DIR.exists()
+    preferred_is_mount = preferred_exists and os.path.ismount(PREFERRED_DATA_DIR)
+    preferred_writable = False
+    preferred_write_error = ""
+    try:
+        PREFERRED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        probe_path = PREFERRED_DATA_DIR / ".growly-status-write-test"
+        probe_path.write_text("ok", encoding="utf-8")
+        probe_path.unlink(missing_ok=True)
+        preferred_writable = True
+    except OSError as exc:
+        preferred_write_error = f"{type(exc).__name__}: {exc}"
+    persistent = DATA_DIR == PREFERRED_DATA_DIR and preferred_writable
     if persistent:
         message = "Brukere og innstillinger lagres varig."
-    elif render_runtime and DATA_DIR == PREFERRED_DATA_DIR and not preferred_is_mount:
+    elif render_runtime and DATA_DIR == PREFERRED_DATA_DIR and not preferred_writable:
         message = (
-            "Render kjører uten mountet persistent disk på denne stien. "
+            "Render bruker ønsket databaseplassering, men appen klarte ikke å verifisere skrivetilgang. "
             "Brukere og innstillinger kan nullstilles ved deploy eller restart."
         )
     else:
@@ -566,7 +583,13 @@ def storage_status() -> dict[str, Any]:
         "persistent": persistent,
         "active_path": active_path,
         "preferred_path": preferred_path,
+        "env_data_dir": os.getenv("GROWLY_DATA_DIR", ""),
+        "render_runtime": render_runtime,
+        "preferred_exists": preferred_exists,
         "preferred_is_mount": preferred_is_mount,
+        "preferred_writable": preferred_writable,
+        "preferred_write_error": preferred_write_error,
+        "fallback_reason": DATA_DIR_FALLBACK_REASON,
         "mode": "persistent" if persistent else "temporary",
         "message": message,
     }
