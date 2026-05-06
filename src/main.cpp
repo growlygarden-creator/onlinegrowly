@@ -116,6 +116,7 @@ void printSensorReading();
 bool ensureHubPairing(bool forceRetry = false);
 void pollDeviceConfig(bool force = false);
 String currentSampleIntervalsJson();
+String jsonEscape(const String& value);
 
 enum class StatusLedColor {
     Off,
@@ -787,7 +788,8 @@ String sensorReadingJson() {
 
 String supabasePayloadJson() {
     String json = "{";
-    json += "\"air_temperature\":";
+    json += "\"hub_id\":\"" + jsonEscape(pairedHubId) + "\"";
+    json += ",\"air_temperature\":";
     if (airSensorState.valid && !isnan(airSensorState.temperature)) {
         json += String(airSensorState.temperature, 2);
     } else {

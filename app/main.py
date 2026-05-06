@@ -3168,6 +3168,20 @@ def fetch_supabase_rows(params: dict[str, str]) -> list[dict[str, Any]]:
         return data if isinstance(data, list) else []
 
 
+def fetch_supabase_rows_for_hub(hub_id: str, params: dict[str, str]) -> list[dict[str, Any]]:
+    hub_params = dict(params)
+    hub_params["hub_id"] = f"eq.{hub_id}"
+    try:
+        return fetch_supabase_rows(hub_params)
+    except HTTPError as exc:
+        # Older Supabase tables did not include hub_id. Keep the app usable
+        # until the migration is applied, but never hide other Supabase errors.
+        body = exc.read().decode("utf-8", errors="ignore")
+        if exc.code == 400 and "hub_id" in body and "does not exist" in body:
+            return fetch_supabase_rows(params)
+        raise
+
+
 def supabase_latest_sample(hub_id: str) -> dict[str, Any] | None:
     params = {
         "select": "created_at,temperature,humidity,ph,conductivity,nitrogen,phosphorus,potassium,salinity,tds,lux,air_temperature,air_humidity,air_pressure",
@@ -3177,7 +3191,7 @@ def supabase_latest_sample(hub_id: str) -> dict[str, Any] | None:
     global_start = history_start_iso(hub_id)
     if global_start:
         params["created_at"] = f"gte.{global_start}"
-    rows = fetch_supabase_rows(params)
+    rows = fetch_supabase_rows_for_hub(hub_id, params)
     if not rows:
         return None
 
@@ -3223,7 +3237,8 @@ def supabase_metric_history_by_span(
     requested_until = parse_iso_datetime(date_to) or datetime.now(timezone.utc)
     since_dt, until_dt = clamp_history_window(hub_id, requested_since, requested_until)
     custom_window = bool(date_from or date_to)
-    rows = fetch_supabase_rows(
+    rows = fetch_supabase_rows_for_hub(
+        hub_id,
         {
             "select": f"created_at,{metric}",
             "created_at": f"gte.{since_dt.isoformat()}",
@@ -3231,7 +3246,7 @@ def supabase_metric_history_by_span(
             "and": f"(created_at.lt.{until_dt.isoformat()})",
             "order": "created_at.asc",
             "limit": str(limit * 8),
-        }
+        },
     )
 
     if not rows and not custom_window:
@@ -3245,7 +3260,7 @@ def supabase_metric_history_by_span(
         if global_start:
             latest_params["created_at"] = f"gte.{global_start}"
 
-        latest_rows = fetch_supabase_rows(latest_params)
+        latest_rows = fetch_supabase_rows_for_hub(hub_id, latest_params)
         if latest_rows and latest_rows[0].get("created_at"):
             latest_dt = parse_iso_datetime(str(latest_rows[0]["created_at"]))
             if latest_dt:
@@ -3254,7 +3269,8 @@ def supabase_metric_history_by_span(
                 global_start_dt = parse_iso_datetime(history_start_iso(hub_id))
                 if global_start_dt and since_dt < global_start_dt:
                     since_dt = global_start_dt
-                rows = fetch_supabase_rows(
+                rows = fetch_supabase_rows_for_hub(
+                    hub_id,
                     {
                         "select": f"created_at,{metric}",
                         "created_at": f"gte.{since_dt.isoformat()}",
@@ -3262,7 +3278,7 @@ def supabase_metric_history_by_span(
                         "and": f"(created_at.lt.{until_dt.isoformat()})",
                         "order": "created_at.asc",
                         "limit": str(limit * 8),
-                    }
+                    },
                 )
 
     if not rows:
@@ -3335,7 +3351,7 @@ def supabase_metric_first_recorded_at(hub_id: str, metric: str) -> str | None:
     global_start = history_start_iso(hub_id)
     if global_start:
         params["created_at"] = f"gte.{global_start}"
-    rows = fetch_supabase_rows(params)
+    rows = fetch_supabase_rows_for_hub(hub_id, params)
     if not rows:
         return None
     return rows[0].get("created_at")
@@ -3371,14 +3387,15 @@ def day_summary_from_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, flo
 
 def supabase_day_summary(hub_id: str) -> dict[str, dict[str, float | None]]:
     since, until = today_window_iso(hub_id)
-    rows = fetch_supabase_rows(
+    rows = fetch_supabase_rows_for_hub(
+        hub_id,
         {
             "select": "created_at,temperature,humidity,ph,conductivity,nitrogen,phosphorus,potassium,salinity,tds,lux,air_temperature,air_humidity,air_pressure",
             "created_at": f"gte.{since}",
             "and": f"(created_at.lt.{until})",
             "order": "created_at.asc",
             "limit": "5000",
-        }
+        },
     )
     return day_summary_from_rows(rows)
 
