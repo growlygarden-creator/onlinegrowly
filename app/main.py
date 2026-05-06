@@ -77,6 +77,7 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Growly@Admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", APP_PASSWORD)
 ACTIVE_FIRMWARE_VERSION = os.getenv("ACTIVE_FIRMWARE_VERSION", "").strip()
 ACTIVE_FIRMWARE_URL = os.getenv("ACTIVE_FIRMWARE_URL", "").strip()
+BUNDLED_FIRMWARE_DIR = BASE_DIR / "static" / "firmware"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip()
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
@@ -544,6 +545,18 @@ def mail_is_configured() -> bool:
 
 def public_base_url() -> str:
     return APP_PUBLIC_URL.removesuffix("/app").rstrip("/")
+
+
+def bundled_firmware_info() -> tuple[str, str]:
+    if not BUNDLED_FIRMWARE_DIR.exists():
+        return "", ""
+    candidates = sorted(BUNDLED_FIRMWARE_DIR.glob("growly-*.bin"), key=lambda path: path.stat().st_mtime)
+    if not candidates:
+        return "", ""
+    firmware_path = candidates[-1]
+    version = firmware_path.stem.removeprefix("growly-")
+    url = f"{public_base_url()}/static/firmware/{firmware_path.name}"
+    return version, url
 
 
 def build_email_shell(title: str, intro: str, body: str, next_label: str, next_text: str, button_label: str, button_url: str, footer: str) -> str:
@@ -2376,8 +2389,9 @@ def update_hub_device_status(hub_id: str, payload: dict[str, Any]) -> dict[str, 
 
 def device_config_response(hub_id: str, current_version: str = "") -> dict[str, Any]:
     settings = hub_settings(hub_id)
-    latest_version = ACTIVE_FIRMWARE_VERSION
-    firmware_url = ACTIVE_FIRMWARE_URL
+    bundled_version, bundled_url = bundled_firmware_info()
+    latest_version = ACTIVE_FIRMWARE_VERSION or bundled_version
+    firmware_url = ACTIVE_FIRMWARE_URL or bundled_url
     update_available = (
         bool(latest_version)
         and bool(firmware_url)
