@@ -2125,6 +2125,69 @@ def create_hub_for_user(username: str) -> dict[str, Any]:
     return find_hub(hub_id) or {}
 
 
+def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool = False) -> dict[str, Any]:
+    clean_hub_id = hub_id.strip()
+    clean_username = target_username.strip()
+    hub = find_hub(clean_hub_id)
+    if not hub:
+        raise ValueError("hub_not_found")
+    user = find_app_user(clean_username)
+    if not user:
+        raise ValueError("user_not_found")
+    if not user["is_active"]:
+        raise ValueError("user_inactive")
+    if user["is_admin"]:
+        raise ValueError("admin_cannot_own_hub")
+
+    target_hub = find_hub_by_owner(clean_username)
+    now = utc_now_iso()
+    with db_connection() as connection:
+        if target_hub and str(target_hub["hub_id"]) != clean_hub_id:
+            target_hub_id = str(target_hub["hub_id"])
+            sample_row = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM sensor_samples
+                WHERE hub_id = ?
+                """,
+                (target_hub_id,),
+            ).fetchone()
+            sample_count = int(sample_row["count"]) if sample_row else 0
+            if sample_count > 0 and not replace_existing:
+                raise ValueError("target_hub_has_samples")
+            if not replace_existing:
+                raise ValueError("target_has_hub")
+            connection.execute(
+                """
+                DELETE FROM pairing_tokens
+                WHERE paired_hub_id = ?
+                """,
+                (target_hub_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM hubs
+                WHERE hub_id = ?
+                """,
+                (target_hub_id,),
+            )
+
+        connection.execute(
+            """
+            UPDATE hubs
+            SET owner_username = ?,
+                hub_name = ?,
+                is_active = 1,
+                updated_at = ?
+            WHERE hub_id = ?
+            """,
+            (clean_username, clean_username, now, clean_hub_id),
+        )
+        connection.commit()
+
+    return find_hub(clean_hub_id) or {}
+
+
 def ensure_device_hub(hub_id: str, local_ip: str | None = None) -> dict[str, Any]:
     hub_id = hub_id.strip()
     existing_hub = find_hub(hub_id)
@@ -4297,6 +4360,22 @@ async def get_hubs(request: Request):
         hub = find_hub_by_owner(current_username(request))
         hubs = [hub] if hub else []
     return {"ok": True, "hubs": hubs}
+
+
+@app.post("/api/hubs/{hub_id}/transfer-owner")
+async def transfer_hub_owner_api(request: Request, hub_id: str, payload: dict[str, Any]):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    target_username = str(payload.get("username", "")).strip()
+    replace_existing = bool(payload.get("replace_existing", False))
+    if not target_username:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "missing_username"})
+    try:
+        hub = transfer_hub_owner(hub_id, target_username, replace_existing)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "hub": hub, "hubs": list_hubs(), "users": list_app_users()}
 
 
 @app.post("/api/hubs/pairing-token")
