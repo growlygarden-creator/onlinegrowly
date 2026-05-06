@@ -1952,6 +1952,7 @@ def complete_pairing_token(
     token: str,
     sensor_url: str | None = None,
     local_ip: str | None = None,
+    hub_id: str | None = None,
 ) -> dict[str, Any]:
     cleanup_expired_pairing_tokens()
     pairing = find_pairing_token(token.strip().upper())
@@ -1967,10 +1968,72 @@ def complete_pairing_token(
     global_settings = global_app_settings()
     effective_sensor_url = normalize_sensor_url(sensor_url or global_settings["sensor_url"])
     effective_local_ip = str(local_ip or "").strip()
+    requested_hub_id = str(hub_id or "").strip()
+    if requested_hub_id and not is_valid_hub_id(requested_hub_id):
+        raise ValueError("invalid_hub_id")
     existing_hub = find_hub_by_owner(target_username)
+    physical_hub = find_hub(requested_hub_id) if requested_hub_id else None
 
     with db_connection() as connection:
-        if existing_hub:
+        if requested_hub_id:
+            hub_id = requested_hub_id
+            if existing_hub and str(existing_hub["hub_id"]) != hub_id:
+                # A newly registered account may have a placeholder hub. When a
+                # real ESP32 re-pairs, the physical hub identity should win.
+                connection.execute(
+                    """
+                    DELETE FROM hubs
+                    WHERE hub_id = ?
+                    """,
+                    (existing_hub["hub_id"],),
+                )
+
+            if physical_hub:
+                connection.execute(
+                    """
+                    UPDATE hubs
+                    SET owner_username = ?,
+                        hub_name = ?,
+                        is_active = 1,
+                        sensor_url = ?,
+                        local_ip = ?,
+                        updated_at = ?
+                    WHERE hub_id = ?
+                    """,
+                    (
+                        target_username,
+                        target_username,
+                        effective_sensor_url,
+                        effective_local_ip or str(physical_hub.get("local_ip") or ""),
+                        now,
+                        hub_id,
+                    ),
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO hubs (
+                        hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
+                        sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
+                        sample_time_cloud_ms, history_start_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        hub_id,
+                        target_username,
+                        target_username,
+                        effective_sensor_url,
+                        effective_local_ip,
+                        global_settings["sample_time_soil_ms"],
+                        global_settings["sample_time_light_ms"],
+                        global_settings["sample_time_air_ms"],
+                        global_settings["sample_time_cloud_ms"],
+                        global_settings["history_start_at"],
+                        now,
+                        now,
+                    ),
+                )
+        elif existing_hub:
             hub_id = str(existing_hub["hub_id"])
             connection.execute(
                 """
@@ -2067,90 +2130,7 @@ def ensure_device_hub(hub_id: str, local_ip: str | None = None) -> dict[str, Any
     existing_hub = find_hub(hub_id)
     if existing_hub:
         return existing_hub
-    if not is_valid_hub_id(hub_id):
-        raise ValueError("hub_not_found")
-
-    now = utc_now_iso()
-    global_settings = global_app_settings()
-    clean_ip = str(local_ip or "").strip()
-    with db_connection() as connection:
-        owner_username = default_hub_owner_username(connection)
-        owner_hub = connection.execute(
-            """
-            SELECT hub_id
-            FROM hubs
-            WHERE owner_username = ?
-            LIMIT 1
-            """,
-            (owner_username,),
-        ).fetchone()
-        if owner_hub:
-            connection.execute(
-                """
-                UPDATE hubs
-                SET hub_id = ?,
-                    hub_name = ?,
-                    is_active = 1,
-                    local_ip = ?,
-                    sample_time_soil_ms = ?,
-                    sample_time_light_ms = ?,
-                    sample_time_air_ms = ?,
-                    sample_time_cloud_ms = ?,
-                    config_updated_at = ?,
-                    device_status_at = ?,
-                    device_status_message = ?,
-                    updated_at = ?
-                WHERE owner_username = ?
-                """,
-                (
-                    hub_id,
-                    owner_username,
-                    clean_ip,
-                    global_settings["sample_time_soil_ms"],
-                    global_settings["sample_time_light_ms"],
-                    global_settings["sample_time_air_ms"],
-                    global_settings["sample_time_cloud_ms"],
-                    now,
-                    now,
-                    "Gjenopprettet fra fysisk hub",
-                    now,
-                    owner_username,
-                ),
-            )
-            connection.commit()
-            return find_hub(hub_id) or {}
-
-        connection.execute(
-            """
-            INSERT INTO hubs (
-                hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
-                sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                sample_time_cloud_ms, history_start_at, config_revision,
-                config_updated_at, device_status_at, device_status_message,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
-            """,
-            (
-                hub_id,
-                owner_username,
-                owner_username,
-                global_settings["sensor_url"],
-                clean_ip,
-                global_settings["sample_time_soil_ms"],
-                global_settings["sample_time_light_ms"],
-                global_settings["sample_time_air_ms"],
-                global_settings["sample_time_cloud_ms"],
-                global_settings["history_start_at"],
-                now,
-                now,
-                "Gjenopprettet fra fysisk hub",
-                now,
-                now,
-            ),
-        )
-        connection.commit()
-
-    return find_hub(hub_id) or {}
+    raise ValueError("hub_not_found")
 
 
 def hub_settings(hub_id: str) -> dict[str, Any]:
@@ -4356,6 +4336,7 @@ async def pair_hub(payload: dict[str, Any]):
     token = str(payload.get("pairing_token", "")).strip().upper()
     sensor_url = payload.get("sensor_url")
     local_ip = payload.get("local_ip")
+    hub_id = str(payload.get("hub_id", "")).strip()
 
     if not token:
         return JSONResponse(status_code=400, content={"ok": False, "error": "missing_pairing_token"})
@@ -4365,6 +4346,7 @@ async def pair_hub(payload: dict[str, Any]):
             token,
             None if sensor_url in (None, "") else str(sensor_url),
             None if local_ip in (None, "") else str(local_ip),
+            None if not hub_id else hub_id,
         )
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})

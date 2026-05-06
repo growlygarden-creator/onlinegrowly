@@ -1001,7 +1001,7 @@ bool beginHttpClient(HTTPClient& http, WiFiClient& plainClient, WiFiClientSecure
 }
 
 bool ensureHubPairing(bool forceRetry) {
-    if (pairedHubId.length() > 0) {
+    if (pairedHubId.length() > 0 && configuredPairingCode.length() == 0) {
         pairingStatusMessage = "Huben er paret som " + pairedHubId + ".";
         return true;
     }
@@ -1034,6 +1034,9 @@ bool ensureHubPairing(bool forceRetry) {
     }
 
     String body = String("{\"pairing_token\":\"") + jsonEscape(configuredPairingCode) + "\"";
+    if (pairedHubId.length() > 0) {
+        body += ",\"hub_id\":\"" + jsonEscape(pairedHubId) + "\"";
+    }
     body += ",\"local_ip\":\"" + jsonEscape(WiFi.localIP().toString()) + "\"}";
 
     HTTPClient http;
