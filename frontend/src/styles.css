@@ -2092,6 +2092,16 @@ input {
   color: var(--text);
 }
 
+.theme-dark .field input {
+  background: rgba(235, 250, 229, 0.08);
+  border-color: rgba(235, 250, 229, 0.14);
+  color: #eef6eb;
+}
+
+.theme-dark .field input::placeholder {
+  color: rgba(238, 246, 235, 0.56);
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -2968,6 +2978,27 @@ input {
   border-color: rgba(235, 250, 229, 0.11);
 }
 
+.theme-dark .planner-entry-card h2,
+.theme-dark .calendar-overview h2,
+.theme-dark .today-focus-card h2,
+.theme-dark .catalog-detail__head h2,
+.theme-dark .catalog-list-item strong,
+.theme-dark .catalog-range-grid strong,
+.theme-dark .plant-info-card strong {
+  color: #eef6eb;
+}
+
+.theme-dark .planner-entry-card span,
+.theme-dark .catalog-list-item small,
+.theme-dark .catalog-detail__head span,
+.theme-dark .catalog-range-grid span,
+.theme-dark .plant-info-card span,
+.theme-dark .plant-info-card small,
+.theme-dark .seed-guide-list span,
+.theme-dark .today-focus-card p {
+  color: #c8d5c4;
+}
+
 .theme-dark .catalog-filter-row button {
   background: rgba(235, 250, 229, 0.11);
   border-color: rgba(235, 250, 229, 0.12);
@@ -3079,6 +3110,12 @@ input {
   background: rgba(255, 255, 255, 0.72);
   color: var(--accent-strong);
   font-weight: 850;
+}
+
+.theme-dark .planner-header-link {
+  background: rgba(121, 196, 111, 0.16);
+  border-color: rgba(121, 196, 111, 0.34);
+  color: #e0f7d8;
 }
 
 .calendar-overview {
