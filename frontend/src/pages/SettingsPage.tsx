@@ -1,26 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { createPairing, fetchActivePairing, logout, type AuthSession, type PairingInfo } from "../lib/api";
-import { readUserArray } from "../lib/userStorage";
+import { createPairing, fetchActivePairing, fetchPlantHistory, logout, type AuthSession, type PairingInfo } from "../lib/api";
 
 type SettingsPageProps = {
   session: AuthSession | null;
   setSession: (session: AuthSession | null) => void;
 };
-
-type PlantHistoryItem = {
-  instanceId: string;
-  displayName?: string;
-  nickname?: string;
-  icon?: string;
-  family?: string;
-  sowedAt?: string;
-  archivedAt?: string;
-  outcomeLabel?: string;
-  notes?: string;
-};
-
-const PLANT_HISTORY_STORAGE_KEY = "growly.plantHistory";
 
 function initialsFromName(name: string): string {
   return name
@@ -31,15 +16,11 @@ function initialsFromName(name: string): string {
     .join("");
 }
 
-function loadPlantHistory(session: AuthSession | null): PlantHistoryItem[] {
-  return readUserArray<PlantHistoryItem>(PLANT_HISTORY_STORAGE_KEY, session);
-}
-
 export function SettingsPage({ session, setSession }: SettingsPageProps) {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
-  const [plantHistory, setPlantHistory] = useState<PlantHistoryItem[]>(() => loadPlantHistory(session));
+  const [plantHistoryCount, setPlantHistoryCount] = useState(0);
 
   useEffect(() => {
     fetchActivePairing().then((activePairing) => {
@@ -48,7 +29,15 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
   }, []);
 
   useEffect(() => {
-    setPlantHistory(loadPlantHistory(session));
+    let cancelled = false;
+    fetchPlantHistory(session?.hub?.hub_id ?? "").then((items) => {
+      if (!cancelled) {
+        setPlantHistoryCount(items.length);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [session?.username, session?.hub?.hub_id]);
 
   async function handleLogout() {
@@ -160,7 +149,7 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
             <div className="icon-badge icon-badge--mint">☘</div>
             <div className="settings-row__content">
               <strong>Tidligere planteprosjekter</strong>
-              <span>{plantHistory.length ? `${plantHistory.length} lagret i historikk` : "Ingen avsluttede prosjekter enda"}</span>
+              <span>{plantHistoryCount ? `${plantHistoryCount} lagret i historikk` : "Ingen avsluttede prosjekter enda"}</span>
             </div>
             <span className="chevron">›</span>
           </div>

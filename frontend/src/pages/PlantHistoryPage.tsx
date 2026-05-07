@@ -1,43 +1,23 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { PlantAvatar } from "../components/PlantAvatar";
-import type { AuthSession, PlantCatalogItem } from "../lib/api";
-import { readUserArray } from "../lib/userStorage";
+import { fetchPlantHistory, type AuthSession, type GrowlyPlant, type PlantCatalogItem } from "../lib/api";
 
 type PlantTone = PlantCatalogItem["tone"];
-
-type PlantHistoryItem = {
-  instanceId: string;
-  displayName?: string;
-  nickname?: string;
-  family?: string;
-  sowedAt?: string;
-  archivedAt?: string;
-  outcomeLabel?: string;
-  outcome?: string;
-  notes?: string;
-  movedToGreenhouseAt?: string | null;
-  location?: "greenhouse" | "outside";
-};
-
-const PLANT_HISTORY_STORAGE_KEY = "growly.plantHistory";
 
 type PlantHistoryPageProps = {
   session: AuthSession | null;
 };
 
-function loadPlantHistory(session: AuthSession | null): PlantHistoryItem[] {
-  return readUserArray<PlantHistoryItem>(PLANT_HISTORY_STORAGE_KEY, session);
-}
-
 function formatHistoryDate(value: string | undefined): string {
   if (!value) return "Ukjent dato";
-  const date = new Date(`${value}T12:00:00`);
+  const date = value.includes("T") ? new Date(value) : new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return "Ukjent dato";
   return date.toLocaleDateString("nb-NO", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function toneForHistory(item: PlantHistoryItem): PlantTone {
-  const text = `${item.displayName ?? ""} ${item.nickname ?? ""} ${item.family ?? ""}`.toLowerCase();
+function toneForHistory(item: GrowlyPlant): PlantTone {
+  const text = `${item.display_name ?? ""} ${item.nickname ?? ""} ${item.profileId ?? ""}`.toLowerCase();
   if (text.includes("tomat")) return "tomato";
   if (text.includes("agurk")) return "cucumber";
   if (text.includes("chili") || text.includes("paprika") || text.includes("pepper")) return "pepper";
@@ -47,7 +27,22 @@ function toneForHistory(item: PlantHistoryItem): PlantTone {
 }
 
 export function PlantHistoryPage({ session }: PlantHistoryPageProps) {
-  const plantHistory = loadPlantHistory(session);
+  const [plantHistory, setPlantHistory] = useState<GrowlyPlant[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchPlantHistory(session?.hub?.hub_id ?? "").then((items) => {
+      if (!cancelled) {
+        setPlantHistory(items);
+        setLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.username, session?.hub?.hub_id]);
 
   return (
     <main className="page-shell app-page history-page">
@@ -73,17 +68,23 @@ export function PlantHistoryPage({ session }: PlantHistoryPageProps) {
       </section>
 
       <section className="settings-section">
-        {plantHistory.length ? (
+        {loading ? (
+          <article className="soft-card empty-history-card">
+            <strong>Laster historikk...</strong>
+            <span>Henter avsluttede planteprosjekter fra kontoen din.</span>
+          </article>
+        ) : plantHistory.length ? (
           <div className="plant-history-list plant-history-list--page">
             {plantHistory.map((item) => (
-              <article className="plant-history-item plant-history-item--page" key={`${item.instanceId}-${item.archivedAt}`}>
-                <PlantAvatar tone={toneForHistory(item)} name={item.displayName || item.nickname} family={item.family} />
+              <article className="plant-history-item plant-history-item--page" key={`${item.instanceId}-${item.archivedAt ?? item.archived_at}`}>
+                <PlantAvatar tone={toneForHistory(item)} name={item.display_name || item.nickname} />
                 <div>
-                  <strong>{item.displayName || item.nickname || "Planteprosjekt"}</strong>
-                  <span>{item.outcomeLabel || "Avsluttet"} · {formatHistoryDate(item.archivedAt)}</span>
-                  <small>Sådd {formatHistoryDate(item.sowedAt)}{item.family ? ` · ${item.family}` : ""}</small>
-                  {item.movedToGreenhouseAt ? <small>Flyttet til drivhus {formatHistoryDate(item.movedToGreenhouseAt)}</small> : null}
-                  {item.notes ? <p>{item.notes}</p> : null}
+                  <strong>{item.display_name || item.nickname || "Planteprosjekt"}</strong>
+                  <span>Avsluttet · {formatHistoryDate(item.archivedAt ?? item.archived_at ?? undefined)}</span>
+                  <small>Sådd {formatHistoryDate(item.sowedAt ?? item.sowed_at ?? undefined)}</small>
+                  {item.movedToGreenhouseAt || item.moved_to_greenhouse_at ? (
+                    <small>Flyttet til drivhus {formatHistoryDate(item.movedToGreenhouseAt ?? item.moved_to_greenhouse_at ?? undefined)}</small>
+                  ) : null}
                 </div>
               </article>
             ))}

@@ -3919,13 +3919,14 @@ def plant_row_payload(row: dict[str, Any]) -> dict[str, Any]:
         "has_seven_in_one": bool(row.get("has_seven_in_one")),
         "wateringEnabled": bool(row.get("watering_enabled")),
         "watering_enabled": bool(row.get("watering_enabled")),
+        "archivedAt": row.get("archived_at"),
         "archived_at": row.get("archived_at"),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }
 
 
-def list_user_plants(username: str, hub_id: str, include_archived: bool = False) -> list[dict[str, Any]]:
+def list_user_plants(username: str, hub_id: str, include_archived: bool = False, archived_only: bool = False) -> list[dict[str, Any]]:
     if not supabase_enabled():
         return []
     params = {
@@ -3934,7 +3935,9 @@ def list_user_plants(username: str, hub_id: str, include_archived: bool = False)
         "hub_id": f"eq.{hub_id}",
         "order": "created_at.desc",
     }
-    if not include_archived:
+    if archived_only:
+        params["archived_at"] = "not.is.null"
+    elif not include_archived:
         params["archived_at"] = "is.null"
     rows = supabase_fetch_table("growly_plants", params)
     return [plant_row_payload(row) for row in rows]
@@ -4971,7 +4974,12 @@ async def get_plants(request: Request, archived: bool = Query(False)):
     except ValueError as exc:
         return hub_error_response(str(exc))
     try:
-        plants = list_user_plants(current_username(request), str(hub["hub_id"]), include_archived=archived)
+        plants = list_user_plants(
+            current_username(request),
+            str(hub["hub_id"]),
+            include_archived=archived,
+            archived_only=archived,
+        )
     except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
         return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "plants_unavailable"})
     return {"ok": True, "plants": plants}

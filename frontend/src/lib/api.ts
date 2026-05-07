@@ -92,6 +92,7 @@ export type GrowlyPlant = {
   has_seven_in_one?: boolean;
   wateringEnabled: boolean;
   watering_enabled?: boolean;
+  archivedAt?: string | null;
   archived_at?: string | null;
 };
 
@@ -446,9 +447,10 @@ export async function fetchPlantCatalog(query = ""): Promise<PlantCatalogItem[]>
   }
 }
 
-export async function fetchPlants(hubId = ""): Promise<GrowlyPlant[]> {
+export async function fetchPlants(hubId = "", archived = false): Promise<GrowlyPlant[]> {
   try {
-    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/plants", hubId)), {
+    const path = archived ? "/api/plants?archived=true" : "/api/plants";
+    const response = await fetchWithTimeout(apiUrl(appendHubId(path, hubId)), {
       credentials: "include",
       cache: "no-store",
       headers: authHeaders(),
@@ -462,6 +464,10 @@ export async function fetchPlants(hubId = ""): Promise<GrowlyPlant[]> {
   } catch {
     return [];
   }
+}
+
+export async function fetchPlantHistory(hubId = ""): Promise<GrowlyPlant[]> {
+  return fetchPlants(hubId, true);
 }
 
 export async function createPlant(payload: Partial<GrowlyPlant>, hubId = ""): Promise<GrowlyPlant | null> {
