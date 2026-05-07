@@ -77,8 +77,8 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
 
   const displayName = session?.user?.full_name || session?.username || "Growly Garden";
   const displayEmail = session?.user?.email || "geirij@example.com";
-  const hubName = session?.hub?.hub_name || "Growly Hub";
-  const hubId = session?.hub?.hub_id || "growly-hub-001";
+  const hubName = session?.hub?.hub_name || "Ingen hub paret ennå";
+  const hubId = session?.hub?.hub_id || "Venter på paring";
 
   return (
     <main className="page-shell app-page">
@@ -138,7 +138,10 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
             </div>
             <div className="settings-row__content">
               <strong>{hubName}</strong>
-              <span className="online-line"><span className="online-dot" aria-hidden="true" />Tilkoblet</span>
+              <span className="online-line">
+                <span className="online-dot" aria-hidden="true" />
+                {session?.hub ? "Tilkoblet" : "Ikke paret"}
+              </span>
               <small>Hub-ID: {hubId}</small>
             </div>
             <span className="chevron">›</span>

@@ -1058,6 +1058,95 @@ def import_plant_catalog_from_csv(connection: sqlite3.Connection) -> None:
     import_plant_cultivars_from_csv(connection)
 
 
+def rebuild_hubs_without_owner_unique(connection: sqlite3.Connection) -> None:
+    owner_unique = False
+    for index_row in connection.execute("PRAGMA index_list(hubs)").fetchall():
+        if not int(index_row["unique"] or 0):
+            continue
+        index_name = str(index_row["name"] or "")
+        index_columns = [
+            str(column["name"] or "")
+            for column in connection.execute(f"PRAGMA index_info({index_name})").fetchall()
+        ]
+        if index_columns == ["owner_username"]:
+            owner_unique = True
+            break
+    if not owner_unique:
+        return
+
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute("DROP TABLE IF EXISTS hubs_rebuild")
+    connection.execute(
+        """
+        CREATE TABLE hubs_rebuild (
+            hub_id TEXT PRIMARY KEY,
+            hub_name TEXT NOT NULL,
+            owner_username TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            sensor_url TEXT NOT NULL,
+            local_ip TEXT NOT NULL DEFAULT '',
+            sample_time_soil_ms INTEGER NOT NULL,
+            sample_time_light_ms INTEGER NOT NULL,
+            sample_time_air_ms INTEGER NOT NULL,
+            sample_time_cloud_ms INTEGER NOT NULL,
+            history_start_at TEXT NOT NULL DEFAULT '',
+            config_revision INTEGER NOT NULL DEFAULT 1,
+            config_updated_at TEXT NOT NULL DEFAULT '',
+            config_applied_revision INTEGER NOT NULL DEFAULT 0,
+            config_applied_at TEXT NOT NULL DEFAULT '',
+            config_applied_settings_json TEXT NOT NULL DEFAULT '',
+            device_status_at TEXT NOT NULL DEFAULT '',
+            device_status_message TEXT NOT NULL DEFAULT '',
+            device_firmware_version TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(owner_username) REFERENCES app_users(username)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO hubs_rebuild (
+            hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
+            sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
+            sample_time_cloud_ms, history_start_at, config_revision,
+            config_updated_at, config_applied_revision, config_applied_at,
+            config_applied_settings_json, device_status_at, device_status_message,
+            device_firmware_version, created_at, updated_at
+        )
+        SELECT hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
+               sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
+               sample_time_cloud_ms, history_start_at, config_revision,
+               config_updated_at, config_applied_revision, config_applied_at,
+               config_applied_settings_json, device_status_at, device_status_message,
+               device_firmware_version, created_at, updated_at
+        FROM hubs
+        """
+    )
+    connection.execute("DROP TABLE hubs")
+    connection.execute("ALTER TABLE hubs_rebuild RENAME TO hubs")
+    connection.execute("PRAGMA foreign_keys = ON")
+
+
+def ensure_hub_member(
+    connection: sqlite3.Connection,
+    hub_id: str,
+    username: str,
+    role: str = "owner",
+) -> None:
+    now = utc_now_iso()
+    connection.execute(
+        """
+        INSERT INTO hub_members (hub_id, username, role, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(hub_id, username) DO UPDATE SET
+            role = excluded.role,
+            updated_at = excluded.updated_at
+        """,
+        (hub_id, username, role, now, now),
+    )
+
+
 def init_db() -> None:
     ensure_data_dir()
     with db_connection() as connection:
@@ -1116,7 +1205,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS hubs (
                 hub_id TEXT PRIMARY KEY,
                 hub_name TEXT NOT NULL,
-                owner_username TEXT UNIQUE NOT NULL,
+                owner_username TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 sensor_url TEXT NOT NULL,
                 local_ip TEXT NOT NULL DEFAULT '',
@@ -1136,6 +1225,20 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY(owner_username) REFERENCES app_users(username)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hub_members (
+                hub_id TEXT NOT NULL,
+                username TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'member',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (hub_id, username),
+                FOREIGN KEY(hub_id) REFERENCES hubs(hub_id),
+                FOREIGN KEY(username) REFERENCES app_users(username)
             )
             """
         )
@@ -1334,6 +1437,18 @@ def init_db() -> None:
         for column_name, column_definition in hub_column_defaults.items():
             if column_name not in existing_hub_columns:
                 connection.execute(f"ALTER TABLE hubs ADD COLUMN {column_name} {column_definition}")
+        rebuild_hubs_without_owner_unique(connection)
+        connection.execute(
+            """
+            INSERT INTO hub_members (hub_id, username, role, created_at, updated_at)
+            SELECT h.hub_id, h.owner_username, 'owner', h.created_at, h.updated_at
+            FROM hubs h
+            WHERE h.owner_username != ''
+            ON CONFLICT(hub_id, username) DO UPDATE SET
+                role = 'owner',
+                updated_at = excluded.updated_at
+            """
+        )
         for key, value in DEFAULT_APP_SETTINGS.items():
             connection.execute(
                 """
@@ -1526,6 +1641,7 @@ def init_db() -> None:
                     now,
                 ),
             )
+            ensure_hub_member(connection, DEFAULT_PRIMARY_HUB_ID, primary_owner_username, "owner")
 
         connection.execute(
             """
@@ -1659,6 +1775,62 @@ def find_hub_by_owner(username: str) -> dict[str, Any] | None:
             (username,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def list_hubs_for_user(username: str) -> list[dict[str, Any]]:
+    clean_username = username.strip()
+    if not clean_username:
+        return []
+    with db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT h.hub_id, h.hub_name, h.owner_username, h.is_active, h.sensor_url, h.local_ip,
+                   h.sample_time_soil_ms, h.sample_time_light_ms, h.sample_time_air_ms,
+                   h.sample_time_cloud_ms, h.history_start_at, h.config_revision,
+                   h.config_updated_at, h.config_applied_revision, h.config_applied_at,
+                   h.config_applied_settings_json, h.device_status_at, h.device_status_message,
+                   h.device_firmware_version, h.created_at, h.updated_at,
+                   hm.role AS member_role
+            FROM hubs h
+            INNER JOIN hub_members hm ON hm.hub_id = h.hub_id
+            WHERE hm.username = ?
+            ORDER BY CASE hm.role WHEN 'owner' THEN 0 ELSE 1 END,
+                     h.created_at ASC, h.hub_id ASC
+            """,
+            (clean_username,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def find_hub_for_user(username: str, hub_id: str) -> dict[str, Any] | None:
+    clean_username = username.strip()
+    clean_hub_id = hub_id.strip()
+    if not clean_username or not clean_hub_id:
+        return None
+    with db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT h.hub_id, h.hub_name, h.owner_username, h.is_active, h.sensor_url, h.local_ip,
+                   h.sample_time_soil_ms, h.sample_time_light_ms, h.sample_time_air_ms,
+                   h.sample_time_cloud_ms, h.history_start_at, h.config_revision,
+                   h.config_updated_at, h.config_applied_revision, h.config_applied_at,
+                   h.config_applied_settings_json, h.device_status_at, h.device_status_message,
+                   h.device_firmware_version, h.created_at, h.updated_at,
+                   hm.role AS member_role
+            FROM hubs h
+            INNER JOIN hub_members hm ON hm.hub_id = h.hub_id
+            WHERE hm.username = ?
+              AND h.hub_id = ?
+            LIMIT 1
+            """,
+            (clean_username, clean_hub_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def primary_hub_for_user(username: str) -> dict[str, Any] | None:
+    hubs = list_hubs_for_user(username)
+    return hubs[0] if hubs else None
 
 
 def global_app_settings() -> dict[str, Any]:
@@ -1990,17 +2162,6 @@ def complete_pairing_token(
     with db_connection() as connection:
         if requested_hub_id:
             hub_id = requested_hub_id
-            if existing_hub and str(existing_hub["hub_id"]) != hub_id:
-                # A newly registered account may have a placeholder hub. When a
-                # real ESP32 re-pairs, the physical hub identity should win.
-                connection.execute(
-                    """
-                    DELETE FROM hubs
-                    WHERE hub_id = ?
-                    """,
-                    (existing_hub["hub_id"],),
-                )
-
             if physical_hub:
                 connection.execute(
                     """
@@ -2022,6 +2183,7 @@ def complete_pairing_token(
                         hub_id,
                     ),
                 )
+                ensure_hub_member(connection, hub_id, target_username, "owner")
             else:
                 connection.execute(
                     """
@@ -2046,6 +2208,7 @@ def complete_pairing_token(
                         now,
                     ),
                 )
+                ensure_hub_member(connection, hub_id, target_username, "owner")
         elif existing_hub:
             hub_id = str(existing_hub["hub_id"])
             connection.execute(
@@ -2064,6 +2227,7 @@ def complete_pairing_token(
                     hub_id,
                 ),
             )
+            ensure_hub_member(connection, hub_id, target_username, "owner")
         else:
             hub_id = next_hub_id(connection)
             connection.execute(
@@ -2089,6 +2253,7 @@ def complete_pairing_token(
                     now,
                 ),
             )
+            ensure_hub_member(connection, hub_id, target_username, "owner")
         connection.execute(
             """
             UPDATE pairing_tokens
@@ -2134,6 +2299,7 @@ def create_hub_for_user(username: str) -> dict[str, Any]:
                 now,
             ),
         )
+        ensure_hub_member(connection, hub_id, username, "owner")
         connection.commit()
     return find_hub(hub_id) or {}
 
@@ -2196,6 +2362,16 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
             """,
             (clean_username, clean_username, now, clean_hub_id),
         )
+        connection.execute(
+            """
+            DELETE FROM hub_members
+            WHERE hub_id = ?
+              AND role = 'owner'
+              AND username != ?
+            """,
+            (clean_hub_id, clean_username),
+        )
+        ensure_hub_member(connection, clean_hub_id, clean_username, "owner")
         connection.commit()
 
     return find_hub(clean_hub_id) or {}
@@ -2467,9 +2643,21 @@ def list_app_users() -> list[dict[str, Any]]:
             SELECT u.username, u.full_name, u.phone, u.email,
                    u.is_active, u.is_admin, u.email_verified,
                    u.created_at, u.updated_at,
-                   h.hub_id, h.hub_name, h.owner_username
+                   h.hub_id, h.hub_name, h.owner_username,
+                   COALESCE(hc.hub_count, 0) AS hub_count
             FROM app_users u
-            LEFT JOIN hubs h ON h.owner_username = u.username
+            LEFT JOIN (
+                SELECT hm.username, MIN(h.hub_id) AS hub_id
+                FROM hub_members hm
+                INNER JOIN hubs h ON h.hub_id = hm.hub_id
+                GROUP BY hm.username
+            ) primary_hub ON primary_hub.username = u.username
+            LEFT JOIN hubs h ON h.hub_id = primary_hub.hub_id
+            LEFT JOIN (
+                SELECT username, COUNT(*) AS hub_count
+                FROM hub_members
+                GROUP BY username
+            ) hc ON hc.username = u.username
             ORDER BY u.username COLLATE NOCASE ASC
             """
         ).fetchall()
@@ -2531,7 +2719,7 @@ def create_app_user(
     username: str,
     password: str,
     is_admin: bool = False,
-    assign_hub: bool = True,
+    assign_hub: bool = False,
     full_name: str = "",
     phone: str = "",
     email: str = "",
@@ -2698,11 +2886,8 @@ def update_app_user(
         )
         connection.commit()
 
-    if is_admin is False and not find_hub_by_owner(username):
-        create_hub_for_user(username)
-
     updated = find_app_user(username)
-    assigned_hub = find_hub_by_owner(username)
+    assigned_hub = primary_hub_for_user(username)
     return {
         "username": updated["username"],
         "full_name": updated["full_name"],
@@ -2739,20 +2924,29 @@ def delete_app_user(username: str, acting_username: str) -> None:
             if admin_count <= 1:
                 raise ValueError("cannot_delete_last_admin")
 
-        hub = connection.execute(
+        owned_hubs = connection.execute(
             """
             SELECT hub_id
             FROM hubs
             WHERE owner_username = ?
             """,
             (username,),
-        ).fetchone()
-        hub_id = str(hub["hub_id"]) if hub and hub["hub_id"] else ""
+        ).fetchall()
 
-        if hub_id:
+        for hub in owned_hubs:
+            hub_id = str(hub["hub_id"]) if hub and hub["hub_id"] else ""
+            if not hub_id:
+                continue
             connection.execute(
                 """
                 DELETE FROM sensor_samples
+                WHERE hub_id = ?
+                """,
+                (hub_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM hub_members
                 WHERE hub_id = ?
                 """,
                 (hub_id,),
@@ -2772,6 +2966,13 @@ def delete_app_user(username: str, acting_username: str) -> None:
                 (hub_id,),
             )
 
+        connection.execute(
+            """
+            DELETE FROM hub_members
+            WHERE username = ?
+            """,
+            (username,),
+        )
         connection.execute(
             """
             DELETE FROM pairing_tokens
@@ -3551,14 +3752,19 @@ def resolve_request_hub(request: Request) -> dict[str, Any]:
         return requested_hub
 
     if not is_admin_authenticated(request):
-        owned_hub = find_hub_by_owner(username)
-        if not owned_hub:
+        if requested_hub_id:
+            requested_hub = find_hub_for_user(username, requested_hub_id)
+            if not requested_hub:
+                raise ValueError("hub_not_assigned")
+            return requested_hub
+        accessible_hub = primary_hub_for_user(username)
+        if not accessible_hub:
             raise ValueError("hub_not_assigned")
-        return owned_hub
+        return accessible_hub
 
-    owned_hub = find_hub_by_owner(username)
-    if owned_hub:
-        return owned_hub
+    accessible_hub = primary_hub_for_user(username)
+    if accessible_hub:
+        return accessible_hub
 
     hubs = list_hubs()
     if not hubs:
@@ -3672,7 +3878,7 @@ async def landing_page(request: Request):
             "user_is_authenticated": user_is_authenticated,
             "active_hub": current_hub,
             "active_pairing": current_pairing,
-            "hub_count": len(list_hubs()) if user_is_authenticated and is_admin_authenticated(request) else (1 if current_hub else 0),
+            "hub_count": len(list_hubs()) if user_is_authenticated and is_admin_authenticated(request) else len(list_hubs_for_user(current_username(request))),
             "user_count": len(list_app_users()) if user_is_authenticated and is_admin_authenticated(request) else 0,
             **template_auth_context(request),
         },
@@ -3747,7 +3953,7 @@ async def register_submit(
             normalized_username,
             password,
             is_admin=False,
-            assign_hub=True,
+            assign_hub=False,
             full_name=normalized_full_name,
             phone=normalized_phone,
             email=normalized_email,
@@ -3917,7 +4123,7 @@ async def auth_register(request: Request, payload: dict[str, Any]):
             username,
             password,
             is_admin=False,
-            assign_hub=True,
+            assign_hub=False,
             full_name=full_name,
             phone=phone,
             email=email,
@@ -4388,8 +4594,7 @@ async def get_hubs(request: Request):
     if is_admin_authenticated(request):
         hubs = list_hubs()
     else:
-        hub = find_hub_by_owner(current_username(request))
-        hubs = [hub] if hub else []
+        hubs = list_hubs_for_user(current_username(request))
     return {"ok": True, "hubs": hubs}
 
 
@@ -4500,7 +4705,7 @@ async def add_user(request: Request, payload: dict[str, Any]):
             str(payload.get("username", "")),
             str(payload.get("password", "")),
             bool(payload.get("is_admin", False)),
-            True,
+            False,
             str(payload.get("full_name", payload.get("username", ""))),
             str(payload.get("phone", "")),
             str(payload.get("email", f"{str(payload.get('username', '')).strip().lower()}@growly.local")),
