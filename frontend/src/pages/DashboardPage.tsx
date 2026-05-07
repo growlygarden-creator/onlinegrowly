@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  fetchDailyWeatherReport,
   fetchLatestSample,
   fetchMetricHistory,
   fetchPlants,
   fetchWeatherForecast,
   type AuthSession,
+  type DailyWeatherReport,
   type GrowlyPlant,
   type HistoryPoint,
   type LatestSample,
@@ -700,6 +702,7 @@ function scoreClimate(value: number | null | undefined, range: { optimal: [numbe
 export function DashboardPage({ session, selectedHubId = "", theme, onToggleTheme }: DashboardPageProps) {
   const [sample, setSample] = useState<LatestSample | null>(null);
   const [weather, setWeather] = useState<WeatherForecast | null>(null);
+  const [dailyWeatherReport, setDailyWeatherReport] = useState<DailyWeatherReport | null>(null);
   const [soilPanelOpen, setSoilPanelOpen] = useState(false);
   const [reportMetric, setReportMetric] = useState<ClimateReportMetric | null>(null);
   const [trendMetric, setTrendMetric] = useState<TrendMetricKey | null>(null);
@@ -721,6 +724,26 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
       setWeather(result);
     });
   }, [selectedHubId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!weather) {
+      setDailyWeatherReport(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    fetchDailyWeatherReport(selectedHubId).then((result) => {
+      if (!cancelled) {
+        setDailyWeatherReport(result);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedHubId, weather?.forecast.updated_at]);
 
   useEffect(() => {
     let cancelled = false;
@@ -904,6 +927,17 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                   <Link className="weather-settings-link" to="/settings">Sett opp</Link>
                 )}
               </div>
+
+              {dailyWeatherReport ? (
+                <article className="daily-weather-report">
+                  <div>
+                    <span>Dagens rapport</span>
+                    <strong>{dailyWeatherReport.title}</strong>
+                    <p>{dailyWeatherReport.body}</p>
+                  </div>
+                  <small>{dailyWeatherReport.tip}</small>
+                </article>
+              ) : null}
 
               <div className={`overview-image-banner overview-image-banner--${scene.mode}`}>
                 <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />

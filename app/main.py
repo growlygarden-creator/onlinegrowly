@@ -116,6 +116,7 @@ MET_WEATHER_USER_AGENT = os.getenv(
     "MET_WEATHER_USER_AGENT",
     "GrowlyGarden/1.0 growlygarden@gmail.com",
 ).strip()
+WEATHER_REPORT_CACHE: dict[str, dict[str, Any]] = {}
 SUPABASE_CORE_TABLES = (
     "growly_users",
     "growly_hubs",
@@ -3245,6 +3246,27 @@ def openai_response_text(payload: dict[str, Any]) -> str:
     return ""
 
 
+def parse_ai_json_object(text: str) -> dict[str, Any] | None:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.lower().startswith("json"):
+            stripped = stripped[4:].strip()
+    try:
+        parsed = json.loads(stripped)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start == -1 or end <= start:
+            return None
+        try:
+            parsed = json.loads(stripped[start : end + 1])
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+
+
 def clean_ai_image_payload(image: Any) -> dict[str, str] | None:
     if not isinstance(image, dict):
         return None
@@ -4235,6 +4257,130 @@ def fetch_met_weather_forecast(lat: float, lon: float) -> dict[str, Any]:
         "updated_at": utc_now_iso(),
         "now": upcoming[0] if upcoming else None,
         "days": days,
+    }
+
+
+def weather_label_nb(symbol_code: str | None) -> str:
+    code = (symbol_code or "").lower()
+    if "thunder" in code:
+        return "tordenvær"
+    if "rain" in code or "sleet" in code:
+        return "regn"
+    if "snow" in code:
+        return "snø"
+    if "fog" in code:
+        return "tåke"
+    if "cloud" in code:
+        return "skyet vær"
+    if "partly" in code or "fair" in code:
+        return "lettskyet vær"
+    if "clear" in code:
+        return "sol"
+    return "skiftende vær"
+
+
+def daily_weather_report_fallback(forecast: dict[str, Any]) -> dict[str, Any]:
+    now = forecast.get("now") if isinstance(forecast.get("now"), dict) else {}
+    days = forecast.get("days") if isinstance(forecast.get("days"), list) else []
+    today = days[0] if days and isinstance(days[0], dict) else {}
+    symbol = str(now.get("symbol_code") or today.get("symbol_code") or "")
+    condition = weather_label_nb(symbol)
+    temperature = now.get("air_temperature")
+    humidity = now.get("relative_humidity")
+    wind = now.get("wind_speed")
+    max_temp = today.get("temperature_max")
+
+    temp_text = f"{float(temperature):.0f}°C" if isinstance(temperature, (int, float)) else "mild temperatur"
+    humidity_text = f" og fukt rundt {float(humidity):.0f} %" if isinstance(humidity, (int, float)) else ""
+    wind_text = f" Vind {float(wind):.1f} m/s." if isinstance(wind, (int, float)) else ""
+
+    if isinstance(max_temp, (int, float)) and max_temp >= 20:
+        tip = "Luft tidlig og gi litt skygge midt på dagen."
+    elif "rain" in symbol.lower():
+        tip = "Hold igjen vanningen ute, men sjekk potter under tak."
+    elif isinstance(wind, (int, float)) and wind >= 7:
+        tip = "Sikre lette potter og luft forsiktig hvis vinden tar."
+    elif "clear" in symbol.lower() or "fair" in symbol.lower():
+        tip = "Sterk sol kan varme drivhuset raskt. Åpne før det blir for varmt."
+    else:
+        tip = "Sjekk jordfukt før du vanner, særlig i små potter."
+
+    return {
+        "title": "Dagens dyrkevær",
+        "body": f"I dag er det meldt {condition}, {temp_text}{humidity_text}.{wind_text}".replace("..", "."),
+        "tip": tip,
+    }
+
+
+def ask_openai_weather_report(forecast: dict[str, Any], hub: dict[str, Any], sample: dict[str, Any] | None, plants: list[dict[str, Any]]) -> dict[str, Any]:
+    if not OPENAI_API_KEY:
+        raise ValueError("openai_key_missing")
+
+    request_payload = {
+        "model": OPENAI_MODEL,
+        "input": [
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "Du er Growly sin daglige drivhusrapport. "
+                            "Skriv på norsk, varmt og premium, men svært kort. "
+                            "Bruk været som hovedgrunnlag og sensordata/plantedata kun som bonus. "
+                            "Returner kun gyldig JSON med feltene title, body og tip. "
+                            "title maks 4 ord. body maks 22 ord. tip maks 18 ord. "
+                            "Ingen markdown, ingen punktliste, ingen ekstra tekst."
+                        ),
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": json.dumps(
+                            {
+                                "dato": datetime.now(APP_TIMEZONE).date().isoformat(),
+                                "hub": {
+                                    "hub_id": hub.get("hub_id"),
+                                    "hub_name": hub.get("hub_name"),
+                                    "hub_aktiv": bool(hub.get("is_active")),
+                                    "dyrkested": hub.get("weather_address") or hub.get("location_label"),
+                                },
+                                "vaer": forecast,
+                                "siste_sensor": sample,
+                                "aktive_planter": plants[:6],
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                ],
+            },
+        ],
+        "max_output_tokens": 140,
+    }
+    request = UrlRequest(
+        "https://api.openai.com/v1/responses",
+        data=json.dumps(request_payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    request_ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    with urlopen(request, timeout=20, context=request_ssl_context) as response:
+        response_payload = json.loads(response.read().decode("utf-8"))
+
+    parsed = parse_ai_json_object(openai_response_text(response_payload))
+    if not parsed:
+        raise ValueError("empty_ai_response")
+    return {
+        "title": str(parsed.get("title") or "Dagens dyrkevær").strip()[:80],
+        "body": str(parsed.get("body") or "").strip()[:240],
+        "tip": str(parsed.get("tip") or "").strip()[:220],
     }
 
 
@@ -5333,6 +5479,64 @@ async def weather_forecast(request: Request):
         },
         "forecast": forecast,
     }
+
+
+@app.get("/api/weather/daily-report")
+async def weather_daily_report(request: Request):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+    except ValueError as exc:
+        return hub_error_response(str(exc))
+    settings = hub_settings(str(hub["hub_id"]))
+    lat = settings.get("weather_latitude")
+    lon = settings.get("weather_longitude")
+    if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "weather_location_missing"})
+
+    try:
+        forecast = fetch_met_weather_forecast(float(lat), float(lon))
+    except HTTPError as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": f"weather_http_{exc.code}"})
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "weather_unavailable"})
+
+    today_key = datetime.now(APP_TIMEZONE).date().isoformat()
+    cache_key = f"{settings['hub_id']}:{today_key}"
+    cached = WEATHER_REPORT_CACHE.get(cache_key)
+    if cached:
+        return {"ok": True, **cached}
+
+    sample = ai_sample_context(str(hub["hub_id"]))
+    try:
+        plants = list_user_plants(current_username(request), str(hub["hub_id"]), include_archived=False, archived_only=False)
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError):
+        plants = []
+
+    source = "ai"
+    try:
+        report = ask_openai_weather_report(
+            forecast,
+            {**hub, **settings},
+            sample if isinstance(sample, dict) else None,
+            plants,
+        )
+        if not report.get("body") or not report.get("tip"):
+            raise ValueError("empty_ai_response")
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, ValueError):
+        report = daily_weather_report_fallback(forecast)
+        source = "local_fallback"
+
+    payload = {
+        "hub_id": settings["hub_id"],
+        "source": source,
+        "generated_at": utc_now_iso(),
+        "report": report,
+    }
+    WEATHER_REPORT_CACHE[cache_key] = payload
+    return {"ok": True, **payload}
 
 
 @app.get("/api/users")

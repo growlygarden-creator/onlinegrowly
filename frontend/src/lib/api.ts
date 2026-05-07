@@ -59,6 +59,14 @@ export type WeatherForecast = {
   };
 };
 
+export type DailyWeatherReport = {
+  title: string;
+  body: string;
+  tip: string;
+  source?: "ai" | "local_fallback" | string;
+  generated_at?: string;
+};
+
 export type WeatherAddressMatch = {
   label: string;
   address: string;
@@ -439,6 +447,31 @@ export async function fetchWeatherForecast(hubId = ""): Promise<WeatherForecast 
     return {
       location: result.location,
       forecast: result.forecast,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchDailyWeatherReport(hubId = ""): Promise<DailyWeatherReport | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/weather/daily-report", hubId)), {
+      credentials: "include",
+      cache: "no-store",
+      headers: authHeaders(),
+    }, AI_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; report: DailyWeatherReport; source?: string; generated_at?: string }>(response);
+    if (!result.ok || !result.report) {
+      return null;
+    }
+    return {
+      ...result.report,
+      source: result.source,
+      generated_at: result.generated_at,
     };
   } catch {
     return null;
