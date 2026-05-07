@@ -241,12 +241,14 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
         </section>
       ) : null}
       <button className="assistant-bubble-button" type="button" onClick={() => setAssistantOpen((open) => !open)} aria-label="Åpne Growly-chat">
-        <svg className="assistant-bubble-icon" viewBox="0 0 64 64" aria-hidden="true">
-          <path className="assistant-bubble-icon__chat" d="M13 21.5C13 13.5 19.5 7 27.5 7h10C45 7 51 13 51 20.5v11C51 39 45 45 37.5 45H31l-13.2 8 3.4-11.2C16.3 39.4 13 34.3 13 28.7v-7.2Z" />
-          <path className="assistant-bubble-icon__stem" d="M31.8 38V24.5" />
-          <path className="assistant-bubble-icon__leaf" d="M30.8 28.2C22.7 26.2 18.5 20.9 18 13.7c8.5.1 14.3 4.5 17 12.2" />
-          <path className="assistant-bubble-icon__leaf assistant-bubble-icon__leaf--right" d="M34.1 29.6c2-8.2 7.7-13.2 16.3-14.1-.8 8.9-6.1 14.3-15.5 16.5" />
-        </svg>
+        <span className="assistant-bubble-mark" aria-hidden="true">
+          <span>AI</span>
+          <svg viewBox="0 0 24 24">
+            <path d="M12 19V8" />
+            <path d="M11.4 11.2C7.7 10.5 5.6 8.3 5.1 5.1c4 .1 6.5 2.1 7.7 5.9" />
+            <path d="M12.7 12.1c1.1-3.9 3.7-6.2 7.9-6.6-.4 4.1-2.9 6.5-7.5 7.4" />
+          </svg>
+        </span>
       </button>
     </div>
   );

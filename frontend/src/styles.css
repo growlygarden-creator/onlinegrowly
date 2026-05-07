@@ -1369,16 +1369,15 @@ input {
   place-items: center;
   width: 68px;
   height: 68px;
-  border: 1px solid rgba(241, 255, 239, 0.35);
+  border: 1px solid rgba(38, 98, 65, 0.14);
   border-radius: 50%;
   background:
-    radial-gradient(circle at 29% 22%, rgba(255, 255, 255, 0.92), transparent 27%),
-    radial-gradient(circle at 72% 78%, rgba(169, 230, 141, 0.42), transparent 34%),
-    linear-gradient(145deg, #38a862 0%, #1f7149 55%, #155237 100%);
-  color: #ffffff;
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.96), transparent 26%),
+    linear-gradient(145deg, #ffffff 0%, #ecf7e9 58%, #d7ecd2 100%);
+  color: #205b39;
   box-shadow:
-    0 18px 38px rgba(28, 84, 51, 0.34),
-    inset 0 -8px 16px rgba(10, 54, 34, 0.22);
+    0 18px 38px rgba(28, 84, 51, 0.22),
+    inset 0 -8px 16px rgba(47, 98, 50, 0.1);
   cursor: pointer;
   transition:
     transform 160ms ease,
@@ -1387,13 +1386,13 @@ input {
 
 .assistant-bubble-button::after {
   position: absolute;
-  right: 8px;
-  top: 8px;
-  width: 12px;
-  height: 12px;
-  border: 3px solid rgba(255, 255, 255, 0.9);
+  right: 9px;
+  top: 9px;
+  width: 10px;
+  height: 10px;
+  border: 3px solid rgba(255, 255, 255, 0.95);
   border-radius: 50%;
-  background: #c8f36d;
+  background: #32b86a;
   content: "";
 }
 
@@ -1404,43 +1403,53 @@ input {
     inset 0 -8px 16px rgba(10, 54, 34, 0.22);
 }
 
-.assistant-bubble-button svg,
-.assistant-bubble-icon {
+.assistant-bubble-mark {
+  display: grid;
+  place-items: center;
   width: 46px;
   height: 46px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: inset 0 0 0 1px rgba(38, 98, 65, 0.1);
 }
 
-.assistant-bubble-icon__chat {
-  fill: rgba(255, 255, 255, 0.15);
-  stroke: rgba(255, 255, 255, 0.95);
-  stroke-linejoin: round;
-  stroke-width: 3.4;
+.assistant-bubble-mark > span {
+  color: #18492f;
+  font-size: 1.03rem;
+  font-weight: 950;
+  line-height: 1;
 }
 
-.assistant-bubble-icon__stem {
+.assistant-bubble-mark svg {
+  width: 21px;
+  height: 21px;
+  margin-top: -2px;
   fill: none;
-  stroke: #ffffff;
+  stroke: currentColor;
   stroke-linecap: round;
-  stroke-width: 3.8;
-}
-
-.assistant-bubble-icon__leaf {
-  fill: rgba(238, 255, 229, 0.95);
-  stroke: rgba(255, 255, 255, 0.88);
   stroke-linejoin: round;
-  stroke-width: 2.4;
+  stroke-width: 1.9;
 }
 
 .theme-dark .assistant-bubble-button {
   border-color: rgba(211, 248, 197, 0.22);
   background:
-    radial-gradient(circle at 29% 22%, rgba(255, 255, 255, 0.72), transparent 26%),
-    radial-gradient(circle at 74% 80%, rgba(139, 215, 110, 0.34), transparent 33%),
-    linear-gradient(145deg, #46b66d 0%, #1f6d47 56%, #123d2b 100%);
+    radial-gradient(circle at 29% 22%, rgba(255, 255, 255, 0.2), transparent 26%),
+    linear-gradient(145deg, #2b5637 0%, #1d3b29 58%, #12251b 100%);
+  color: #dff8d7;
   box-shadow:
     0 20px 46px rgba(0, 0, 0, 0.44),
     0 0 0 1px rgba(179, 232, 169, 0.1),
     inset 0 -9px 18px rgba(4, 29, 19, 0.3);
+}
+
+.theme-dark .assistant-bubble-mark {
+  background: rgba(235, 250, 229, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(235, 250, 229, 0.12);
+}
+
+.theme-dark .assistant-bubble-mark > span {
+  color: #eef6eb;
 }
 
 .assistant-close-button {

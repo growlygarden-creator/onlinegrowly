@@ -3217,6 +3217,8 @@ def ask_openai_growly(question: str, context: dict[str, Any], image: dict[str, s
                             "Bruk maks 3 punkter, maks 18 ord per punkt. "
                             "Ikke bruk Markdown, fet tekst, overskrifter, nummererte lange lister eller forklaringsavsnitt. "
                             "Start hvert punkt med et tydelig verb. "
+                            "Svar også på generelle drivhus-, dyrke- og plantepleiespørsmål når sensordata ikke er relevant. "
+                            "Bruk sensorene som ekstra kontekst, ikke som eneste grunnlag for svaret. "
                             "Bruk sensordata og plantekrav når de finnes. "
                             "Hvis brukeren sender bilde, vurder synlige tegn på planten og foreslå trygg neste handling. "
                             "Hvis data mangler, si det tydelig i ett kort punkt. "
