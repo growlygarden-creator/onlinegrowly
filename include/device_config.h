@@ -13,13 +13,12 @@ constexpr char PREFS_SAMPLE_SOIL_KEY[] = "soil_ms";
 constexpr char PREFS_SAMPLE_LIGHT_KEY[] = "light_ms";
 constexpr char PREFS_SAMPLE_AIR_KEY[] = "air_ms";
 constexpr char PREFS_SAMPLE_CLOUD_KEY[] = "cloud_ms";
-constexpr char FIRMWARE_VERSION[] = "0.1.6-supabase-hub";
+constexpr char FIRMWARE_VERSION[] = "0.1.7-backend-ingest";
 constexpr char BACKEND_BASE_URL[] = "https://onlinegrowly.onrender.com";
-constexpr char BACKEND_INGEST_URL[] = "";
+constexpr char BACKEND_INGEST_URL[] = "https://onlinegrowly.onrender.com/api/sensor/ingest";
 constexpr char SUPABASE_PROJECT_URL[] = "https://ffxkxsclgiojrzmxvyuk.supabase.co";
-constexpr char SUPABASE_REST_ENDPOINT[] = "https://ffxkxsclgiojrzmxvyuk.supabase.co/rest/v1/sensor_data";
-// Supabase REST works with the anon public JWT in the apikey/Bearer headers.
-constexpr char SUPABASE_API_KEY[] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZmeGt4c2NsZ2lvanJ6bXh2eXVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzOTI1MzYsImV4cCI6MjA4OTk2ODUzNn0.yOtn_wNGOje0QAEdWYll8XJkojFANCxpmWd5F1eoPzA";
+constexpr char SUPABASE_REST_ENDPOINT[] = "";
+constexpr char SUPABASE_API_KEY[] = "";
 constexpr char HUB_PAIR_PATH[] = "/api/hubs/pair";
 constexpr char DEVICE_CONFIG_PATH[] = "/api/device/config";
 constexpr char DEVICE_STATUS_PATH[] = "/api/device/status";

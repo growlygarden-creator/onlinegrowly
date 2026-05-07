@@ -746,6 +746,7 @@ bool pollSensor(SensorReading& reading) {
 String sensorReadingJson() {
     String json = "{";
     json += "\"valid\":" + String(latestReading.valid ? "true" : "false");
+    json += ",\"hub_id\":\"" + jsonEscape(pairedHubId) + "\"";
     json += ",\"last_read_ms\":" + String(latestReading.lastReadAt);
     json += ",\"device\":\"" + String(DeviceConfig::DEVICE_NAME) + "\"";
     json += ",\"air_temperature\":";
@@ -2007,6 +2008,10 @@ void uploadSensorReadingToBackend() {
 }
 
 void sendToSupabase() {
+    if (strlen(DeviceConfig::SUPABASE_REST_ENDPOINT) == 0 || strlen(DeviceConfig::SUPABASE_API_KEY) == 0) {
+        return;
+    }
+
     if (WiFi.status() != WL_CONNECTED || captivePortalActive) {
         return;
     }

@@ -3065,6 +3065,34 @@ def normalized_sensor_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def sensor_sample_supabase_payload(normalized: dict[str, Any], hub_id: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "created_at": normalized["recorded_at"],
+        "hub_id": hub_id,
+    }
+    for metric in METRIC_KEYS:
+        payload[metric] = normalized.get(metric)
+    return payload
+
+
+def best_effort_store_sensor_sample_supabase(normalized: dict[str, Any], hub_id: str) -> dict[str, Any] | None:
+    if not supabase_enabled():
+        return None
+    try:
+        supabase_request(
+            "sensor_data",
+            method="POST",
+            payload=sensor_sample_supabase_payload(normalized, hub_id),
+            prefer="return=minimal",
+        )
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        return {"ok": False, "error": f"HTTP {exc.code}: {body or exc.reason}"}
+    except (URLError, json.JSONDecodeError) as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True}
+
+
 def store_sensor_sample(payload: dict[str, Any], hub_id: str) -> dict[str, Any]:
     normalized = normalized_sensor_payload(payload)
     with db_connection() as connection:
@@ -3100,6 +3128,7 @@ def store_sensor_sample(payload: dict[str, Any], hub_id: str) -> dict[str, Any]:
         connection.commit()
         normalized["id"] = cursor.lastrowid
         normalized["hub_id"] = hub_id
+    normalized["supabase"] = best_effort_store_sensor_sample_supabase(normalized, hub_id)
     return normalized
 
 
@@ -4756,15 +4785,15 @@ async def sensor_proxy(request: Request, target: str | None = Query(default=None
 
 @app.post("/api/sensor/ingest")
 async def sensor_ingest(request: Request, payload: dict[str, Any]):
-    auth_error = require_viewer_api(request)
-    if auth_error:
-        return auth_error
+    hub_id = str(payload.get("hub_id") or request.headers.get("X-Growly-Hub-Id") or "").strip()
+    if not hub_id:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "missing_hub_id"})
     try:
-        hub = resolve_request_hub(request)
+        ensure_device_hub(hub_id)
     except ValueError as exc:
-        return hub_error_response(str(exc))
-    stored = store_sensor_sample(payload, str(hub["hub_id"]))
-    return {"ok": True, "stored": stored}
+        return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
+    stored = store_sensor_sample({**payload, "source": payload.get("source") or "growly_backend_ingest"}, hub_id)
+    return {"ok": True, "hub_id": hub_id, "stored": stored}
 
 
 @app.get("/api/history")
