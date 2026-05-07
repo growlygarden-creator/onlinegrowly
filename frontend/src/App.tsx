@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { fetchSession, type AuthSession } from "./lib/api";
 import { BottomNav } from "./components/BottomNav";
 import { GrowlyAssistantDock } from "./components/GrowlyAssistantDock";
+import { HubSwitcher } from "./components/HubSwitcher";
+import { persistSelectedHubId, selectedHubIdForSession, sessionWithSelectedHub } from "./lib/hubSelection";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { GreenhousePage } from "./pages/GreenhousePage";
@@ -56,17 +58,33 @@ export function App() {
     );
   }
 
-  const authenticatedSession: AuthSession | null = session?.authenticated ? session : null;
+  const baseAuthenticatedSession: AuthSession | null = session?.authenticated ? session : null;
+  const selectedHubId = selectedHubIdForSession(baseAuthenticatedSession);
+  const authenticatedSession: AuthSession | null =
+    baseAuthenticatedSession && selectedHubId
+      ? sessionWithSelectedHub(baseAuthenticatedSession, selectedHubId)
+      : baseAuthenticatedSession;
   const isAuthenticated = !!authenticatedSession;
+
+  function handleSelectHub(hubId: string) {
+    if (!baseAuthenticatedSession) {
+      return;
+    }
+    persistSelectedHubId(baseAuthenticatedSession, hubId);
+    setSession(sessionWithSelectedHub(baseAuthenticatedSession, hubId));
+  }
 
   return (
     <div className="app-shell">
+      {isAuthenticated ? (
+        <HubSwitcher session={authenticatedSession} selectedHubId={selectedHubId} onSelectHub={handleSelectHub} />
+      ) : null}
       <Routes>
         <Route
           path="/"
           element={
             isAuthenticated ? (
-              <DashboardPage session={authenticatedSession} theme={theme} onToggleTheme={toggleTheme} />
+              <DashboardPage session={authenticatedSession} selectedHubId={selectedHubId} theme={theme} onToggleTheme={toggleTheme} />
             ) : (
               <Navigate to="/login" replace />
             )
@@ -74,7 +92,7 @@ export function App() {
         />
         <Route
           path="/drivhus"
-          element={isAuthenticated ? <GreenhousePage session={authenticatedSession} /> : <Navigate to="/login" replace />}
+          element={isAuthenticated ? <GreenhousePage session={authenticatedSession} selectedHubId={selectedHubId} /> : <Navigate to="/login" replace />}
         />
         <Route
           path="/kartotek"
@@ -105,7 +123,7 @@ export function App() {
 
       {isAuthenticated ? (
         <>
-          <GrowlyAssistantDock />
+          <GrowlyAssistantDock selectedHubId={selectedHubId} />
           <BottomNav />
         </>
       ) : null}

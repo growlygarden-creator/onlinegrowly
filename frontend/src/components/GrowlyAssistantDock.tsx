@@ -40,7 +40,11 @@ function assistantAnswerItems(answer: string): string[] {
     .map((line) => (line.length > 120 ? `${line.slice(0, 117).trim()}...` : line));
 }
 
-export function GrowlyAssistantDock() {
+type GrowlyAssistantDockProps = {
+  selectedHubId?: string;
+};
+
+export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockProps) {
   const [assistantQuestion, setAssistantQuestion] = useState("");
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(initialAssistantMessages);
   const [assistantLoading, setAssistantLoading] = useState(false);
@@ -95,7 +99,7 @@ export function GrowlyAssistantDock() {
     ]);
     setAssistantLoading(true);
     try {
-      const result = await askGrowlyAssistant(trimmedQuestion, image);
+      const result = await askGrowlyAssistant(trimmedQuestion, image, selectedHubId);
       if (!result) {
         setAssistantMessages((messages) => [
           ...messages,

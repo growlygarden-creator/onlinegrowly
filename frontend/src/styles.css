@@ -74,6 +74,61 @@ input {
   padding: 10px 8px 0;
 }
 
+.hub-switcher {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0 8px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 12px 30px rgba(28, 55, 35, 0.06);
+}
+
+.hub-switcher span {
+  min-width: 0;
+}
+
+.hub-switcher small,
+.hub-switcher strong {
+  display: block;
+}
+
+.hub-switcher small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.hub-switcher strong {
+  overflow: hidden;
+  color: var(--accent-strong);
+  font-size: 1rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hub-switcher select {
+  max-width: 160px;
+  min-height: 40px;
+  padding: 0 34px 0 12px;
+  border: 1px solid rgba(38, 98, 65, 0.18);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font: inherit;
+  font-weight: 850;
+}
+
+.theme-dark .hub-switcher {
+  background: rgba(238, 246, 235, 0.06);
+}
+
 .content-grid {
   display: grid;
   gap: 14px;

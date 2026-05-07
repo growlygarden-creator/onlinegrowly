@@ -15,6 +15,7 @@ import { readUserArray, writeUserArray } from "../lib/userStorage";
 
 type GreenhousePageProps = {
   session: AuthSession | null;
+  selectedHubId?: string;
 };
 
 type SoilMetricKey =
@@ -432,7 +433,7 @@ function detailTrendPath(points: HistoryPoint[], range: { optimal: [number, numb
   };
 }
 
-export function GreenhousePage({ session }: GreenhousePageProps) {
+export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePageProps) {
   const [sample, setSample] = useState<LatestSample | null>(null);
   const [catalogItems, setCatalogItems] = useState<PlantCatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -453,10 +454,10 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
   const [newHasSevenInOne, setNewHasSevenInOne] = useState(false);
 
   useEffect(() => {
-    fetchLatestSample().then((result) => {
+    fetchLatestSample(selectedHubId).then((result) => {
       setSample(result);
     });
-  }, []);
+  }, [selectedHubId]);
 
   useEffect(() => {
     setCatalogLoading(true);
@@ -498,6 +499,7 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
           metric: apiMetric,
           span: "hours",
           limit: 500,
+          hubId: selectedHubId,
         });
 
         if (cancelled) {
@@ -514,6 +516,7 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
           metric: apiMetric,
           span: "days",
           limit: 500,
+          hubId: selectedHubId,
         });
 
         if (cancelled) {
@@ -536,7 +539,7 @@ export function GreenhousePage({ session }: GreenhousePageProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedPlantId, detailTrendMetric]);
+  }, [selectedPlantId, detailTrendMetric, selectedHubId]);
 
   const selectedPlant = plants.find((plant) => plant.instanceId === selectedPlantId) ?? null;
   const searchableCatalogItems = catalogItems.length ? catalogItems : bundledPlantCatalog;

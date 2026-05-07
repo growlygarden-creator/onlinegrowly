@@ -198,6 +198,16 @@ async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ti
   }
 }
 
+function appendHubId(path: string, hubId?: string): string {
+  const cleanHubId = (hubId || "").trim();
+  if (!cleanHubId) {
+    return path;
+  }
+
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}hub_id=${encodeURIComponent(cleanHubId)}`;
+}
+
 export async function fetchSession(): Promise<AuthSession | null> {
   try {
     const response = await fetchWithTimeout(apiUrl("/api/auth/session"), {
@@ -326,9 +336,9 @@ export async function createPairing(): Promise<PairingInfo | null> {
   }
 }
 
-export async function fetchLatestSample(): Promise<LatestSample | null> {
+export async function fetchLatestSample(hubId = ""): Promise<LatestSample | null> {
   try {
-    const response = await fetchWithTimeout(apiUrl("/api/latest"), {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/latest", hubId)), {
       credentials: "include",
       cache: "no-store",
       headers: authHeaders(),
@@ -350,6 +360,7 @@ export async function fetchMetricHistory(params: {
   limit: number;
   dateFrom?: string;
   dateTo?: string;
+  hubId?: string;
 }): Promise<HistoryResponse | null> {
   try {
     const search = new URLSearchParams({
@@ -364,6 +375,10 @@ export async function fetchMetricHistory(params: {
 
     if (params.dateTo) {
       search.set("date_to", params.dateTo);
+    }
+
+    if (params.hubId) {
+      search.set("hub_id", params.hubId);
     }
 
     const response = await fetchWithTimeout(apiUrl(`/api/history?${search.toString()}`), {
@@ -405,9 +420,13 @@ export async function fetchPlantCatalog(query = ""): Promise<PlantCatalogItem[]>
   }
 }
 
-export async function askGrowlyAssistant(question: string, image?: GrowlyAssistantImage | null): Promise<{ answer: string; model: string } | null> {
+export async function askGrowlyAssistant(
+  question: string,
+  image?: GrowlyAssistantImage | null,
+  hubId = "",
+): Promise<{ answer: string; model: string } | null> {
   try {
-    const response = await fetchWithTimeout(apiUrl("/api/ai/assistant"), {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/ai/assistant", hubId)), {
       method: "POST",
       credentials: "include",
       headers: {

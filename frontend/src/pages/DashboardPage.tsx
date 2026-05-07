@@ -11,6 +11,7 @@ import tempDot from "../assets/greenhouse-assets/temp-dot.png";
 
 type DashboardPageProps = {
   session: AuthSession | null;
+  selectedHubId?: string;
   theme: "light" | "dark";
   onToggleTheme: () => void;
 };
@@ -665,7 +666,7 @@ function scoreClimate(value: number | null | undefined, range: { optimal: [numbe
   };
 }
 
-export function DashboardPage({ session, theme, onToggleTheme }: DashboardPageProps) {
+export function DashboardPage({ session, selectedHubId = "", theme, onToggleTheme }: DashboardPageProps) {
   const [sample, setSample] = useState<LatestSample | null>(null);
   const [soilPanelOpen, setSoilPanelOpen] = useState(false);
   const [reportMetric, setReportMetric] = useState<ClimateReportMetric | null>(null);
@@ -677,10 +678,10 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    fetchLatestSample().then((result) => {
+    fetchLatestSample(selectedHubId).then((result) => {
       setSample(result);
     });
-  }, []);
+  }, [selectedHubId]);
 
   useEffect(() => {
     if (!soilPanelOpen && !trendMetric && !reportMetric) {
@@ -715,6 +716,7 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
       limit: windowConfig.limit,
       dateFrom: windowConfig.dateFrom,
       dateTo: windowConfig.dateTo,
+      hubId: selectedHubId,
     }).then((result) => {
       if (!result) {
         setTrendPoints([]);
@@ -726,7 +728,7 @@ export function DashboardPage({ session, theme, onToggleTheme }: DashboardPagePr
       setTrendPoints(result.points);
       setTrendLoading(false);
     });
-  }, [trendMetric, trendRange]);
+  }, [trendMetric, trendRange, selectedHubId]);
 
   const firstName = session?.user?.full_name?.split(" ")[0] || session?.username || "Geirij";
   const status = growthStatus(sample);
