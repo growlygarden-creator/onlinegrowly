@@ -94,3 +94,5 @@ create index if not exists growly_plants_hub_id_idx
 
 create index if not exists growly_plant_events_hub_id_event_at_idx
   on public.growly_plant_events (hub_id, event_at desc);
+
+notify pgrst, 'reload schema';

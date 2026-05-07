@@ -66,6 +66,33 @@
         </section>
 
         <section class="panel settings-card">
+            <h2 class="settings-subtitle">Supabase-synk</h2>
+            <p class="helper-text">Kontoer, hubber, eierskap og pairing speiles til Supabase når kjernetabellene er klare.</p>
+            <div class="settings-grid config-ack-grid">
+                <div class="config-ack-card">
+                    <span>Supabase</span>
+                    <strong id="supabase-enabled">Sjekker...</strong>
+                    <small id="supabase-sync-enabled">Venter</small>
+                </div>
+                <div class="config-ack-card">
+                    <span>Kjernetabeller</span>
+                    <strong id="supabase-table-state">Sjekker...</strong>
+                    <small id="supabase-table-detail">Ikke kontrollert enda</small>
+                </div>
+                <div class="config-ack-card">
+                    <span>Siste sync</span>
+                    <strong id="supabase-sync-counts">Ikke kjørt</strong>
+                    <small id="supabase-sync-status">Kjør når tabellene er grønne</small>
+                </div>
+            </div>
+            <div class="actions">
+                <button id="refresh-supabase-button" class="button secondary-button" type="button">Sjekk Supabase</button>
+                <button id="sync-supabase-button" class="button" type="button">Synk kjerne</button>
+                <span id="supabase-status-pill" class="status-pill">Ikke sjekket</span>
+            </div>
+        </section>
+
+        <section class="panel settings-card">
             <h2 class="settings-subtitle">Samplingsintervall</h2>
             <p class="helper-text">Bestem hvor ofte alle hubber skal lese sensorene og sende data videre. Verdiene lagres globalt i backend og hentes automatisk av hver ESP32 når den er online.</p>
             <div class="settings-grid">
@@ -232,6 +259,15 @@
         const deviceStatusAt = document.getElementById("device-status-at");
         const deviceFirmwareVersion = document.getElementById("device-firmware-version");
         const configAckState = document.getElementById("config-ack-state");
+        const supabaseEnabled = document.getElementById("supabase-enabled");
+        const supabaseSyncEnabled = document.getElementById("supabase-sync-enabled");
+        const supabaseTableState = document.getElementById("supabase-table-state");
+        const supabaseTableDetail = document.getElementById("supabase-table-detail");
+        const supabaseSyncCounts = document.getElementById("supabase-sync-counts");
+        const supabaseSyncStatus = document.getElementById("supabase-sync-status");
+        const supabaseStatusPill = document.getElementById("supabase-status-pill");
+        const refreshSupabaseButton = document.getElementById("refresh-supabase-button");
+        const syncSupabaseButton = document.getElementById("sync-supabase-button");
 
         function setSaveStatus(text, mode = "") {
             settingsSaveStatus.textContent = text;
@@ -287,6 +323,65 @@
             }
         }
 
+        function setSupabaseStatus(text, mode = "") {
+            supabaseStatusPill.textContent = text;
+            supabaseStatusPill.dataset.mode = mode;
+        }
+
+        function renderSupabaseStatus(status) {
+            const tables = status?.tables || {};
+            const tableEntries = Object.entries(tables);
+            const failedTables = tableEntries.filter(([, value]) => !value?.ok);
+            const ready = Boolean(status?.enabled) && tableEntries.length > 0 && failedTables.length === 0;
+
+            supabaseEnabled.textContent = status?.enabled ? "Aktiv" : "Ikke konfigurert";
+            supabaseSyncEnabled.textContent = status?.sync_enabled ? "Automatisk sync aktiv" : "Automatisk sync av";
+            supabaseTableState.textContent = ready ? "Klare" : `${failedTables.length || tableEntries.length} mangler`;
+            supabaseTableDetail.textContent = ready
+                ? "Kjerne-tabellene er tilgjengelige"
+                : failedTables.map(([name]) => name).join(", ") || "Ingen tabeller kontrollert";
+            syncSupabaseButton.disabled = !ready;
+            setSupabaseStatus(ready ? "Klar" : "Mangler SQL", ready ? "online" : "warning");
+        }
+
+        async function refreshSupabaseStatus() {
+            setSupabaseStatus("Sjekker...", "warning");
+            try {
+                const response = await fetch("/api/supabase/status", { cache: "no-store" });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "status_failed");
+                }
+                renderSupabaseStatus(result.status);
+            } catch (error) {
+                supabaseTableState.textContent = "Feil";
+                supabaseTableDetail.textContent = error?.message || String(error);
+                syncSupabaseButton.disabled = true;
+                setSupabaseStatus("Kunne ikke sjekke", "offline");
+            }
+        }
+
+        async function syncSupabaseCore() {
+            setSupabaseStatus("Synker...", "warning");
+            syncSupabaseButton.disabled = true;
+            try {
+                const response = await fetch("/api/supabase/sync-core", { method: "POST" });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "sync_failed");
+                }
+                const counts = result.counts || {};
+                supabaseSyncCounts.textContent = `${counts.users || 0} brukere · ${counts.hubs || 0} hubber`;
+                supabaseSyncStatus.textContent = `${counts.hub_members || 0} medlemskap · ${counts.pairing_tokens || 0} pairing`;
+                setSupabaseStatus("Synket", "online");
+                await refreshSupabaseStatus();
+            } catch (error) {
+                supabaseSyncStatus.textContent = error?.message || String(error);
+                setSupabaseStatus("Sync feilet", "offline");
+                await refreshSupabaseStatus();
+            }
+        }
+
         async function saveSampleSettings() {
             setSaveStatus("Lagrer...", "warning");
 
@@ -328,7 +423,10 @@
         }
 
         saveSettingsButton.addEventListener("click", saveSampleSettings);
+        refreshSupabaseButton.addEventListener("click", refreshSupabaseStatus);
+        syncSupabaseButton.addEventListener("click", syncSupabaseCore);
         refreshConfigAck();
+        refreshSupabaseStatus();
         window.setInterval(refreshConfigAck, 15000);
     </script>
 </body>
