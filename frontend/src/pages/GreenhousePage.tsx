@@ -2,8 +2,13 @@ import { useEffect, useState } from "react";
 import {
   fetchLatestSample,
   fetchMetricHistory,
+  fetchPlants,
   fetchPlantCatalog,
+  createPlant,
+  updatePlant,
+  archivePlant as archivePlantApi,
   type AuthSession,
+  type GrowlyPlant,
   type HistoryPoint,
   type LatestSample,
   type PlantCatalogItem,
@@ -11,7 +16,6 @@ import {
 import { bundledPlantCatalog } from "../data/plantCatalog";
 import { PlantAvatar } from "../components/PlantAvatar";
 import { plantCareGuide } from "../lib/plantCare";
-import { readUserArray, writeUserArray } from "../lib/userStorage";
 
 type GreenhousePageProps = {
   session: AuthSession | null;
@@ -43,22 +47,7 @@ type PlantProfile = {
   watering?: string;
 };
 
-type GreenhousePlant = {
-  instanceId: string;
-  profileId: string;
-  variantId?: string | null;
-  cultivarId?: string | null;
-  catalogItemId?: string;
-  nickname: string;
-  sowedAt?: string;
-  location?: "greenhouse" | "outside";
-  movedToGreenhouseAt?: string | null;
-  hasSevenInOne: boolean;
-  wateringEnabled: boolean;
-};
-
-const PLANTS_STORAGE_KEY = "growly.greenhousePlants";
-const PLANT_HISTORY_STORAGE_KEY = "growly.plantHistory";
+type GreenhousePlant = GrowlyPlant;
 
 const fallbackPlantProfiles: PlantProfile[] = [
   {
@@ -230,7 +219,7 @@ function formatMovedAt(value: string | null | undefined): string {
 }
 
 function plantLocation(plant: GreenhousePlant): "greenhouse" | "outside" {
-  return plant.location ?? "greenhouse";
+  return plant.location === "outside" ? "outside" : "greenhouse";
 }
 
 function sampleValue(sample: LatestSample | null, key: SoilMetricKey): number | null | undefined {
@@ -377,16 +366,24 @@ function plantStatus(plant: GreenhousePlant, profile: PlantProfile, sample: Late
   return { title, note, level: worst.result.level, checks };
 }
 
-function loadPlants(session: AuthSession | null): GreenhousePlant[] {
-  return readUserArray<GreenhousePlant>(PLANTS_STORAGE_KEY, session)
-    .filter((plant) => plant?.instanceId && plant?.profileId && plant?.nickname)
-    .map((plant) => {
-      const nickname = String(plant.nickname || "").toLowerCase();
-      if (nickname.includes("chili") && plant.profileId === "tomato") {
-        return { ...plant, profileId: "chili", catalogItemId: "chili", location: plant.location ?? "greenhouse" };
-      }
-      return { ...plant, location: plant.location ?? "greenhouse" };
-    });
+function normalizePlant(plant: GreenhousePlant): GreenhousePlant {
+  const nickname = String(plant.nickname || plant.display_name || "").toLowerCase();
+  const profileId = plant.profileId || plant.profile_id || "tomato";
+  if (nickname.includes("chili") && profileId === "tomato") {
+    return { ...plant, profileId: "chili", catalogItemId: plant.catalogItemId || "chili", location: plant.location ?? "greenhouse" };
+  }
+  return {
+    ...plant,
+    instanceId: plant.instanceId || plant.plant_id || `${profileId}-${Date.now()}`,
+    profileId,
+    catalogItemId: plant.catalogItemId || plant.catalog_item_id || profileId,
+    nickname: plant.nickname || plant.display_name || profileId,
+    location: plant.location ?? plant.location_label ?? "greenhouse",
+    sowedAt: plant.sowedAt ?? plant.sowed_at ?? null,
+    movedToGreenhouseAt: plant.movedToGreenhouseAt ?? plant.moved_to_greenhouse_at ?? null,
+    hasSevenInOne: Boolean(plant.hasSevenInOne ?? plant.has_seven_in_one),
+    wateringEnabled: Boolean(plant.wateringEnabled ?? plant.watering_enabled),
+  };
 }
 
 function detailTrendPath(points: HistoryPoint[], range: { optimal: [number, number]; caution: [number, number] }) {
@@ -441,7 +438,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const [detailTrendPoints, setDetailTrendPoints] = useState<HistoryPoint[]>([]);
   const [detailTrendLoading, setDetailTrendLoading] = useState(false);
   const [plants, setPlants] = useState<GreenhousePlant[]>([]);
-  const [plantsLoaded, setPlantsLoaded] = useState(false);
+  const [plantsLoading, setPlantsLoading] = useState(false);
   const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null);
   const [finishPlantId, setFinishPlantId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -468,18 +465,20 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   }, []);
 
   useEffect(() => {
-    setPlantsLoaded(false);
-    setPlants(loadPlants(session));
+    let cancelled = false;
+    setPlantsLoading(true);
     setSelectedPlantId(null);
-    setPlantsLoaded(true);
-  }, [session?.username, session?.hub?.hub_id]);
-
-  useEffect(() => {
-    if (!plantsLoaded) {
-      return;
-    }
-    writeUserArray(PLANTS_STORAGE_KEY, session, plants);
-  }, [plants, plantsLoaded, session?.username, session?.hub?.hub_id]);
+    fetchPlants(selectedHubId).then((items) => {
+      if (cancelled) {
+        return;
+      }
+      setPlants(items.map(normalizePlant));
+      setPlantsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.username, selectedHubId]);
 
   useEffect(() => {
     if (!selectedPlantId) {
@@ -587,13 +586,12 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     value: metricText(sampleValue(sample, metric.key), metric.unit, metric.digits),
   }));
 
-  function addPlant() {
+  async function addPlant() {
     if (!selectedCatalogItem) {
       return;
     }
 
-    const nextPlant: GreenhousePlant = {
-      instanceId: `${selectedCatalogItem.id}-${Date.now()}`,
+    const nextPlant = await createPlant({
       profileId: selectedCatalogItem.profile_id,
       variantId: selectedCatalogItem.variant_id,
       cultivarId: selectedCatalogItem.cultivar_id,
@@ -604,10 +602,15 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
       movedToGreenhouseAt: newLocation === "greenhouse" ? todayDateInputValue() : null,
       hasSevenInOne: newLocation === "greenhouse" ? newHasSevenInOne : false,
       wateringEnabled: false,
-    };
+    }, selectedHubId);
 
-    setPlants((current) => [...current, nextPlant]);
-    setSelectedPlantId(nextPlant.instanceId);
+    if (!nextPlant) {
+      return;
+    }
+
+    const normalizedPlant = normalizePlant(nextPlant);
+    setPlants((current) => [normalizedPlant, ...current]);
+    setSelectedPlantId(normalizedPlant.instanceId);
     setAddOpen(false);
     setNewPlantQuery("");
     setSelectedBaseId(null);
@@ -618,49 +621,37 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     setNewHasSevenInOne(false);
   }
 
-  function toggleSevenInOne(instanceId: string) {
+  async function toggleSevenInOne(instanceId: string) {
+    const plant = plants.find((item) => item.instanceId === instanceId);
+    if (!plant) {
+      return;
+    }
+    const updated = await updatePlant(instanceId, { hasSevenInOne: !plant.hasSevenInOne }, selectedHubId);
     setPlants((current) =>
-      current.map((plant) => (plant.instanceId === instanceId ? { ...plant, hasSevenInOne: !plant.hasSevenInOne } : plant)),
+      current.map((item) => (item.instanceId === instanceId ? normalizePlant(updated ?? { ...item, hasSevenInOne: !item.hasSevenInOne }) : item)),
     );
   }
 
-  function movePlantToGreenhouse(instanceId: string) {
+  async function movePlantToGreenhouse(instanceId: string) {
+    const movedAt = todayDateInputValue();
+    const updated = await updatePlant(instanceId, { location: "greenhouse", movedToGreenhouseAt: movedAt }, selectedHubId);
     setPlants((current) =>
       current.map((plant) =>
         plant.instanceId === instanceId
-          ? { ...plant, location: "greenhouse", movedToGreenhouseAt: todayDateInputValue() }
+          ? normalizePlant(updated ?? { ...plant, location: "greenhouse", movedToGreenhouseAt: movedAt })
           : plant,
       ),
     );
   }
 
-  function archivePlant(outcome: "season_done" | "failed") {
+  async function archivePlant() {
     const plant = plants.find((item) => item.instanceId === finishPlantId);
     if (!plant) {
       setFinishPlantId(null);
       return;
     }
 
-    const profile = profileForPlant(plant, searchableCatalogItems);
-    const catalogItem = catalogItemForPlant(plant, searchableCatalogItems);
-    const historyItem = {
-      ...plant,
-      archivedAt: todayDateInputValue(),
-      outcome,
-      outcomeLabel: outcome === "season_done" ? "Sesongen er over" : "Prøver noe nytt",
-      displayName: plant.nickname,
-      profileName: profile.name,
-      icon: profile.icon,
-      family: profile.family,
-      notes: catalogItem?.notes || profile.notes || "",
-    };
-
-    try {
-      const current = readUserArray<typeof historyItem>(PLANT_HISTORY_STORAGE_KEY, session);
-      writeUserArray(PLANT_HISTORY_STORAGE_KEY, session, [historyItem, ...current]);
-    } catch {
-      // If localStorage is unavailable, still remove the active card.
-    }
+    await archivePlantApi(plant.instanceId, selectedHubId);
 
     setPlants((current) => current.filter((item) => item.instanceId !== plant.instanceId));
     setSelectedPlantId(null);
@@ -687,7 +678,12 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
           <button className="text-action" type="button" onClick={() => setAddOpen(true)}>Legg til</button>
         </div>
         <div className="plant-card-grid">
-          {plantSummaries.length ? plantSummaries.map(({ plant, profile, catalogItem, status }) => (
+          {plantsLoading ? (
+            <article className="soft-card empty-state-card">
+              <strong>Henter plantene dine</strong>
+              <p>Growly sjekker den valgte huben.</p>
+            </article>
+          ) : plantSummaries.length ? plantSummaries.map(({ plant, profile, catalogItem, status }) => (
             <button className="greenhouse-plant-card soft-card" type="button" key={plant.instanceId} onClick={() => setSelectedPlantId(plant.instanceId)}>
               <div className="greenhouse-plant-card__top">
                 <PlantAvatar tone={profile.tone} plantId={profile.id} name={plant.nickname || profile.name} family={profile.family} />
@@ -939,11 +935,11 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
               </button>
             </div>
 
-            <button className="archive-choice" type="button" onClick={() => archivePlant("season_done")}>
+            <button className="archive-choice" type="button" onClick={() => archivePlant()}>
               <strong>Sesongen er over</strong>
               <span>Flytt til historikk som fullført sesong.</span>
             </button>
-            <button className="archive-choice" type="button" onClick={() => archivePlant("failed")}>
+            <button className="archive-choice" type="button" onClick={() => archivePlant()}>
               <strong>Dette gikk ikke helt veien</strong>
               <span>Lagre forsøket og prøv noe nytt.</span>
             </button>

@@ -69,6 +69,32 @@ export type PlantCatalogItem = {
   latin_name: string;
 };
 
+export type GrowlyPlant = {
+  plant_id?: string;
+  instanceId: string;
+  profileId: string;
+  profile_id?: string;
+  variantId?: string | null;
+  variant_id?: string | null;
+  cultivarId?: string | null;
+  cultivar_id?: string | null;
+  catalogItemId?: string;
+  catalog_item_id?: string;
+  nickname: string;
+  display_name?: string;
+  location?: "greenhouse" | "outside" | string;
+  location_label?: string;
+  sowedAt?: string | null;
+  sowed_at?: string | null;
+  movedToGreenhouseAt?: string | null;
+  moved_to_greenhouse_at?: string | null;
+  hasSevenInOne: boolean;
+  has_seven_in_one?: boolean;
+  wateringEnabled: boolean;
+  watering_enabled?: boolean;
+  archived_at?: string | null;
+};
+
 const DEFAULT_NATIVE_API_BASE = "https://onlinegrowly.onrender.com";
 const API_BASE_URL = (() => {
   const configuredBase = (import.meta.env.VITE_API_BASE_URL || "").trim();
@@ -417,6 +443,79 @@ export async function fetchPlantCatalog(query = ""): Promise<PlantCatalogItem[]>
     return Array.isArray(result.items) ? result.items : [];
   } catch {
     return [];
+  }
+}
+
+export async function fetchPlants(hubId = ""): Promise<GrowlyPlant[]> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/plants", hubId)), {
+      credentials: "include",
+      cache: "no-store",
+      headers: authHeaders(),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      return [];
+    }
+
+    const result = await parseJson<{ ok: true; plants: GrowlyPlant[] }>(response);
+    return Array.isArray(result.plants) ? result.plants : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function createPlant(payload: Partial<GrowlyPlant>, hubId = ""): Promise<GrowlyPlant | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/plants", hubId)), {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify(payload),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; plant: GrowlyPlant }>(response);
+    return result.plant ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function updatePlant(plantId: string, payload: Partial<GrowlyPlant>, hubId = ""): Promise<GrowlyPlant | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId(`/api/plants/${encodeURIComponent(plantId)}`, hubId)), {
+      method: "PATCH",
+      credentials: "include",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify(payload),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; plant: GrowlyPlant }>(response);
+    return result.plant ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function archivePlant(plantId: string, hubId = ""): Promise<boolean> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId(`/api/plants/${encodeURIComponent(plantId)}`, hubId)), {
+      method: "DELETE",
+      credentials: "include",
+      headers: authHeaders(),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 

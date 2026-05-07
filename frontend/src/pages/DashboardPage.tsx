@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchLatestSample, fetchMetricHistory, type AuthSession, type HistoryPoint, type LatestSample } from "../lib/api";
+import {
+  fetchLatestSample,
+  fetchMetricHistory,
+  fetchPlants,
+  type AuthSession,
+  type GrowlyPlant,
+  type HistoryPoint,
+  type LatestSample,
+} from "../lib/api";
 import { PlantAvatar } from "../components/PlantAvatar";
-import { readUserArray } from "../lib/userStorage";
 import greenhouseDay from "../assets/greenhouse-assets/greenhouse-day.png";
 import greenhouseEvening from "../assets/greenhouse-assets/greenhouse-evening.png";
 import humidityDot from "../assets/greenhouse-assets/humidity-dot.png";
@@ -30,13 +37,7 @@ type TrendMetricConfig = {
   referenceNote?: string;
 };
 
-type DashboardPlant = {
-  instanceId?: string;
-  nickname: string;
-  profileId: string;
-  catalogItemId?: string;
-  sowedAt?: string;
-};
+type DashboardPlant = Pick<GrowlyPlant, "instanceId" | "nickname" | "profileId" | "catalogItemId" | "sowedAt">;
 type HomeTask = {
   title: string;
   detail: string;
@@ -44,7 +45,6 @@ type HomeTask = {
   tone: "good" | "watch" | "bad";
 };
 
-const GREENHOUSE_PLANTS_STORAGE_KEY = "growly.greenhousePlants";
 const currentMonthName = new Date().toLocaleDateString("nb-NO", { month: "long" });
 
 const dashboardPlantProfiles: Record<
@@ -603,8 +603,8 @@ function formatUpdatedAt(value: string | null | undefined): string {
   })}`;
 }
 
-function loadDashboardPlants(session: AuthSession | null): DashboardPlant[] {
-  return readUserArray<DashboardPlant>(GREENHOUSE_PLANTS_STORAGE_KEY, session)
+function normalizeDashboardPlants(plants: GrowlyPlant[]): DashboardPlant[] {
+  return plants
     .filter((plant) => plant?.profileId && plant?.nickname)
     .map((plant) => ({
       instanceId: plant.instanceId,
@@ -676,12 +676,25 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState("");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [dashboardPlants, setDashboardPlants] = useState<DashboardPlant[]>([]);
 
   useEffect(() => {
     fetchLatestSample(selectedHubId).then((result) => {
       setSample(result);
     });
   }, [selectedHubId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPlants(selectedHubId).then((plants) => {
+      if (!cancelled) {
+        setDashboardPlants(normalizeDashboardPlants(plants));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.username, selectedHubId]);
 
   useEffect(() => {
     if (!soilPanelOpen && !trendMetric && !reportMetric) {
@@ -738,7 +751,6 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const humidity = metricText(sample?.air_humidity, "%", 0);
   const lux = metricText(sample?.lux, " lx", 0);
   const updatedAt = formatUpdatedAt(sample?.recorded_at);
-  const dashboardPlants = loadDashboardPlants(session);
   const weeklyTasks = buildWeeklyTasks(sample);
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
   const activeReportValue = reportMetric ? climateValue(sample, reportMetric) : null;
@@ -885,8 +897,9 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
         <div className="growth-list">
           {dashboardPlants.length ? dashboardPlants.slice(0, 4).map((plant, index) => {
             const profile = dashboardPlantProfiles[plant.profileId] ?? dashboardPlantProfiles.tomato;
-            const progress = plantProgress(plant.profileId, index, sample, plant.sowedAt);
-            const timeline = plantTimeline(plant.profileId, progress, plant.sowedAt, index);
+            const sowedAt = plant.sowedAt ?? undefined;
+            const progress = plantProgress(plant.profileId, index, sample, sowedAt);
+            const timeline = plantTimeline(plant.profileId, progress, sowedAt, index);
             const stage = plantStage(plant.profileId, progress);
             const sensorSignal = plantSensorSignal(sample);
             const nextAction = plantNextAction(plant.profileId, progress, sample);

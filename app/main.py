@@ -3893,6 +3893,121 @@ def best_effort_delete_supabase_hub(hub_id: str) -> None:
         print(f"Supabase hub delete skipped for {hub_id}: {exc}")
 
 
+def plant_row_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "plant_id": row.get("plant_id"),
+        "instanceId": row.get("plant_id"),
+        "hub_id": row.get("hub_id"),
+        "owner_username": row.get("owner_username"),
+        "profileId": row.get("profile_id"),
+        "profile_id": row.get("profile_id"),
+        "variantId": row.get("variant_id"),
+        "variant_id": row.get("variant_id"),
+        "cultivarId": row.get("cultivar_id"),
+        "cultivar_id": row.get("cultivar_id"),
+        "catalogItemId": row.get("catalog_item_id") or row.get("profile_id"),
+        "catalog_item_id": row.get("catalog_item_id") or row.get("profile_id"),
+        "nickname": row.get("display_name") or "",
+        "display_name": row.get("display_name") or "",
+        "location": row.get("location_label") or "greenhouse",
+        "location_label": row.get("location_label") or "greenhouse",
+        "sowedAt": row.get("sowed_at"),
+        "sowed_at": row.get("sowed_at"),
+        "movedToGreenhouseAt": row.get("moved_to_greenhouse_at"),
+        "moved_to_greenhouse_at": row.get("moved_to_greenhouse_at"),
+        "hasSevenInOne": bool(row.get("has_seven_in_one")),
+        "has_seven_in_one": bool(row.get("has_seven_in_one")),
+        "wateringEnabled": bool(row.get("watering_enabled")),
+        "watering_enabled": bool(row.get("watering_enabled")),
+        "archived_at": row.get("archived_at"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def list_user_plants(username: str, hub_id: str, include_archived: bool = False) -> list[dict[str, Any]]:
+    if not supabase_enabled():
+        return []
+    params = {
+        "select": "*",
+        "owner_username": f"eq.{username}",
+        "hub_id": f"eq.{hub_id}",
+        "order": "created_at.desc",
+    }
+    if not include_archived:
+        params["archived_at"] = "is.null"
+    rows = supabase_fetch_table("growly_plants", params)
+    return [plant_row_payload(row) for row in rows]
+
+
+def create_user_plant(username: str, hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not supabase_enabled():
+        raise ValueError("supabase_not_configured")
+
+    profile_id = str(payload.get("profile_id") or payload.get("profileId") or "").strip()
+    display_name = str(payload.get("display_name") or payload.get("nickname") or "").strip()
+    if not profile_id:
+        raise ValueError("missing_profile_id")
+    if not display_name:
+        raise ValueError("missing_display_name")
+
+    row = {
+        "hub_id": hub_id,
+        "owner_username": username,
+        "profile_id": profile_id,
+        "catalog_item_id": str(payload.get("catalog_item_id") or payload.get("catalogItemId") or profile_id).strip(),
+        "variant_id": str(payload.get("variant_id") or payload.get("variantId") or "").strip() or None,
+        "cultivar_id": str(payload.get("cultivar_id") or payload.get("cultivarId") or "").strip() or None,
+        "display_name": display_name,
+        "location_label": str(payload.get("location_label") or payload.get("location") or "greenhouse").strip() or "greenhouse",
+        "sowed_at": iso_or_none(payload.get("sowed_at") or payload.get("sowedAt")),
+        "moved_to_greenhouse_at": iso_or_none(payload.get("moved_to_greenhouse_at") or payload.get("movedToGreenhouseAt")),
+        "has_seven_in_one": bool(payload.get("has_seven_in_one", payload.get("hasSevenInOne", False))),
+        "watering_enabled": bool(payload.get("watering_enabled", payload.get("wateringEnabled", False))),
+    }
+    inserted = supabase_request(
+        "growly_plants",
+        method="POST",
+        payload=[row],
+        prefer="return=representation",
+    )
+    if not isinstance(inserted, list) or not inserted:
+        raise ValueError("plant_create_failed")
+    return plant_row_payload(inserted[0])
+
+
+def update_user_plant(username: str, hub_id: str, plant_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not supabase_enabled():
+        raise ValueError("supabase_not_configured")
+
+    updates: dict[str, Any] = {"updated_at": utc_now_iso()}
+    if "location" in payload or "location_label" in payload:
+        updates["location_label"] = str(payload.get("location_label") or payload.get("location") or "greenhouse").strip() or "greenhouse"
+    if "movedToGreenhouseAt" in payload or "moved_to_greenhouse_at" in payload:
+        updates["moved_to_greenhouse_at"] = iso_or_none(payload.get("moved_to_greenhouse_at") or payload.get("movedToGreenhouseAt"))
+    if "hasSevenInOne" in payload or "has_seven_in_one" in payload:
+        updates["has_seven_in_one"] = bool(payload.get("has_seven_in_one", payload.get("hasSevenInOne", False)))
+    if "wateringEnabled" in payload or "watering_enabled" in payload:
+        updates["watering_enabled"] = bool(payload.get("watering_enabled", payload.get("wateringEnabled", False)))
+    if "archived_at" in payload:
+        updates["archived_at"] = iso_or_none(payload.get("archived_at"))
+
+    rows = supabase_request(
+        "growly_plants",
+        method="PATCH",
+        params={
+            "plant_id": f"eq.{plant_id}",
+            "hub_id": f"eq.{hub_id}",
+            "owner_username": f"eq.{username}",
+        },
+        payload=updates,
+        prefer="return=representation",
+    )
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("plant_not_found")
+    return plant_row_payload(rows[0])
+
+
 def local_day_summary(hub_id: str) -> dict[str, dict[str, float | None]]:
     since, until = today_window_iso(hub_id)
     with db_connection() as connection:
@@ -4844,6 +4959,72 @@ async def plant_catalog(request: Request, q: str = ""):
     if auth_error:
         return auth_error
     return {"ok": True, "items": list_plant_catalog(q)}
+
+
+@app.get("/api/plants")
+async def get_plants(request: Request, archived: bool = Query(False)):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+    except ValueError as exc:
+        return hub_error_response(str(exc))
+    try:
+        plants = list_user_plants(current_username(request), str(hub["hub_id"]), include_archived=archived)
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "plants_unavailable"})
+    return {"ok": True, "plants": plants}
+
+
+@app.post("/api/plants")
+async def add_plant(request: Request, payload: dict[str, Any]):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        plant = create_user_plant(current_username(request), str(hub["hub_id"]), payload)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "plant_create_failed"})
+    return {"ok": True, "plant": plant}
+
+
+@app.patch("/api/plants/{plant_id}")
+async def edit_plant(request: Request, plant_id: str, payload: dict[str, Any]):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        plant = update_user_plant(current_username(request), str(hub["hub_id"]), plant_id, payload)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "plant_update_failed"})
+    return {"ok": True, "plant": plant}
+
+
+@app.delete("/api/plants/{plant_id}")
+async def archive_plant_api(request: Request, plant_id: str):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        plant = update_user_plant(
+            current_username(request),
+            str(hub["hub_id"]),
+            plant_id,
+            {"archived_at": utc_now_iso()},
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "plant_archive_failed"})
+    return {"ok": True, "plant": plant}
 
 
 @app.get("/api/settings")
