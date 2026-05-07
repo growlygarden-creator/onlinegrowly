@@ -31,6 +31,43 @@ export type HistoryResponse = {
   points: HistoryPoint[];
 };
 
+export type WeatherDay = {
+  date: string;
+  temperature_min: number | null;
+  temperature_max: number | null;
+  humidity_avg: number | null;
+  wind_max: number | null;
+  symbol_code: string;
+};
+
+export type WeatherForecast = {
+  location: {
+    address: string;
+    latitude: number;
+    longitude: number;
+  };
+  forecast: {
+    updated_at: string;
+    now: {
+      time: string;
+      air_temperature: number | null;
+      relative_humidity: number | null;
+      wind_speed: number | null;
+      symbol_code: string;
+    } | null;
+    days: WeatherDay[];
+  };
+};
+
+export type WeatherAddressMatch = {
+  label: string;
+  address: string;
+  postal_code: string;
+  place: string;
+  latitude: number;
+  longitude: number;
+};
+
 export type PlantRange = {
   optimal: [number, number];
   caution: [number, number];
@@ -129,6 +166,9 @@ export type AuthSession = {
     hub_id: string;
     hub_name: string;
     location_label?: string;
+    weather_address?: string;
+    weather_latitude?: number | null;
+    weather_longitude?: number | null;
     owner_username: string;
     is_active?: boolean | number;
     sensor_url: string;
@@ -138,6 +178,9 @@ export type AuthSession = {
     hub_id: string;
     hub_name: string;
     location_label?: string;
+    weather_address?: string;
+    weather_latitude?: number | null;
+    weather_longitude?: number | null;
     owner_username: string;
     is_active?: boolean | number;
     sensor_url: string;
@@ -376,6 +419,104 @@ export async function fetchLatestSample(hubId = ""): Promise<LatestSample | null
 
     const result = await parseJson<{ ok: true; sample: LatestSample | null }>(response);
     return result.sample ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchWeatherForecast(hubId = ""): Promise<WeatherForecast | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/weather", hubId)), {
+      credentials: "include",
+      cache: "no-store",
+      headers: authHeaders(),
+    }, 7000);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true } & WeatherForecast>(response);
+    return {
+      location: result.location,
+      forecast: result.forecast,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function searchWeatherAddress(query: string): Promise<WeatherAddressMatch[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 3) {
+    return [];
+  }
+
+  try {
+    const params = new URLSearchParams({ q: trimmed });
+    const response = await fetchWithTimeout(apiUrl(`/api/weather/address-search?${params.toString()}`), {
+      credentials: "include",
+      cache: "no-store",
+      headers: authHeaders(),
+    }, 7000);
+    if (!response.ok) {
+      return [];
+    }
+
+    const result = await parseJson<{ ok: true; matches: WeatherAddressMatch[] }>(response);
+    return Array.isArray(result.matches) ? result.matches : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveHubSettings(payload: {
+  location_label?: string;
+  weather_address?: string;
+  weather_latitude?: number | string | null;
+  weather_longitude?: number | string | null;
+  is_active?: boolean;
+}): Promise<AuthSession["hub"] | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl("/api/settings"), {
+      method: "PATCH",
+      credentials: "include",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify(payload),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; settings: AuthSession["hub"] }>(response);
+    return result.settings;
+  } catch {
+    return null;
+  }
+}
+
+export async function updateProfile(payload: {
+  full_name?: string;
+  phone?: string;
+  email?: string;
+  password?: string;
+}): Promise<AuthSession | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl("/api/profile"), {
+      method: "PATCH",
+      credentials: "include",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify(payload),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; session: AuthSession }>(response);
+    return result.session;
   } catch {
     return null;
   }

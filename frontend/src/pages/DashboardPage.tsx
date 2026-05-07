@@ -4,10 +4,12 @@ import {
   fetchLatestSample,
   fetchMetricHistory,
   fetchPlants,
+  fetchWeatherForecast,
   type AuthSession,
   type GrowlyPlant,
   type HistoryPoint,
   type LatestSample,
+  type WeatherForecast,
 } from "../lib/api";
 import { PlantAvatar } from "../components/PlantAvatar";
 import greenhouseDay from "../assets/greenhouse-assets/greenhouse-day.png";
@@ -416,9 +418,9 @@ function buildWeeklyTasks(sample: LatestSample | null): HomeTask[] {
   if (!sample) {
     return [
       {
-        title: "Koble til hub",
-        detail: "Når første måling kommer inn, lager Growly konkrete tiltak for plantene dine.",
-        badge: "Venter",
+        title: "Legg inn dyrkested",
+        detail: "Da kan Growly bruke lokal værprognose til dyrkeråd, også uten hub.",
+        badge: "Vær",
         tone: "watch",
       },
       {
@@ -587,6 +589,28 @@ function greenhouseScene(theme: "light" | "dark"): { image: string; mode: "day" 
   return { image: greenhouseDay, mode: "day" };
 }
 
+function weatherIcon(symbolCode: string | undefined): string {
+  const code = (symbolCode || "").toLowerCase();
+  if (code.includes("rain") || code.includes("sleet")) {
+    return "☔";
+  }
+  if (code.includes("snow")) {
+    return "❄";
+  }
+  if (code.includes("cloud")) {
+    return "☁";
+  }
+  if (code.includes("fair") || code.includes("partly")) {
+    return "⛅";
+  }
+  return "☀";
+}
+
+function shortWeatherPlace(value: string | undefined): string {
+  const place = (value || "").split(",").pop()?.trim() || value || "Dyrkested";
+  return place.replace(/\s+/g, " ");
+}
+
 function formatUpdatedAt(value: string | null | undefined): string {
   if (!value) {
     return "Venter på første oppdatering";
@@ -668,6 +692,7 @@ function scoreClimate(value: number | null | undefined, range: { optimal: [numbe
 
 export function DashboardPage({ session, selectedHubId = "", theme, onToggleTheme }: DashboardPageProps) {
   const [sample, setSample] = useState<LatestSample | null>(null);
+  const [weather, setWeather] = useState<WeatherForecast | null>(null);
   const [soilPanelOpen, setSoilPanelOpen] = useState(false);
   const [reportMetric, setReportMetric] = useState<ClimateReportMetric | null>(null);
   const [trendMetric, setTrendMetric] = useState<TrendMetricKey | null>(null);
@@ -681,6 +706,12 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   useEffect(() => {
     fetchLatestSample(selectedHubId).then((result) => {
       setSample(result);
+    });
+  }, [selectedHubId]);
+
+  useEffect(() => {
+    fetchWeatherForecast(selectedHubId).then((result) => {
+      setWeather(result);
     });
   }, [selectedHubId]);
 
@@ -747,9 +778,25 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const status = growthStatus(sample);
   const scene = greenhouseScene(theme);
   const hubOnline = !!session?.hub?.is_active;
+  const weatherNow = weather?.forecast.now;
+  const hasLiveSensorData = !!sample;
+  const hasPairedHub = !!session?.hub?.is_active;
   const temperature = metricText(sample?.air_temperature ?? sample?.temperature, "°C", 0);
   const humidity = metricText(sample?.air_humidity, "%", 0);
   const lux = metricText(sample?.lux, " lx", 0);
+  const weatherTemperature = metricText(weatherNow?.air_temperature, "°C", 0);
+  const weatherHumidity = metricText(weatherNow?.relative_humidity, "%", 0);
+  const weatherWind = metricText(weatherNow?.wind_speed, " m/s", 1);
+  const weatherDays = weather?.forecast.days.slice(0, 4) ?? [];
+  const weatherPlace = shortWeatherPlace(weather?.location.address);
+  const currentWeatherIcon = weatherIcon(weatherNow?.symbol_code || weatherDays[0]?.symbol_code);
+  const climateTitle = weather ? "Lokalt dyrkevær" : hasPairedHub ? "Vekstforhold" : "Dyrkested";
+  const climateNote = hasPairedHub
+    ? (hasLiveSensorData ? status.note : weather ? "Værprognosen brukes sammen med huben når Growly gir råd." : "Legg inn dyrkested for værbaserte råd.")
+    : weather
+      ? "Growly bruker værprognosen til dyrkeråd uten hub."
+      : "Legg inn dyrkested for lokale råd uten sensor.";
+  const climatePill = hasLiveSensorData ? "Målinger aktive" : weather ? "Værdata aktiv" : hubOnline ? "Hub klar" : "Uten hub";
   const updatedAt = formatUpdatedAt(sample?.recorded_at);
   const weeklyTasks = buildWeeklyTasks(sample);
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
@@ -818,50 +865,78 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
           <div className="climate-hero-grid">
             <div className="premium-hero__head">
               <div>
-                <strong>{status.title}</strong>
-                <span>{status.note}</span>
+                <strong>{climateTitle}</strong>
+                <span>{climateNote}</span>
               </div>
               <span className="status-pill status-pill--live">
                 <span className="online-dot" aria-hidden="true" />
-                {hubOnline ? "Hub online" : "Hub ikke koblet"}
+                {climatePill}
               </span>
             </div>
 
-            <div className={`overview-image-banner overview-image-banner--${scene.mode}`}>
-              <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />
+            <div className="climate-visual-stack">
+              <div className="weather-overview-panel">
+                <div className="weather-overview-main">
+                  <span className="weather-overview-icon" aria-hidden="true">{currentWeatherIcon}</span>
+                  <div>
+                    <span>{weather ? "Vær ved dyrkested" : "Værbaserte råd"}</span>
+                    <strong>{weather ? `${weatherTemperature} i ${weatherPlace}` : "Legg inn dyrkested"}</strong>
+                    <p>{weather ? `Fukt ${weatherHumidity} · vind ${weatherWind}` : "Skriv inn adresse i Innstillinger for lokal prognose."}</p>
+                  </div>
+                </div>
+                {weatherDays.length ? (
+                  <div className="weather-overview-days">
+                    {weatherDays.map((day) => (
+                      <span key={day.date}>
+                        <em aria-hidden="true">{weatherIcon(day.symbol_code)}</em>
+                        <small>{new Date(`${day.date}T12:00:00`).toLocaleDateString("nb-NO", { weekday: "short" })}</small>
+                        <strong>{typeof day.temperature_max === "number" ? `${day.temperature_max.toFixed(0)}°` : "–"}</strong>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <Link className="weather-settings-link" to="/settings">Sett opp</Link>
+                )}
+              </div>
+
+              <div className={`overview-image-banner overview-image-banner--${scene.mode}`}>
+                <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />
+              </div>
             </div>
           </div>
 
-          <div className="metric-strip">
-            <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("temperature")}>
-              <span className="metric-strip__label">
-                <img className="metric-strip__dot" src={tempDot} alt="" aria-hidden="true" />
-                Temperatur
-              </span>
-              <strong>{temperature}</strong>
-            </button>
-            <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("humidity")}>
-              <span className="metric-strip__label">
-                <img className="metric-strip__dot" src={humidityDot} alt="" aria-hidden="true" />
-                Luftfuktighet
-              </span>
-              <strong>{humidity}</strong>
-            </button>
-            <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setSoilPanelOpen(true)}>
-              <span className="metric-strip__label">
-                <img className="metric-strip__dot" src={soilDot} alt="" aria-hidden="true" />
-                Jordfuktighet
-              </span>
-              <strong>{status.soil}</strong>
-            </button>
-            <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("lux")}>
-              <span className="metric-strip__label">
-                <span className="metric-strip__sun-dot" aria-hidden="true" />
-                Lys
-              </span>
-              <strong>{lux}</strong>
-            </button>
-          </div>
+          {hasPairedHub ? (
+            <div className="metric-strip">
+              <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("temperature")}>
+                <span className="metric-strip__label">
+                  <img className="metric-strip__dot" src={tempDot} alt="" aria-hidden="true" />
+                  Temperatur
+                </span>
+                <strong>{temperature}</strong>
+              </button>
+              <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("humidity")}>
+                <span className="metric-strip__label">
+                  <img className="metric-strip__dot" src={humidityDot} alt="" aria-hidden="true" />
+                  Luftfuktighet
+                </span>
+                <strong>{humidity}</strong>
+              </button>
+              <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setSoilPanelOpen(true)}>
+                <span className="metric-strip__label">
+                  <img className="metric-strip__dot" src={soilDot} alt="" aria-hidden="true" />
+                  Jordfuktighet
+                </span>
+                <strong>{status.soil}</strong>
+              </button>
+              <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("lux")}>
+                <span className="metric-strip__label">
+                  <span className="metric-strip__sun-dot" aria-hidden="true" />
+                  Lys
+                </span>
+                <strong>{lux}</strong>
+              </button>
+            </div>
+          ) : null}
         </article>
       </section>
 
@@ -869,7 +944,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
         <div className="home-section-head">
           <div>
             <p className="section-kicker">Denne uken</p>
-            <h2>Sensorstyrte gjøremål</h2>
+            <h2>{hasLiveSensorData ? "Målebaserte gjøremål" : "Værbaserte gjøremål"}</h2>
           </div>
           <Link to="/kalender">Kalender</Link>
         </div>

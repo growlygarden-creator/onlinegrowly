@@ -112,6 +112,10 @@ SUPABASE_REST_ENDPOINT = os.getenv(
 SUPABASE_API_KEY = os.getenv("SUPABASE_API_KEY", "").strip()
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 SUPABASE_CORE_SYNC_ENABLED = os.getenv("SUPABASE_CORE_SYNC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+MET_WEATHER_USER_AGENT = os.getenv(
+    "MET_WEATHER_USER_AGENT",
+    "GrowlyGarden/1.0 growlygarden@gmail.com",
+).strip()
 SUPABASE_CORE_TABLES = (
     "growly_users",
     "growly_hubs",
@@ -1090,6 +1094,9 @@ def rebuild_hubs_without_owner_unique(connection: sqlite3.Connection) -> None:
             hub_id TEXT PRIMARY KEY,
             hub_name TEXT NOT NULL,
             location_label TEXT NOT NULL DEFAULT '',
+            weather_address TEXT NOT NULL DEFAULT '',
+            weather_latitude REAL,
+            weather_longitude REAL,
             owner_username TEXT NOT NULL,
             is_active INTEGER NOT NULL DEFAULT 1,
             sensor_url TEXT NOT NULL,
@@ -1116,14 +1123,15 @@ def rebuild_hubs_without_owner_unique(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         INSERT INTO hubs_rebuild (
-            hub_id, hub_name, location_label, owner_username, is_active, sensor_url, local_ip,
+            hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
+            owner_username, is_active, sensor_url, local_ip,
             sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
             sample_time_cloud_ms, history_start_at, config_revision,
             config_updated_at, config_applied_revision, config_applied_at,
             config_applied_settings_json, device_status_at, device_status_message,
             device_firmware_version, created_at, updated_at
         )
-        SELECT hub_id, hub_name, '', owner_username, is_active, sensor_url, local_ip,
+        SELECT hub_id, hub_name, '', '', NULL, NULL, owner_username, is_active, sensor_url, local_ip,
                sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                sample_time_cloud_ms, history_start_at, config_revision,
                config_updated_at, config_applied_revision, config_applied_at,
@@ -1215,6 +1223,9 @@ def init_db() -> None:
                 hub_id TEXT PRIMARY KEY,
                 hub_name TEXT NOT NULL,
                 location_label TEXT NOT NULL DEFAULT '',
+                weather_address TEXT NOT NULL DEFAULT '',
+                weather_latitude REAL,
+                weather_longitude REAL,
                 owner_username TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 sensor_url TEXT NOT NULL,
@@ -1437,6 +1448,9 @@ def init_db() -> None:
         if "location_label" not in existing_hub_columns:
             connection.execute("ALTER TABLE hubs ADD COLUMN location_label TEXT NOT NULL DEFAULT ''")
         hub_column_defaults = {
+            "weather_address": "TEXT NOT NULL DEFAULT ''",
+            "weather_latitude": "REAL",
+            "weather_longitude": "REAL",
             "config_revision": "INTEGER NOT NULL DEFAULT 1",
             "config_updated_at": "TEXT NOT NULL DEFAULT ''",
             "config_applied_revision": "INTEGER NOT NULL DEFAULT 0",
@@ -1689,6 +1703,15 @@ def normalize_sensor_url(value: Any) -> str:
     return f"{normalize_device_base_url(text)}/sensor"
 
 
+def normalize_optional_float(value: Any, min_value: float, max_value: float) -> float | None:
+    if value in (None, ""):
+        return None
+    parsed = float(value)
+    if parsed < min_value or parsed > max_value:
+        raise ValueError("coordinate_out_of_range")
+    return round(parsed, 6)
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -1740,7 +1763,8 @@ def list_hubs() -> list[dict[str, Any]]:
     with db_connection() as connection:
         rows = connection.execute(
             """
-            SELECT hub_id, hub_name, location_label, owner_username, is_active, sensor_url, local_ip,
+            SELECT hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
+                   owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                    sample_time_cloud_ms, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
@@ -1757,7 +1781,8 @@ def find_hub(hub_id: str) -> dict[str, Any] | None:
     with db_connection() as connection:
         row = connection.execute(
             """
-            SELECT hub_id, hub_name, location_label, owner_username, is_active, sensor_url, local_ip,
+            SELECT hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
+                   owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                    sample_time_cloud_ms, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
@@ -1775,7 +1800,8 @@ def find_hub_by_owner(username: str) -> dict[str, Any] | None:
     with db_connection() as connection:
         row = connection.execute(
             """
-            SELECT hub_id, hub_name, location_label, owner_username, is_active, sensor_url, local_ip,
+            SELECT hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
+                   owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                    sample_time_cloud_ms, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
@@ -1796,7 +1822,8 @@ def list_hubs_for_user(username: str) -> list[dict[str, Any]]:
     with db_connection() as connection:
         rows = connection.execute(
             """
-            SELECT h.hub_id, h.hub_name, h.location_label, h.owner_username, h.is_active, h.sensor_url, h.local_ip,
+            SELECT h.hub_id, h.hub_name, h.location_label, h.weather_address, h.weather_latitude, h.weather_longitude,
+                   h.owner_username, h.is_active, h.sensor_url, h.local_ip,
                    h.sample_time_soil_ms, h.sample_time_light_ms, h.sample_time_air_ms,
                    h.sample_time_cloud_ms, h.history_start_at, h.config_revision,
                    h.config_updated_at, h.config_applied_revision, h.config_applied_at,
@@ -1822,7 +1849,8 @@ def find_hub_for_user(username: str, hub_id: str) -> dict[str, Any] | None:
     with db_connection() as connection:
         row = connection.execute(
             """
-            SELECT h.hub_id, h.hub_name, h.location_label, h.owner_username, h.is_active, h.sensor_url, h.local_ip,
+            SELECT h.hub_id, h.hub_name, h.location_label, h.weather_address, h.weather_latitude, h.weather_longitude,
+                   h.owner_username, h.is_active, h.sensor_url, h.local_ip,
                    h.sample_time_soil_ms, h.sample_time_light_ms, h.sample_time_air_ms,
                    h.sample_time_cloud_ms, h.history_start_at, h.config_revision,
                    h.config_updated_at, h.config_applied_revision, h.config_applied_at,
@@ -2436,6 +2464,9 @@ def hub_settings(hub_id: str) -> dict[str, Any]:
         "hub_id": hub["hub_id"],
         "hub_name": hub["hub_name"],
         "location_label": str(hub.get("location_label") or "").strip(),
+        "weather_address": str(hub.get("weather_address") or "").strip(),
+        "weather_latitude": hub.get("weather_latitude"),
+        "weather_longitude": hub.get("weather_longitude"),
         "owner_username": hub["owner_username"],
         "is_active": hub["is_active"],
         "sensor_url": normalize_sensor_url(hub["sensor_url"]),
@@ -2459,9 +2490,15 @@ def hub_settings(hub_id: str) -> dict[str, Any]:
 def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     current = hub_settings(hub_id)
     updated = current.copy()
-    for text_key in ("hub_name", "location_label"):
+    for text_key in ("hub_name", "location_label", "weather_address"):
         if text_key in payload:
             updated[text_key] = str(payload.get(text_key) or "").strip()
+    if "is_active" in payload and isinstance(payload.get("is_active"), bool):
+        updated["is_active"] = 1 if payload.get("is_active") else 0
+    if "weather_latitude" in payload:
+        updated["weather_latitude"] = normalize_optional_float(payload.get("weather_latitude"), -90, 90)
+    if "weather_longitude" in payload:
+        updated["weather_longitude"] = normalize_optional_float(payload.get("weather_longitude"), -180, 180)
     if not updated.get("hub_name"):
         updated["hub_name"] = current["hub_name"]
     for key in DEFAULT_APP_SETTINGS:
@@ -2493,6 +2530,10 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             UPDATE hubs
             SET hub_name = ?,
                 location_label = ?,
+                weather_address = ?,
+                weather_latitude = ?,
+                weather_longitude = ?,
+                is_active = ?,
                 sensor_url = ?,
                 local_ip = ?,
                 history_start_at = ?,
@@ -2503,6 +2544,10 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             (
                 updated["hub_name"],
                 updated["location_label"],
+                updated.get("weather_address") or "",
+                updated.get("weather_latitude"),
+                updated.get("weather_longitude"),
+                int(updated.get("is_active") or 0),
                 updated["sensor_url"],
                 str(updated.get("local_ip", "") or "").strip(),
                 updated["history_start_at"],
@@ -4064,6 +4109,135 @@ def fetch_sensor_payload(target: str) -> dict[str, Any]:
         return json.loads(payload)
 
 
+def fetch_address_matches(query: str) -> list[dict[str, Any]]:
+    normalized_query = " ".join(query.strip().split())
+    if len(normalized_query) < 3:
+        return []
+    params = urlencode({"sok": normalized_query, "treffPerSide": "5", "asciiKompatibel": "true"})
+    request = UrlRequest(
+        f"https://ws.geonorge.no/adresser/v1/sok?{params}",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": MET_WEATHER_USER_AGENT,
+        },
+        method="GET",
+    )
+    ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    with urlopen(request, timeout=8, context=ssl_context) as response:
+        payload = response.read().decode("utf-8")
+    data = json.loads(payload)
+    addresses = data.get("adresser", [])
+    if not isinstance(addresses, list):
+        return []
+
+    matches: list[dict[str, Any]] = []
+    for address in addresses[:5]:
+        if not isinstance(address, dict):
+            continue
+        point = address.get("representasjonspunkt")
+        if not isinstance(point, dict):
+            continue
+        lat = point.get("lat")
+        lon = point.get("lon")
+        if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+            continue
+        address_text = str(address.get("adressetekst") or "").strip()
+        postal_code = str(address.get("postnummer") or "").strip()
+        postal_place = str(address.get("poststed") or address.get("kommunenavn") or "").strip().title()
+        label_parts = [address_text]
+        place_label = " ".join(part for part in (postal_code, postal_place) if part)
+        if place_label:
+            label_parts.append(place_label)
+        matches.append(
+            {
+                "label": ", ".join(part for part in label_parts if part),
+                "address": address_text or normalized_query,
+                "postal_code": postal_code,
+                "place": postal_place,
+                "latitude": round(float(lat), 6),
+                "longitude": round(float(lon), 6),
+            }
+        )
+    return matches
+
+
+def weather_symbol_for_timeseries(item: dict[str, Any]) -> str:
+    next_1h = item.get("data", {}).get("next_1_hours", {})
+    next_6h = item.get("data", {}).get("next_6_hours", {})
+    summary = next_1h.get("summary") or next_6h.get("summary") or {}
+    return str(summary.get("symbol_code") or "")
+
+
+def fetch_met_weather_forecast(lat: float, lon: float) -> dict[str, Any]:
+    params = urlencode({"lat": f"{lat:.6f}", "lon": f"{lon:.6f}"})
+    request = UrlRequest(
+        f"https://api.met.no/weatherapi/locationforecast/2.0/compact?{params}",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": MET_WEATHER_USER_AGENT,
+        },
+        method="GET",
+    )
+    ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    with urlopen(request, timeout=8, context=ssl_context) as response:
+        payload = response.read().decode("utf-8")
+    data = json.loads(payload)
+    timeseries = data.get("properties", {}).get("timeseries", [])
+    if not isinstance(timeseries, list):
+        timeseries = []
+
+    now = datetime.now(timezone.utc)
+    upcoming: list[dict[str, Any]] = []
+    daily: dict[str, list[dict[str, Any]]] = {}
+    for item in timeseries:
+        if not isinstance(item, dict):
+            continue
+        forecast_time = parse_iso_datetime(str(item.get("time") or ""))
+        if not forecast_time or forecast_time < now - timedelta(hours=1):
+            continue
+        details = item.get("data", {}).get("instant", {}).get("details", {})
+        if not isinstance(details, dict):
+            continue
+        row = {
+            "time": forecast_time.isoformat(),
+            "air_temperature": details.get("air_temperature"),
+            "relative_humidity": details.get("relative_humidity"),
+            "wind_speed": details.get("wind_speed"),
+            "symbol_code": weather_symbol_for_timeseries(item),
+        }
+        upcoming.append(row)
+        local_day = forecast_time.astimezone(APP_TIMEZONE).date().isoformat()
+        daily.setdefault(local_day, []).append(row)
+
+    days: list[dict[str, Any]] = []
+    for date_key, rows in list(daily.items())[:5]:
+        temperatures = [float(row["air_temperature"]) for row in rows if isinstance(row.get("air_temperature"), (int, float))]
+        humidities = [float(row["relative_humidity"]) for row in rows if isinstance(row.get("relative_humidity"), (int, float))]
+        winds = [float(row["wind_speed"]) for row in rows if isinstance(row.get("wind_speed"), (int, float))]
+        midday = min(
+            rows,
+            key=lambda row: abs(parse_iso_datetime(str(row["time"])).astimezone(APP_TIMEZONE).hour - 12)
+            if parse_iso_datetime(str(row["time"]))
+            else 24,
+        )
+        days.append(
+            {
+                "date": date_key,
+                "temperature_min": min(temperatures) if temperatures else None,
+                "temperature_max": max(temperatures) if temperatures else None,
+                "humidity_avg": round(sum(humidities) / len(humidities), 1) if humidities else None,
+                "wind_max": max(winds) if winds else None,
+                "symbol_code": midday.get("symbol_code") or "",
+            }
+        )
+
+    return {
+        "updated_at": utc_now_iso(),
+        "now": upcoming[0] if upcoming else None,
+        "days": days,
+    }
+
+
 def normalize_device_base_url(target: str) -> str:
     normalized = target.strip()
     if not normalized:
@@ -5076,6 +5250,89 @@ async def get_settings(request: Request):
     except ValueError as exc:
         return hub_error_response(str(exc))
     return {"ok": True, "settings": hub_settings(str(hub["hub_id"]))}
+
+
+@app.patch("/api/settings")
+async def patch_settings(request: Request, payload: dict[str, Any]):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        settings = save_hub_settings(str(hub["hub_id"]), payload)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "settings": settings}
+
+
+@app.patch("/api/profile")
+async def patch_profile(request: Request, payload: dict[str, Any]):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    username = current_username(request)
+    if not username:
+        return JSONResponse(status_code=401, content={"ok": False, "error": "login_required"})
+    password = payload.get("password")
+    try:
+        user = update_app_user(
+            username,
+            password=None if password in (None, "") else str(password),
+            full_name=None if payload.get("full_name") in (None, "") else str(payload.get("full_name")),
+            phone=None if payload.get("phone") in (None, "") else str(payload.get("phone")),
+            email=None if payload.get("email") in (None, "") else str(payload.get("email")),
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "user": user, "session": session_auth_payload(request)}
+
+
+@app.get("/api/weather/address-search")
+async def weather_address_search(request: Request, q: str = Query("", min_length=0)):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    if len(q.strip()) < 3:
+        return {"ok": True, "matches": []}
+    try:
+        matches = fetch_address_matches(q)
+    except HTTPError as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": f"address_http_{exc.code}"})
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "address_lookup_unavailable"})
+    return {"ok": True, "matches": matches}
+
+
+@app.get("/api/weather")
+async def weather_forecast(request: Request):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+    except ValueError as exc:
+        return hub_error_response(str(exc))
+    settings = hub_settings(str(hub["hub_id"]))
+    lat = settings.get("weather_latitude")
+    lon = settings.get("weather_longitude")
+    if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "weather_location_missing"})
+    try:
+        forecast = fetch_met_weather_forecast(float(lat), float(lon))
+    except HTTPError as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": f"weather_http_{exc.code}"})
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
+        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "weather_unavailable"})
+    return {
+        "ok": True,
+        "hub_id": settings["hub_id"],
+        "location": {
+            "address": settings.get("weather_address") or settings.get("location_label") or settings.get("hub_name") or "",
+            "latitude": lat,
+            "longitude": lon,
+        },
+        "forecast": forecast,
+    }
 
 
 @app.get("/api/users")
