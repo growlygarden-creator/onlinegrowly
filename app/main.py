@@ -16,7 +16,7 @@ import ssl
 import sqlite3
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request as UrlRequest, urlopen
 from zoneinfo import ZoneInfo
 
@@ -110,6 +110,13 @@ SUPABASE_REST_ENDPOINT = os.getenv(
     "https://ffxkxsclgiojrzmxvyuk.supabase.co/rest/v1/sensor_data",
 )
 SUPABASE_API_KEY = os.getenv("SUPABASE_API_KEY", "").strip()
+SUPABASE_CORE_SYNC_ENABLED = os.getenv("SUPABASE_CORE_SYNC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+SUPABASE_CORE_TABLES = (
+    "growly_users",
+    "growly_hubs",
+    "growly_hub_members",
+    "growly_pairing_tokens",
+)
 DEFAULT_APP_SETTINGS: dict[str, Any] = {
     "sensor_url": DEFAULT_SENSOR_URL,
     "sample_time_soil_ms": 60000,
@@ -1837,6 +1844,18 @@ def primary_hub_for_user(username: str) -> dict[str, Any] | None:
     return hubs[0] if hubs else None
 
 
+def list_hub_members() -> list[dict[str, Any]]:
+    with db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT hub_id, username, role, created_at, updated_at
+            FROM hub_members
+            ORDER BY hub_id ASC, username COLLATE NOCASE ASC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def global_app_settings() -> dict[str, Any]:
     settings = DEFAULT_APP_SETTINGS.copy()
     with db_connection() as connection:
@@ -2134,6 +2153,7 @@ def create_pairing_token(target_username: str) -> dict[str, Any]:
         connection.commit()
 
     pairing = find_pairing_token(token)
+    best_effort_sync_core_to_supabase("pairing token create")
     return pairing or {}
 
 
@@ -2268,7 +2288,9 @@ def complete_pairing_token(
         )
         connection.commit()
 
-    return find_hub(hub_id) or {}
+    hub = find_hub(hub_id) or {}
+    best_effort_sync_core_to_supabase("hub pairing")
+    return hub
 
 
 def create_hub_for_user(username: str) -> dict[str, Any]:
@@ -2305,7 +2327,9 @@ def create_hub_for_user(username: str) -> dict[str, Any]:
         )
         ensure_hub_member(connection, hub_id, username, "owner")
         connection.commit()
-    return find_hub(hub_id) or {}
+    hub = find_hub(hub_id) or {}
+    best_effort_sync_core_to_supabase("hub create")
+    return hub
 
 
 def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool = False) -> dict[str, Any]:
@@ -2324,6 +2348,7 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
 
     target_hub = find_hub_by_owner(clean_username)
     now = utc_now_iso()
+    deleted_hub_ids: list[str] = []
     with db_connection() as connection:
         if target_hub and str(target_hub["hub_id"]) != clean_hub_id:
             target_hub_id = str(target_hub["hub_id"])
@@ -2340,6 +2365,7 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
                 raise ValueError("target_hub_has_samples")
             if not replace_existing:
                 raise ValueError("target_has_hub")
+            deleted_hub_ids.append(target_hub_id)
             connection.execute(
                 """
                 DELETE FROM pairing_tokens
@@ -2378,7 +2404,11 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
         ensure_hub_member(connection, clean_hub_id, clean_username, "owner")
         connection.commit()
 
-    return find_hub(clean_hub_id) or {}
+    for deleted_hub_id in deleted_hub_ids:
+        best_effort_delete_supabase_hub(deleted_hub_id)
+    hub = find_hub(clean_hub_id) or {}
+    best_effort_sync_core_to_supabase("hub transfer")
+    return hub
 
 
 def ensure_device_hub(hub_id: str, local_ip: str | None = None) -> dict[str, Any]:
@@ -2504,7 +2534,9 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             )
         connection.commit()
 
-    return hub_settings(hub_id)
+    settings = hub_settings(hub_id)
+    best_effort_sync_core_to_supabase("hub settings")
+    return settings
 
 
 def update_hub_local_ip(hub_id: str, local_ip: str | None) -> None:
@@ -2522,6 +2554,7 @@ def update_hub_local_ip(hub_id: str, local_ip: str | None) -> None:
             (clean_ip, utc_now_iso(), hub_id),
         )
         connection.commit()
+    best_effort_sync_core_to_supabase("hub local ip")
 
 
 def update_hub_device_status(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2572,7 +2605,9 @@ def update_hub_device_status(hub_id: str, payload: dict[str, Any]) -> dict[str, 
             values,
         )
         connection.commit()
-    return hub_settings(hub_id)
+    settings = hub_settings(hub_id)
+    best_effort_sync_core_to_supabase("hub device status")
+    return settings
 
 
 def device_config_response(hub_id: str, current_version: str = "") -> dict[str, Any]:
@@ -2798,6 +2833,7 @@ def create_app_user(
     else:
         assigned_hub = None
     user = find_app_user(normalized_username)
+    best_effort_sync_core_to_supabase("user create")
     return {
         "username": user["username"],
         "full_name": user["full_name"],
@@ -2900,6 +2936,7 @@ def update_app_user(
 
     updated = find_app_user(username)
     assigned_hub = primary_hub_for_user(username)
+    best_effort_sync_core_to_supabase("user update")
     return {
         "username": updated["username"],
         "full_name": updated["full_name"],
@@ -3000,6 +3037,8 @@ def delete_app_user(username: str, acting_username: str) -> None:
             (username,),
         )
         connection.commit()
+    best_effort_delete_supabase_user(username)
+    best_effort_sync_core_to_supabase("user delete")
 
 
 def reset_app_user_password(username: str) -> str:
@@ -3374,8 +3413,23 @@ def supabase_enabled() -> bool:
     return bool(SUPABASE_REST_ENDPOINT and SUPABASE_API_KEY)
 
 
+def supabase_rest_base_url() -> str:
+    endpoint = SUPABASE_REST_ENDPOINT.rstrip("/")
+    suffix = "/sensor_data"
+    if endpoint.endswith(suffix):
+        return endpoint[: -len(suffix)]
+    return endpoint.rsplit("/", 1)[0]
+
+
 def supabase_request_url(params: dict[str, str]) -> str:
     return f"{SUPABASE_REST_ENDPOINT}?{urlencode(params)}"
+
+
+def supabase_table_url(table_name: str, params: dict[str, str] | None = None) -> str:
+    url = f"{supabase_rest_base_url()}/{quote(table_name, safe='')}"
+    if params:
+        url = f"{url}?{urlencode(params)}"
+    return url
 
 
 def fetch_supabase_rows(params: dict[str, str]) -> list[dict[str, Any]]:
@@ -3393,6 +3447,64 @@ def fetch_supabase_rows(params: dict[str, str]) -> list[dict[str, Any]]:
         payload = response.read().decode("utf-8")
         data = json.loads(payload)
         return data if isinstance(data, list) else []
+
+
+def supabase_request(
+    table_name: str,
+    method: str = "GET",
+    params: dict[str, str] | None = None,
+    payload: Any | None = None,
+    prefer: str | None = None,
+) -> Any:
+    headers = {
+        "apikey": SUPABASE_API_KEY,
+        "Authorization": f"Bearer {SUPABASE_API_KEY}",
+        "Accept": "application/json",
+    }
+    data: bytes | None = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    if prefer:
+        headers["Prefer"] = prefer
+    request = UrlRequest(
+        supabase_table_url(table_name, params),
+        data=data,
+        headers=headers,
+        method=method,
+    )
+    request_ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    with urlopen(request, timeout=10, context=request_ssl_context) as response:
+        body = response.read().decode("utf-8")
+    if not body:
+        return None
+    return json.loads(body)
+
+
+def supabase_fetch_table(table_name: str, params: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    data = supabase_request(table_name, params=params)
+    return data if isinstance(data, list) else []
+
+
+def supabase_upsert_rows(table_name: str, rows: list[dict[str, Any]], conflict_columns: str) -> None:
+    if not rows:
+        return
+    supabase_request(
+        table_name,
+        method="POST",
+        params={"on_conflict": conflict_columns},
+        payload=rows,
+        prefer="resolution=merge-duplicates",
+    )
+
+
+def supabase_delete_rows(table_name: str, params: dict[str, str]) -> None:
+    supabase_request(
+        table_name,
+        method="DELETE",
+        params=params,
+        prefer="return=minimal",
+    )
 
 
 def fetch_supabase_rows_for_hub(hub_id: str, params: dict[str, str]) -> list[dict[str, Any]]:
@@ -3625,6 +3737,153 @@ def supabase_day_summary(hub_id: str) -> dict[str, dict[str, float | None]]:
         },
     )
     return day_summary_from_rows(rows)
+
+
+def iso_or_none(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def bool_from_int(value: Any) -> bool:
+    return bool(int(value or 0))
+
+
+def supabase_core_readiness() -> dict[str, Any]:
+    status: dict[str, Any] = {
+        "enabled": supabase_enabled(),
+        "sync_enabled": SUPABASE_CORE_SYNC_ENABLED,
+        "tables": {},
+    }
+    if not supabase_enabled():
+        return status
+    for table_name in SUPABASE_CORE_TABLES:
+        try:
+            supabase_fetch_table(table_name, {"select": "*", "limit": "1"})
+            status["tables"][table_name] = {"ok": True, "error": ""}
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="ignore")
+            status["tables"][table_name] = {"ok": False, "error": body or f"http_{exc.code}"}
+        except (URLError, TimeoutError, OSError) as exc:
+            status["tables"][table_name] = {"ok": False, "error": str(exc)}
+    return status
+
+
+def supabase_core_ready() -> bool:
+    readiness = supabase_core_readiness()
+    tables = readiness.get("tables", {})
+    return bool(readiness.get("enabled")) and all(bool(table.get("ok")) for table in tables.values())
+
+
+def sync_core_to_supabase() -> dict[str, Any]:
+    if not supabase_enabled():
+        return {"ok": False, "error": "supabase_not_configured"}
+    if not SUPABASE_CORE_SYNC_ENABLED:
+        return {"ok": False, "error": "supabase_core_sync_disabled"}
+
+    users = [
+        {
+            "username": user["username"],
+            "full_name": user.get("full_name") or "",
+            "phone": user.get("phone") or "",
+            "email": user.get("email") or "",
+            "is_active": bool_from_int(user.get("is_active")),
+            "is_admin": bool_from_int(user.get("is_admin")),
+            "email_verified": bool_from_int(user.get("email_verified")),
+            "created_at": user["created_at"],
+            "updated_at": user["updated_at"],
+        }
+        for user in list_app_users()
+    ]
+    hubs = [
+        {
+            "hub_id": hub["hub_id"],
+            "hub_name": hub["hub_name"],
+            "location_label": hub.get("location_label") or "",
+            "owner_username": hub["owner_username"],
+            "is_active": bool_from_int(hub.get("is_active")),
+            "sensor_url": hub.get("sensor_url") or "",
+            "local_ip": hub.get("local_ip") or "",
+            "sample_time_soil_ms": int(hub.get("sample_time_soil_ms") or DEFAULT_APP_SETTINGS["sample_time_soil_ms"]),
+            "sample_time_light_ms": int(hub.get("sample_time_light_ms") or DEFAULT_APP_SETTINGS["sample_time_light_ms"]),
+            "sample_time_air_ms": int(hub.get("sample_time_air_ms") or DEFAULT_APP_SETTINGS["sample_time_air_ms"]),
+            "sample_time_cloud_ms": int(hub.get("sample_time_cloud_ms") or DEFAULT_APP_SETTINGS["sample_time_cloud_ms"]),
+            "history_start_at": iso_or_none(history_start_iso(str(hub["hub_id"]))),
+            "config_revision": int(hub.get("config_revision") or 1),
+            "config_updated_at": iso_or_none(hub.get("config_updated_at")),
+            "config_applied_revision": int(hub.get("config_applied_revision") or 0),
+            "config_applied_at": iso_or_none(hub.get("config_applied_at")),
+            "config_applied_settings_json": json.loads(str(hub.get("config_applied_settings_json") or "{}")),
+            "device_status_at": iso_or_none(hub.get("device_status_at")),
+            "device_status_message": hub.get("device_status_message") or "",
+            "device_firmware_version": hub.get("device_firmware_version") or "",
+            "created_at": hub["created_at"],
+            "updated_at": hub["updated_at"],
+        }
+        for hub in list_hubs()
+    ]
+    members = [
+        {
+            "hub_id": member["hub_id"],
+            "username": member["username"],
+            "role": member.get("role") or "member",
+            "created_at": member["created_at"],
+            "updated_at": member["updated_at"],
+        }
+        for member in list_hub_members()
+    ]
+    pairings = [
+        {
+            "token": pairing["token"],
+            "target_username": pairing["target_username"],
+            "created_at": pairing["created_at"],
+            "expires_at": pairing["expires_at"],
+            "used_at": iso_or_none(pairing.get("used_at")),
+            "paired_hub_id": iso_or_none(pairing.get("paired_hub_id")),
+        }
+        for pairing in list_active_pairing_tokens()
+    ]
+
+    supabase_upsert_rows("growly_users", users, "username")
+    supabase_upsert_rows("growly_hubs", hubs, "hub_id")
+    supabase_upsert_rows("growly_hub_members", members, "hub_id,username")
+    supabase_upsert_rows("growly_pairing_tokens", pairings, "token")
+
+    return {
+        "ok": True,
+        "counts": {
+            "users": len(users),
+            "hubs": len(hubs),
+            "hub_members": len(members),
+            "pairing_tokens": len(pairings),
+        },
+    }
+
+
+def best_effort_sync_core_to_supabase(reason: str = "") -> None:
+    if not SUPABASE_CORE_SYNC_ENABLED or not supabase_enabled():
+        return
+    try:
+        sync_core_to_supabase()
+    except Exception as exc:
+        print(f"Supabase core sync skipped{f' after {reason}' if reason else ''}: {exc}")
+
+
+def best_effort_delete_supabase_user(username: str) -> None:
+    if not SUPABASE_CORE_SYNC_ENABLED or not supabase_enabled():
+        return
+    try:
+        supabase_delete_rows("growly_users", {"username": f"eq.{username}"})
+    except Exception as exc:
+        print(f"Supabase user delete skipped for {username}: {exc}")
+
+
+def best_effort_delete_supabase_hub(hub_id: str) -> None:
+    if not SUPABASE_CORE_SYNC_ENABLED or not supabase_enabled():
+        return
+    try:
+        supabase_delete_rows("growly_hubs", {"hub_id": f"eq.{hub_id}"})
+    except Exception as exc:
+        print(f"Supabase hub delete skipped for {hub_id}: {exc}")
 
 
 def local_day_summary(hub_id: str) -> dict[str, dict[str, float | None]]:
@@ -4610,6 +4869,30 @@ async def get_hubs(request: Request):
     else:
         hubs = list_hubs_for_user(current_username(request))
     return {"ok": True, "hubs": hubs}
+
+
+@app.get("/api/supabase/status")
+async def get_supabase_status(request: Request):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    return {"ok": True, "status": supabase_core_readiness()}
+
+
+@app.post("/api/supabase/sync-core")
+async def sync_supabase_core(request: Request):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        result = sync_core_to_supabase()
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        return JSONResponse(status_code=400, content={"ok": False, "error": body or f"http_{exc.code}"})
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    status_code = 200 if result.get("ok") else 400
+    return JSONResponse(status_code=status_code, content=result)
 
 
 @app.post("/api/hubs/{hub_id}/transfer-owner")
