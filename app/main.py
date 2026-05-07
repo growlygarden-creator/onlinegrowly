@@ -110,6 +110,7 @@ SUPABASE_REST_ENDPOINT = os.getenv(
     "https://ffxkxsclgiojrzmxvyuk.supabase.co/rest/v1/sensor_data",
 )
 SUPABASE_API_KEY = os.getenv("SUPABASE_API_KEY", "").strip()
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 SUPABASE_CORE_SYNC_ENABLED = os.getenv("SUPABASE_CORE_SYNC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 SUPABASE_CORE_TABLES = (
     "growly_users",
@@ -3410,7 +3411,20 @@ def metric_history_by_span(
 
 
 def supabase_enabled() -> bool:
-    return bool(SUPABASE_REST_ENDPOINT and SUPABASE_API_KEY)
+    return bool(SUPABASE_REST_ENDPOINT and supabase_auth_key())
+
+
+def supabase_auth_key() -> str:
+    return SUPABASE_SERVICE_ROLE_KEY or SUPABASE_API_KEY
+
+
+def supabase_auth_headers() -> dict[str, str]:
+    key = supabase_auth_key()
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Accept": "application/json",
+    }
 
 
 def supabase_rest_base_url() -> str:
@@ -3435,11 +3449,7 @@ def supabase_table_url(table_name: str, params: dict[str, str] | None = None) ->
 def fetch_supabase_rows(params: dict[str, str]) -> list[dict[str, Any]]:
     request = UrlRequest(
         supabase_request_url(params),
-        headers={
-            "apikey": SUPABASE_API_KEY,
-            "Authorization": f"Bearer {SUPABASE_API_KEY}",
-            "Accept": "application/json",
-        },
+        headers=supabase_auth_headers(),
         method="GET",
     )
     ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
@@ -3456,11 +3466,7 @@ def supabase_request(
     payload: Any | None = None,
     prefer: str | None = None,
 ) -> Any:
-    headers = {
-        "apikey": SUPABASE_API_KEY,
-        "Authorization": f"Bearer {SUPABASE_API_KEY}",
-        "Accept": "application/json",
-    }
+    headers = supabase_auth_headers()
     data: bytes | None = None
     if payload is not None:
         headers["Content-Type"] = "application/json"
@@ -3752,6 +3758,7 @@ def supabase_core_readiness() -> dict[str, Any]:
     status: dict[str, Any] = {
         "enabled": supabase_enabled(),
         "sync_enabled": SUPABASE_CORE_SYNC_ENABLED,
+        "service_role": bool(SUPABASE_SERVICE_ROLE_KEY),
         "tables": {},
     }
     if not supabase_enabled():

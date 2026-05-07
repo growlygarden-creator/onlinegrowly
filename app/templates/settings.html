@@ -335,7 +335,9 @@
             const ready = Boolean(status?.enabled) && tableEntries.length > 0 && failedTables.length === 0;
 
             supabaseEnabled.textContent = status?.enabled ? "Aktiv" : "Ikke konfigurert";
-            supabaseSyncEnabled.textContent = status?.sync_enabled ? "Automatisk sync aktiv" : "Automatisk sync av";
+            supabaseSyncEnabled.textContent = status?.service_role
+                ? "Service role aktiv"
+                : (status?.sync_enabled ? "Sync aktiv, men mangler service role" : "Automatisk sync av");
             supabaseTableState.textContent = ready ? "Klare" : `${failedTables.length || tableEntries.length} mangler`;
             supabaseTableDetail.textContent = ready
                 ? "Kjerne-tabellene er tilgjengelige"
