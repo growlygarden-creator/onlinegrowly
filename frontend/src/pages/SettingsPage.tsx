@@ -39,6 +39,7 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
   const [addressLookupBusy, setAddressLookupBusy] = useState(false);
   const [accountPanelOpen, setAccountPanelOpen] = useState(false);
   const [hubPanelOpen, setHubPanelOpen] = useState(false);
+  const [weatherPanelOpen, setWeatherPanelOpen] = useState(false);
   const [profileFullName, setProfileFullName] = useState(session?.user?.full_name || "");
   const [profilePhone, setProfilePhone] = useState(session?.user?.phone || "");
   const [profileEmail, setProfileEmail] = useState(session?.user?.email || "");
@@ -212,6 +213,7 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
   const hubId = session?.hub?.hub_id || "Venter på paring";
   const hubCount = session?.hubs?.length ?? (session?.hub ? 1 : 0);
   const hubActive = !!session?.hub?.is_active;
+  const weatherConfigured = !!weatherLatitude && !!weatherLongitude;
 
   return (
     <main className="page-shell app-page">
@@ -373,73 +375,97 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
       <section className="settings-section">
         <p className="section-kicker">Dyrkested og vær</p>
         <article className="soft-card settings-card premium-section-card">
-          <div className="settings-row settings-row--stacked">
-            <div className="settings-row__content">
-              <strong>Værprognose uten hub</strong>
-              <span>Growly bruker dyrkestedet ditt til værbaserte råd når huben ikke er aktiv.</span>
+          <button className="settings-row settings-row-button" type="button" onClick={() => setWeatherPanelOpen((open) => !open)}>
+            <div className="icon-badge icon-badge--mint">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.8"
+                  d="M12 3v2.1M12 18.9V21M4.6 4.6l1.5 1.5M17.9 17.9l1.5 1.5M3 12h2.1M18.9 12H21M4.6 19.4l1.5-1.5M17.9 6.1l1.5-1.5M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0-8Z"
+                />
+              </svg>
             </div>
-            <label className="settings-field">
-              <span>Adresse eller sted</span>
-              <input
-                value={weatherAddress}
-                onChange={(event) => {
-                  setWeatherAddress(event.target.value);
-                  setAddressMatches([]);
-                }}
-                placeholder="F.eks. Grenaderveien 7 Halden"
-              />
-            </label>
-            <button className="secondary-action" type="button" onClick={handleSearchAddress} disabled={addressLookupBusy}>
-              {addressLookupBusy ? "Søker..." : "Finn adresse"}
-            </button>
-            {addressMatches.length ? (
-              <div className="address-match-list">
-                {addressMatches.map((match) => (
-                  <button
-                    className="address-match-item"
-                    key={`${match.label}-${match.latitude}-${match.longitude}`}
-                    type="button"
-                    onClick={() => handleSelectAddress(match)}
-                  >
-                    <strong>{match.label}</strong>
-                    <span>{match.latitude}, {match.longitude}</span>
-                  </button>
-                ))}
+            <div className="settings-row__content">
+              <strong>{weatherConfigured ? "Værprognose aktiv" : "Værprognose uten hub"}</strong>
+              <span>{weatherConfigured ? "Lokalt vær brukes til dyrkeråd." : "Legg inn dyrkested for lokale råd uten hub."}</span>
+              <small>{weatherConfigured ? "Dyrkested er satt" : "Ikke satt opp"}</small>
+            </div>
+            <span className={`chevron${weatherPanelOpen ? " chevron--open" : ""}`}>›</span>
+          </button>
+
+          {weatherPanelOpen ? (
+            <div className="weather-settings-panel">
+              <div className="settings-divider" />
+              <div className="settings-row__content">
+                <strong>Værprognose uten hub</strong>
+                <span>Growly bruker dyrkestedet ditt til værbaserte råd når huben ikke er aktiv.</span>
               </div>
-            ) : null}
-            {weatherLatitude && weatherLongitude ? (
-              <div className="location-confirmation">
-                <strong>Dyrkested funnet</strong>
-                <span>{weatherAddress || "Adresse valgt"}</span>
-              </div>
-            ) : null}
-            <details className="advanced-location">
-              <summary>Avansert plassering</summary>
-              <div className="settings-field-grid">
-                <label className="settings-field">
-                  <span>Breddegrad</span>
-                  <input
-                    value={weatherLatitude}
-                    onChange={(event) => setWeatherLatitude(event.target.value)}
-                    inputMode="decimal"
-                    placeholder="59.112163"
-                  />
-                </label>
-                <label className="settings-field">
-                  <span>Lengdegrad</span>
-                  <input
-                    value={weatherLongitude}
-                    onChange={(event) => setWeatherLongitude(event.target.value)}
-                    inputMode="decimal"
-                    placeholder="11.400913"
-                  />
-                </label>
-              </div>
-            </details>
-            <button className="primary-action" type="button" onClick={handleSaveWeatherLocation}>
-              Lagre dyrkested
-            </button>
-          </div>
+              <label className="settings-field">
+                <span>Adresse eller sted</span>
+                <input
+                  value={weatherAddress}
+                  onChange={(event) => {
+                    setWeatherAddress(event.target.value);
+                    setAddressMatches([]);
+                  }}
+                  placeholder="F.eks. Grenaderveien 7 Halden"
+                />
+              </label>
+              <button className="secondary-action" type="button" onClick={handleSearchAddress} disabled={addressLookupBusy}>
+                {addressLookupBusy ? "Søker..." : "Finn adresse"}
+              </button>
+              {addressMatches.length ? (
+                <div className="address-match-list">
+                  {addressMatches.map((match) => (
+                    <button
+                      className="address-match-item"
+                      key={`${match.label}-${match.latitude}-${match.longitude}`}
+                      type="button"
+                      onClick={() => handleSelectAddress(match)}
+                    >
+                      <strong>{match.label}</strong>
+                      <span>{match.latitude}, {match.longitude}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {weatherLatitude && weatherLongitude ? (
+                <div className="location-confirmation">
+                  <strong>Dyrkested funnet</strong>
+                  <span>{weatherAddress || "Adresse valgt"}</span>
+                </div>
+              ) : null}
+              <details className="advanced-location">
+                <summary>Avansert plassering</summary>
+                <div className="settings-field-grid">
+                  <label className="settings-field">
+                    <span>Breddegrad</span>
+                    <input
+                      value={weatherLatitude}
+                      onChange={(event) => setWeatherLatitude(event.target.value)}
+                      inputMode="decimal"
+                      placeholder="59.112163"
+                    />
+                  </label>
+                  <label className="settings-field">
+                    <span>Lengdegrad</span>
+                    <input
+                      value={weatherLongitude}
+                      onChange={(event) => setWeatherLongitude(event.target.value)}
+                      inputMode="decimal"
+                      placeholder="11.400913"
+                    />
+                  </label>
+                </div>
+              </details>
+              <button className="primary-action" type="button" onClick={handleSaveWeatherLocation}>
+                Lagre dyrkested
+              </button>
+            </div>
+          ) : null}
         </article>
       </section>
 

@@ -2209,6 +2209,11 @@ input {
   gap: 0;
 }
 
+.weather-settings-panel {
+  display: grid;
+  gap: 14px;
+}
+
 .account-settings-panel {
   display: grid;
   gap: 14px;

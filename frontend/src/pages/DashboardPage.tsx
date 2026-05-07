@@ -788,7 +788,6 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const weatherHumidity = metricText(weatherNow?.relative_humidity, "%", 0);
   const weatherWind = metricText(weatherNow?.wind_speed, " m/s", 1);
   const weatherDays = weather?.forecast.days.slice(0, 4) ?? [];
-  const weatherPlace = shortWeatherPlace(weather?.location.address);
   const currentWeatherIcon = weatherIcon(weatherNow?.symbol_code || weatherDays[0]?.symbol_code);
   const climateTitle = weather ? "Lokalt dyrkevær" : hasPairedHub ? "Vekstforhold" : "Dyrkested";
   const climateNote = hasPairedHub
@@ -880,7 +879,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                   <span className="weather-overview-icon" aria-hidden="true">{currentWeatherIcon}</span>
                   <div>
                     <span>{weather ? "Vær ved dyrkested" : "Værbaserte råd"}</span>
-                    <strong>{weather ? `${weatherTemperature} i ${weatherPlace}` : "Legg inn dyrkested"}</strong>
+                    <strong>{weather ? weatherTemperature : "Legg inn dyrkested"}</strong>
                     <p>{weather ? `Fukt ${weatherHumidity} · vind ${weatherWind}` : "Skriv inn adresse i Innstillinger for lokal prognose."}</p>
                   </div>
                 </div>
