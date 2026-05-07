@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   fetchLatestSample,
   fetchMetricHistory,
   fetchPlants,
+  fetchPlantHistory,
   fetchPlantCatalog,
   createPlant,
   updatePlant,
@@ -497,6 +499,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const [detailTrendPoints, setDetailTrendPoints] = useState<HistoryPoint[]>([]);
   const [detailTrendLoading, setDetailTrendLoading] = useState(false);
   const [plants, setPlants] = useState<GreenhousePlant[]>([]);
+  const [plantHistoryCount, setPlantHistoryCount] = useState(0);
   const [plantsLoading, setPlantsLoading] = useState(false);
   const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null);
   const [finishPlantId, setFinishPlantId] = useState<string | null>(null);
@@ -533,6 +536,18 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
       }
       setPlants(items.map(normalizePlant));
       setPlantsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.username, selectedHubId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPlantHistory(selectedHubId).then((items) => {
+      if (!cancelled) {
+        setPlantHistoryCount(items.length);
+      }
     });
     return () => {
       cancelled = true;
@@ -713,6 +728,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     await archivePlantApi(plant.instanceId, selectedHubId);
 
     setPlants((current) => current.filter((item) => item.instanceId !== plant.instanceId));
+    setPlantHistoryCount((current) => current + 1);
     setSelectedPlantId(null);
     setFinishPlantId(null);
   }
@@ -800,6 +816,20 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
             </article>
           )}
         </div>
+      </section>
+
+      <section className="settings-section">
+        <p className="section-kicker">Historikk</p>
+        <Link className="soft-card settings-card premium-section-card settings-row-link" to="/historikk">
+          <div className="settings-row">
+            <div className="icon-badge icon-badge--mint">☘</div>
+            <div className="settings-row__content">
+              <strong>Tidligere planteprosjekter</strong>
+              <span>{plantHistoryCount ? `${plantHistoryCount} lagret i historikk` : "Ingen avsluttede prosjekter enda"}</span>
+            </div>
+            <span className="chevron">›</span>
+          </div>
+        </Link>
       </section>
 
       {selectedPlant && selectedProfile ? (

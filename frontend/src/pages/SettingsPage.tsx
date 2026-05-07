@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   createPairing,
   fetchActivePairing,
-  fetchPlantHistory,
   logout,
   saveHubSettings,
   searchWeatherAddress,
@@ -31,7 +29,6 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
-  const [plantHistoryCount, setPlantHistoryCount] = useState(0);
   const [weatherAddress, setWeatherAddress] = useState(session?.hub?.weather_address || session?.hub?.location_label || "");
   const [weatherLatitude, setWeatherLatitude] = useState(session?.hub?.weather_latitude?.toString() || "");
   const [weatherLongitude, setWeatherLongitude] = useState(session?.hub?.weather_longitude?.toString() || "");
@@ -50,18 +47,6 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
       setPairing(activePairing);
     });
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchPlantHistory(session?.hub?.hub_id ?? "").then((items) => {
-      if (!cancelled) {
-        setPlantHistoryCount(items.length);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.username, session?.hub?.hub_id]);
 
   useEffect(() => {
     setWeatherAddress(session?.hub?.weather_address || session?.hub?.location_label || "");
@@ -467,20 +452,6 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
             </div>
           ) : null}
         </article>
-      </section>
-
-      <section className="settings-section">
-        <p className="section-kicker">Historikk</p>
-        <Link className="soft-card settings-card premium-section-card settings-row-link" to="/historikk">
-          <div className="settings-row">
-            <div className="icon-badge icon-badge--mint">☘</div>
-            <div className="settings-row__content">
-              <strong>Tidligere planteprosjekter</strong>
-              <span>{plantHistoryCount ? `${plantHistoryCount} lagret i historikk` : "Ingen avsluttede prosjekter enda"}</span>
-            </div>
-            <span className="chevron">›</span>
-          </div>
-        </Link>
       </section>
 
       {status ? <p className="helper-text helper-text--settings">{status}</p> : null}
