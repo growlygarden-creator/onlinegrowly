@@ -1081,6 +1081,7 @@ def rebuild_hubs_without_owner_unique(connection: sqlite3.Connection) -> None:
         CREATE TABLE hubs_rebuild (
             hub_id TEXT PRIMARY KEY,
             hub_name TEXT NOT NULL,
+            location_label TEXT NOT NULL DEFAULT '',
             owner_username TEXT NOT NULL,
             is_active INTEGER NOT NULL DEFAULT 1,
             sensor_url TEXT NOT NULL,
@@ -1107,14 +1108,14 @@ def rebuild_hubs_without_owner_unique(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         INSERT INTO hubs_rebuild (
-            hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
+            hub_id, hub_name, location_label, owner_username, is_active, sensor_url, local_ip,
             sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
             sample_time_cloud_ms, history_start_at, config_revision,
             config_updated_at, config_applied_revision, config_applied_at,
             config_applied_settings_json, device_status_at, device_status_message,
             device_firmware_version, created_at, updated_at
         )
-        SELECT hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
+        SELECT hub_id, hub_name, '', owner_username, is_active, sensor_url, local_ip,
                sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                sample_time_cloud_ms, history_start_at, config_revision,
                config_updated_at, config_applied_revision, config_applied_at,
@@ -1205,6 +1206,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS hubs (
                 hub_id TEXT PRIMARY KEY,
                 hub_name TEXT NOT NULL,
+                location_label TEXT NOT NULL DEFAULT '',
                 owner_username TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 sensor_url TEXT NOT NULL,
@@ -1424,6 +1426,8 @@ def init_db() -> None:
         }
         if "local_ip" not in existing_hub_columns:
             connection.execute("ALTER TABLE hubs ADD COLUMN local_ip TEXT NOT NULL DEFAULT ''")
+        if "location_label" not in existing_hub_columns:
+            connection.execute("ALTER TABLE hubs ADD COLUMN location_label TEXT NOT NULL DEFAULT ''")
         hub_column_defaults = {
             "config_revision": "INTEGER NOT NULL DEFAULT 1",
             "config_updated_at": "TEXT NOT NULL DEFAULT ''",
@@ -1728,7 +1732,7 @@ def list_hubs() -> list[dict[str, Any]]:
     with db_connection() as connection:
         rows = connection.execute(
             """
-            SELECT hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
+            SELECT hub_id, hub_name, location_label, owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                    sample_time_cloud_ms, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
@@ -1745,7 +1749,7 @@ def find_hub(hub_id: str) -> dict[str, Any] | None:
     with db_connection() as connection:
         row = connection.execute(
             """
-            SELECT hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
+            SELECT hub_id, hub_name, location_label, owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                    sample_time_cloud_ms, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
@@ -1763,7 +1767,7 @@ def find_hub_by_owner(username: str) -> dict[str, Any] | None:
     with db_connection() as connection:
         row = connection.execute(
             """
-            SELECT hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
+            SELECT hub_id, hub_name, location_label, owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                    sample_time_cloud_ms, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
@@ -1784,7 +1788,7 @@ def list_hubs_for_user(username: str) -> list[dict[str, Any]]:
     with db_connection() as connection:
         rows = connection.execute(
             """
-            SELECT h.hub_id, h.hub_name, h.owner_username, h.is_active, h.sensor_url, h.local_ip,
+            SELECT h.hub_id, h.hub_name, h.location_label, h.owner_username, h.is_active, h.sensor_url, h.local_ip,
                    h.sample_time_soil_ms, h.sample_time_light_ms, h.sample_time_air_ms,
                    h.sample_time_cloud_ms, h.history_start_at, h.config_revision,
                    h.config_updated_at, h.config_applied_revision, h.config_applied_at,
@@ -1810,7 +1814,7 @@ def find_hub_for_user(username: str, hub_id: str) -> dict[str, Any] | None:
     with db_connection() as connection:
         row = connection.execute(
             """
-            SELECT h.hub_id, h.hub_name, h.owner_username, h.is_active, h.sensor_url, h.local_ip,
+            SELECT h.hub_id, h.hub_name, h.location_label, h.owner_username, h.is_active, h.sensor_url, h.local_ip,
                    h.sample_time_soil_ms, h.sample_time_light_ms, h.sample_time_air_ms,
                    h.sample_time_cloud_ms, h.history_start_at, h.config_revision,
                    h.config_updated_at, h.config_applied_revision, h.config_applied_at,
@@ -2400,6 +2404,7 @@ def hub_settings(hub_id: str) -> dict[str, Any]:
     return {
         "hub_id": hub["hub_id"],
         "hub_name": hub["hub_name"],
+        "location_label": str(hub.get("location_label") or "").strip(),
         "owner_username": hub["owner_username"],
         "is_active": hub["is_active"],
         "sensor_url": normalize_sensor_url(hub["sensor_url"]),
@@ -2423,6 +2428,11 @@ def hub_settings(hub_id: str) -> dict[str, Any]:
 def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     current = hub_settings(hub_id)
     updated = current.copy()
+    for text_key in ("hub_name", "location_label"):
+        if text_key in payload:
+            updated[text_key] = str(payload.get(text_key) or "").strip()
+    if not updated.get("hub_name"):
+        updated["hub_name"] = current["hub_name"]
     for key in DEFAULT_APP_SETTINGS:
         if key not in payload:
             continue
@@ -2451,6 +2461,7 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             """
             UPDATE hubs
             SET hub_name = ?,
+                location_label = ?,
                 sensor_url = ?,
                 local_ip = ?,
                 history_start_at = ?,
@@ -2460,6 +2471,7 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             """,
             (
                 updated["hub_name"],
+                updated["location_label"],
                 updated["sensor_url"],
                 str(updated.get("local_ip", "") or "").strip(),
                 updated["history_start_at"],
@@ -3794,6 +3806,7 @@ def template_auth_context(request: Request) -> dict[str, Any]:
 def session_auth_payload(request: Request) -> dict[str, Any]:
     username = current_username(request)
     user = find_app_user(username) if username else None
+    user_hubs = list_hubs_for_user(username) if username and not is_admin_authenticated(request) else []
     try:
         hub = resolve_request_hub(request) if is_viewer_authenticated(request) else None
     except ValueError:
@@ -3813,6 +3826,7 @@ def session_auth_payload(request: Request) -> dict[str, Any]:
             "email_verified": user["email_verified"],
         } if user else None,
         "hub": hub,
+        "hubs": user_hubs,
         "api_token": issue_api_token(username) if user and is_viewer_authenticated(request) and not bool(user["is_admin"]) else "",
     }
 

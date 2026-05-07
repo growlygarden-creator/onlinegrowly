@@ -101,11 +101,22 @@ export type AuthSession = {
   hub: {
     hub_id: string;
     hub_name: string;
+    location_label?: string;
     owner_username: string;
     is_active?: boolean | number;
     sensor_url: string;
     local_ip: string;
   } | null;
+  hubs?: Array<{
+    hub_id: string;
+    hub_name: string;
+    location_label?: string;
+    owner_username: string;
+    is_active?: boolean | number;
+    sensor_url: string;
+    local_ip: string;
+    member_role?: string;
+  }>;
 };
 
 export type GrowlyAssistantImage = {

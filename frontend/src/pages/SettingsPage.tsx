@@ -78,7 +78,9 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
   const displayName = session?.user?.full_name || session?.username || "Growly Garden";
   const displayEmail = session?.user?.email || "geirij@example.com";
   const hubName = session?.hub?.hub_name || "Ingen hub paret ennå";
+  const hubLocation = session?.hub?.location_label || "";
   const hubId = session?.hub?.hub_id || "Venter på paring";
+  const hubCount = session?.hubs?.length ?? (session?.hub ? 1 : 0);
 
   return (
     <main className="page-shell app-page">
@@ -142,7 +144,9 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
                 <span className="online-dot" aria-hidden="true" />
                 {session?.hub ? "Tilkoblet" : "Ikke paret"}
               </span>
+              {hubLocation ? <small>Lokasjon: {hubLocation}</small> : null}
               <small>Hub-ID: {hubId}</small>
+              <small>{hubCount} {hubCount === 1 ? "hub" : "hubber"} på kontoen</small>
             </div>
             <span className="chevron">›</span>
           </div>
