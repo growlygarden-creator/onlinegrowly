@@ -2296,9 +2296,9 @@ input {
 
 .greenhouse-plant-card {
   display: grid;
-  gap: 14px;
+  gap: 13px;
   width: 100%;
-  min-height: 210px;
+  min-height: 292px;
   padding: 18px;
   color: inherit;
   text-align: left;
@@ -2339,9 +2339,133 @@ input {
   line-height: 1.35;
 }
 
-.greenhouse-plant-card .plant-sowed-date {
+.plant-card-title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.plant-card-title-row strong {
+  margin-bottom: 2px;
+}
+
+.plant-card-title-row small {
+  margin-top: 0;
+}
+
+.plant-day-chip,
+.plant-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.plant-day-chip {
+  min-height: 34px;
+  padding: 0 12px;
+  background: rgba(47, 138, 84, 0.1);
   color: var(--accent-strong);
-  font-weight: 800;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.plant-status-pill {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.plant-status-pill--good {
+  background: rgba(54, 182, 111, 0.14);
+  color: #247144;
+}
+
+.plant-status-pill--watch,
+.plant-status-pill--missing {
+  background: rgba(232, 175, 55, 0.16);
+  color: #8a681b;
+}
+
+.plant-status-pill--bad {
+  background: rgba(228, 98, 79, 0.14);
+  color: #a94134;
+}
+
+.plant-progress-block {
+  display: grid;
+  gap: 7px;
+}
+
+.plant-progress-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.plant-progress-block__head span {
+  color: var(--accent-strong);
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.plant-progress-block__head small {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.plant-progress-track {
+  overflow: hidden;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(23, 35, 26, 0.08);
+}
+
+.plant-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2aa362, #7fc568);
+}
+
+.plant-card-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.plant-card-meta-grid > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.plant-card-meta-grid small {
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+.plant-card-meta-grid b {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 0.84rem;
+  line-height: 1.18;
+}
+
+.plant-card-next {
+  margin: 0;
+  min-height: 40px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.35;
 }
 
 .theme-dark .greenhouse-plant-card {
@@ -2352,12 +2476,42 @@ input {
 }
 
 .theme-dark .greenhouse-plant-card span,
-.theme-dark .greenhouse-plant-card .plant-sowed-date {
+.theme-dark .plant-day-chip,
+.theme-dark .plant-progress-block__head span {
   color: #ddf6d5;
 }
 
 .theme-dark .greenhouse-plant-card small {
   color: #becbb9;
+}
+
+.theme-dark .plant-day-chip,
+.theme-dark .plant-card-meta-grid > span {
+  background: rgba(235, 250, 229, 0.09);
+}
+
+.theme-dark .plant-card-meta-grid b {
+  color: #eef6eb;
+}
+
+.theme-dark .plant-progress-track {
+  background: rgba(235, 250, 229, 0.1);
+}
+
+.theme-dark .plant-status-pill--good {
+  background: rgba(83, 208, 119, 0.16);
+  color: #c8f5c4;
+}
+
+.theme-dark .plant-status-pill--watch,
+.theme-dark .plant-status-pill--missing {
+  background: rgba(232, 175, 55, 0.16);
+  color: #f3dc96;
+}
+
+.theme-dark .plant-status-pill--bad {
+  background: rgba(228, 98, 79, 0.18);
+  color: #ffc5bc;
 }
 
 .plant-avatar {

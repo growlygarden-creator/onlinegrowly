@@ -218,6 +218,65 @@ function formatMovedAt(value: string | null | undefined): string {
   return `Flyttet inn ${date.toLocaleDateString("nb-NO", { day: "2-digit", month: "short" })}`;
 }
 
+function dateInputToDate(value: string | null | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function daysSinceDate(value: string | null | undefined): number | null {
+  const date = dateInputToDate(value);
+  if (!date) {
+    return null;
+  }
+
+  const today = new Date();
+  const todayAtNoon = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12);
+  return Math.max(0, Math.floor((todayAtNoon.getTime() - date.getTime()) / 86_400_000));
+}
+
+function maturityEstimateDays(profileId: string): number {
+  if (profileId === "pepper" || profileId === "chili") return 110;
+  if (profileId === "tomato") return 90;
+  if (profileId === "cucumber") return 65;
+  if (profileId === "basil") return 45;
+  if (profileId === "lettuce") return 50;
+  if (profileId === "strawberry") return 95;
+  return 75;
+}
+
+function plantTimelineSummary(plant: GreenhousePlant, profile: PlantProfile, status: ReturnType<typeof plantStatus>) {
+  const ageDays = daysSinceDate(plant.sowedAt);
+  const estimate = maturityEstimateDays(profile.id);
+  const progress = ageDays === null ? (plantLocation(plant) === "greenhouse" ? 34 : 12) : Math.min(100, Math.max(4, Math.round((ageDays / estimate) * 100)));
+  const remainingDays = ageDays === null ? null : Math.max(0, estimate - ageDays);
+  const phase =
+    ageDays === null
+      ? "Planlagt"
+      : ageDays < 14
+        ? "Spiring"
+        : ageDays < 35
+          ? "Etablering"
+          : progress < 82
+            ? "Vekst"
+            : "Modning";
+
+  const sowedLabel = ageDays === null ? "Sådato mangler" : `Sådd for ${ageDays} d siden`;
+  const dayLabel = ageDays === null ? "Sett dato" : `Dag ${ageDays + 1}`;
+  const harvestLabel = remainingDays === null ? "Ukjent innhøsting" : remainingDays === 0 ? "Klar snart" : `ca. ${remainingDays} d igjen`;
+  const nextAction =
+    plantLocation(plant) === "outside"
+      ? "Neste: følg rot og lys før flytting"
+      : status.level === "good"
+        ? "Neste: hold jevn rytme"
+        : status.note;
+
+  return { dayLabel, harvestLabel, nextAction, phase, progress, sowedLabel };
+}
+
 function plantLocation(plant: GreenhousePlant): "greenhouse" | "outside" {
   return plant.location === "outside" ? "outside" : "greenhouse";
 }
@@ -683,33 +742,57 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
               <strong>Henter plantene dine</strong>
               <p>Growly sjekker den valgte huben.</p>
             </article>
-          ) : plantSummaries.length ? plantSummaries.map(({ plant, profile, catalogItem, status }) => (
-            <button className="greenhouse-plant-card soft-card" type="button" key={plant.instanceId} onClick={() => setSelectedPlantId(plant.instanceId)}>
-              <div className="greenhouse-plant-card__top">
-                <PlantAvatar tone={profile.tone} plantId={profile.id} name={plant.nickname || profile.name} family={profile.family} />
-                <span className={`plant-status-dot plant-status-dot--${status.level}`} aria-hidden="true" />
-              </div>
-              <div>
-                <strong>{plant.nickname}</strong>
-                <span>{status.title}</span>
-                <small>{catalogItem?.notes || profile.notes || status.note}</small>
-                <small className="plant-sowed-date">{formatSowedAt(plant.sowedAt)}</small>
-              </div>
-              {plantLocation(plant) === "greenhouse" ? (
-                <div className="plant-mini-metrics">
-                  <span>{rangeText(profile.ranges.airTemperature, "°C", 0)}</span>
-                  <span>{rangeText(profile.ranges.airHumidity, "%", 0)}</span>
-                  <span>{luxRangeText(profile.ranges.lux)}</span>
-                  <span>{plant.hasSevenInOne ? "7-i-1" : "Klima"}</span>
-                </div>
-              ) : (
-                <div className="plant-mini-metrics plant-mini-metrics--nursery">
-                  <span>Utenfor drivhus</span>
-                  <span>{catalogItem?.seed_guide?.sow ?? "Sådata"}</span>
-                </div>
-              )}
-            </button>
-          )) : (
+          ) : plantSummaries.length ? plantSummaries.map(({ plant, profile, catalogItem, status }) => {
+              const timeline = plantTimelineSummary(plant, profile, status);
+              return (
+                <button className="greenhouse-plant-card soft-card" type="button" key={plant.instanceId} onClick={() => setSelectedPlantId(plant.instanceId)}>
+                  <div className="greenhouse-plant-card__top">
+                    <PlantAvatar tone={profile.tone} plantId={profile.id} name={plant.nickname || profile.name} family={profile.family} />
+                    <span className={`plant-status-pill plant-status-pill--${status.level}`}>{status.title}</span>
+                  </div>
+                  <div className="plant-card-title-row">
+                    <div>
+                      <strong>{plant.nickname}</strong>
+                      <small>{catalogItem?.subtitle || profile.family}</small>
+                    </div>
+                    <span className="plant-day-chip">{timeline.dayLabel}</span>
+                  </div>
+                  <div className="plant-progress-block">
+                    <div className="plant-progress-block__head">
+                      <span>{timeline.phase}</span>
+                      <small>{Math.round(timeline.progress)}%</small>
+                    </div>
+                    <div className="plant-progress-track" aria-hidden="true">
+                      <span style={{ width: `${timeline.progress}%` }} />
+                    </div>
+                  </div>
+                  <div className="plant-card-meta-grid">
+                    <span>
+                      <small>Sådd</small>
+                      <b>{timeline.sowedLabel}</b>
+                    </span>
+                    <span>
+                      <small>Høsting</small>
+                      <b>{timeline.harvestLabel}</b>
+                    </span>
+                  </div>
+                  <p className="plant-card-next">{timeline.nextAction}</p>
+                  {plantLocation(plant) === "greenhouse" ? (
+                    <div className="plant-mini-metrics">
+                      <span>{rangeText(profile.ranges.airTemperature, "°C", 0)}</span>
+                      <span>{rangeText(profile.ranges.airHumidity, "%", 0)}</span>
+                      <span>{luxRangeText(profile.ranges.lux)}</span>
+                      <span>{plant.hasSevenInOne ? "7-i-1" : "Klima"}</span>
+                    </div>
+                  ) : (
+                    <div className="plant-mini-metrics plant-mini-metrics--nursery">
+                      <span>Utenfor drivhus</span>
+                      <span>{catalogItem?.seed_guide?.sow ?? formatSowedAt(plant.sowedAt)}</span>
+                    </div>
+                  )}
+                </button>
+              );
+          }) : (
             <article className="soft-card empty-state-card">
               <strong>Start med blankt drivhus</strong>
               <p>Denne brukeren har ingen planter enda. Legg til første plante når du er klar.</p>
