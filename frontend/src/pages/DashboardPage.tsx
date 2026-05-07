@@ -412,24 +412,36 @@ function growthStatus(sample: LatestSample | null): { title: string; note: strin
   };
 }
 
-function buildWeeklyTasks(sample: LatestSample | null): HomeTask[] {
+function buildWeeklyTasks(sample: LatestSample | null, hasWeather: boolean, plantCount: number): HomeTask[] {
   const tasks: HomeTask[] = [];
 
   if (!sample) {
-    return [
-      {
+    if (hasWeather) {
+      tasks.push({
+        title: "Følg værvinduet",
+        detail: "Bruk prognosen til å planlegge lufting, skygge og vanning de neste dagene.",
+        badge: "Vær",
+        tone: "watch",
+      });
+    } else {
+      tasks.push({
         title: "Legg inn dyrkested",
         detail: "Da kan Growly bruke lokal værprognose til dyrkeråd, også uten hub.",
         badge: "Vær",
         tone: "watch",
-      },
-      {
+      });
+    }
+
+    if (plantCount === 0) {
+      tasks.push({
         title: "Legg inn plantene dine",
         detail: "Da kan startskjermen vurdere klimaet mot riktige plantekrav.",
         badge: "Oppsett",
         tone: "good",
-      },
-    ];
+      });
+    }
+
+    return tasks;
   }
 
   if (typeof sample.humidity === "number" && sample.humidity < 45) {
@@ -604,11 +616,6 @@ function weatherIcon(symbolCode: string | undefined): string {
     return "⛅";
   }
   return "☀";
-}
-
-function shortWeatherPlace(value: string | undefined): string {
-  const place = (value || "").split(",").pop()?.trim() || value || "Dyrkested";
-  return place.replace(/\s+/g, " ");
 }
 
 function formatUpdatedAt(value: string | null | undefined): string {
@@ -797,7 +804,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
       : "Legg inn dyrkested for lokale råd uten sensor.";
   const climatePill = hasLiveSensorData ? "Målinger aktive" : weather ? "Værdata aktiv" : hubOnline ? "Hub klar" : "Uten hub";
   const updatedAt = formatUpdatedAt(sample?.recorded_at);
-  const weeklyTasks = buildWeeklyTasks(sample);
+  const weeklyTasks = buildWeeklyTasks(sample, !!weather, dashboardPlants.length);
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
   const activeReportValue = reportMetric ? climateValue(sample, reportMetric) : null;
   const soilMetrics = soilMetricConfigs.map((metric) => ({
@@ -964,7 +971,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
         <div className="home-section-head">
           <div>
             <p className="section-kicker">Vekstoversikt</p>
-            <h2>{dashboardPlants.length} aktive planter</h2>
+            <h2>{dashboardPlants.length === 1 ? "1 aktiv plante" : `${dashboardPlants.length} aktive planter`}</h2>
           </div>
           <Link to="/drivhus">Mine planter</Link>
         </div>
