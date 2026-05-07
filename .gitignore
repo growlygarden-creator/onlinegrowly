@@ -7,6 +7,8 @@ __pycache__/
 .env
 .env.local
 data/growly.db
+data/imports/*pending*.csv
+Sensor/BMP280/
 Temp Web site/
 frontend/node_modules/
 frontend/dist/
