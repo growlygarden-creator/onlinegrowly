@@ -794,13 +794,13 @@ input {
   width: 100%;
   max-height: none;
   overflow: hidden;
-  padding: 10px;
-  border: 1px solid rgba(47, 138, 84, 0.1);
-  border-radius: 18px;
+  padding: 6px;
+  border: 1px solid rgba(47, 138, 84, 0.08);
+  border-radius: 20px;
   background:
-    radial-gradient(circle at 92% 4%, rgba(255, 203, 90, 0.08), transparent 20%),
-    rgba(255, 255, 255, 0.58);
-  box-shadow: 0 10px 22px rgba(39, 87, 52, 0.05);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.64), rgba(242, 250, 242, 0.46)),
+    rgba(255, 255, 255, 0.38);
+  box-shadow: 0 12px 28px rgba(39, 87, 52, 0.055);
 }
 
 .weather-sheet__header {
@@ -882,28 +882,34 @@ input {
 
 .weather-hourly-card {
   margin-top: 0;
-  padding: 10px 12px 8px;
-  border: 1px solid rgba(47, 138, 84, 0.08);
+  padding: 10px 12px 9px;
+  border: 0;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.82);
-  overflow-x: auto;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.8);
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.68),
+    inset 0 -34px 58px rgba(229, 241, 232, 0.38);
 }
 
 .weather-hourly-chart {
   display: block;
-  min-width: 1180px;
+  min-width: 0;
   width: 100%;
-  height: 214px;
+  height: auto;
+}
+
+.weather-hourly-stage {
+  fill: url(#weather-stage-fill);
 }
 
 .weather-hourly-grid {
-  stroke: rgba(67, 83, 72, 0.11);
+  stroke: rgba(67, 83, 72, 0.095);
   stroke-width: 1;
 }
 
 .weather-hourly-grid--vertical {
-  stroke: rgba(67, 83, 72, 0.15);
+  stroke: rgba(67, 83, 72, 0.13);
 }
 
 .weather-hourly-temp-area {
@@ -912,11 +918,19 @@ input {
 
 .weather-hourly-temp-line {
   fill: none;
-  stroke: #b92216;
+  stroke: #c5271c;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 4;
-  filter: drop-shadow(0 4px 6px rgba(185, 34, 22, 0.16));
+  stroke-width: 3.8;
+  filter: drop-shadow(0 4px 8px rgba(185, 34, 22, 0.14));
+}
+
+.weather-hourly-temp-glow {
+  fill: none;
+  stroke: rgba(197, 39, 28, 0.13);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 12;
 }
 
 .weather-hourly-rain-bar {
@@ -925,11 +939,19 @@ input {
 
 .weather-hourly-wind-line {
   fill: none;
-  stroke: #7b36ee;
+  stroke: #7b3ff2;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 3;
   filter: drop-shadow(0 4px 6px rgba(123, 54, 238, 0.16));
+}
+
+.weather-hourly-wind-glow {
+  fill: none;
+  stroke: rgba(123, 63, 242, 0.12);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 9;
 }
 
 .weather-hourly-axis,
@@ -1001,7 +1023,7 @@ input {
 }
 
 .weather-hourly-updated {
-  margin: 8px 4px 0;
+  margin: 6px 4px 0;
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 650;
@@ -1034,8 +1056,8 @@ input {
 .theme-dark .weather-inline-card {
   border-color: rgba(235, 244, 232, 0.13);
   background:
-    radial-gradient(circle at 92% 4%, rgba(255, 203, 90, 0.06), transparent 20%),
-    rgba(235, 244, 232, 0.06);
+    linear-gradient(135deg, rgba(235, 244, 232, 0.08), rgba(121, 208, 132, 0.06)),
+    rgba(235, 244, 232, 0.05);
 }
 
 .theme-dark .weather-sheet__summary,

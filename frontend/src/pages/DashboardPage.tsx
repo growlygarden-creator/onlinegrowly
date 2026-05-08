@@ -702,6 +702,28 @@ function weatherWindArrowRotation(value: number | null | undefined): number {
   return value + 180;
 }
 
+function smoothWeatherPath(coords: Array<{ x: number; y: number }>): string {
+  if (!coords.length) {
+    return "";
+  }
+  if (coords.length === 1) {
+    return `M ${coords[0].x.toFixed(2)} ${coords[0].y.toFixed(2)}`;
+  }
+
+  const [first] = coords;
+  let path = `M ${first.x.toFixed(2)} ${first.y.toFixed(2)}`;
+  for (let index = 1; index < coords.length - 1; index += 1) {
+    const current = coords[index];
+    const next = coords[index + 1];
+    const midX = (current.x + next.x) / 2;
+    const midY = (current.y + next.y) / 2;
+    path += ` Q ${current.x.toFixed(2)} ${current.y.toFixed(2)} ${midX.toFixed(2)} ${midY.toFixed(2)}`;
+  }
+
+  const last = coords[coords.length - 1];
+  return `${path} L ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
+}
+
 function weatherHourlyChart(hours: WeatherHour[]) {
   const points = hours
     .slice(0, 49)
@@ -717,14 +739,15 @@ function weatherHourlyChart(hours: WeatherHour[]) {
     return null;
   }
 
-  const width = 2200;
-  const left = 46;
-  const right = 2160;
-  const top = 34;
-  const tempBottom = 184;
-  const rainBottom = 222;
-  const windTop = 250;
-  const windBottom = 306;
+  const width = 1440;
+  const height = 300;
+  const left = 54;
+  const right = 1390;
+  const top = 46;
+  const tempBottom = 168;
+  const rainBottom = 184;
+  const windTop = 214;
+  const windBottom = 258;
   const temperatures = points.map((point) => point.air_temperature);
   const minTemperature = Math.min(...temperatures);
   const maxTemperature = Math.max(...temperatures);
@@ -738,9 +761,9 @@ function weatherHourlyChart(hours: WeatherHour[]) {
   const yForWind = (value: number) => windBottom - (value / maxWind) * (windBottom - windTop);
   const tempCoords = points.map((point, index) => ({ x: xForIndex(index), y: yForTemp(point.air_temperature), point }));
   const windCoords = points.map((point, index) => ({ x: xForIndex(index), y: yForWind(point.wind_speed), point }));
-  const tempLine = tempCoords.map((coord, index) => `${index === 0 ? "M" : "L"} ${coord.x.toFixed(2)} ${coord.y.toFixed(2)}`).join(" ");
+  const tempLine = smoothWeatherPath(tempCoords);
   const tempArea = `${tempLine} L ${right} ${tempBottom} L ${left} ${tempBottom} Z`;
-  const windLine = windCoords.map((coord, index) => `${index === 0 ? "M" : "L"} ${coord.x.toFixed(2)} ${coord.y.toFixed(2)}`).join(" ");
+  const windLine = smoothWeatherPath(windCoords);
   const yTicks = [tempMax, (tempMax + tempMin) / 2, tempMin].map((value) => ({
     value,
     y: yForTemp(value),
@@ -748,10 +771,10 @@ function weatherHourlyChart(hours: WeatherHour[]) {
   }));
   const tickIndexes = points
     .map((_, index) => index)
-    .filter((index) => index === 0 || index === points.length - 1 || index % 6 === 0);
+    .filter((index) => index === 0 || index === points.length - 1 || index % 8 === 0);
   const iconIndexes = points
     .map((_, index) => index)
-    .filter((index) => index === 0 || index === points.length - 1 || index % 6 === 0);
+    .filter((index) => index === 0 || index === points.length - 1 || index % 8 === 0);
   const dayMarkers = points.reduce<Array<{ label: string; x: number }>>((markers, point, index) => {
     const label = formatWeatherDay(point.time);
     if (label && markers[markers.length - 1]?.label !== label) {
@@ -775,8 +798,13 @@ function weatherHourlyChart(hours: WeatherHour[]) {
     rainBottom,
     rainTop: 194,
     width,
+    height,
     left,
     right,
+    top,
+    tempBottom,
+    windTop,
+    windBottom,
   };
 }
 
@@ -787,18 +815,24 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
     <section className="weather-inline-card weather-sheet__panel soft-card" aria-label="Timesvis værgraf">
         {chart ? (
           <div className="weather-hourly-card">
-            <svg className="weather-hourly-chart" viewBox={`0 0 ${chart.width} 326`} role="img" aria-label="Graf for temperatur, nedbør og vind de neste timene">
+            <svg className="weather-hourly-chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="Graf for temperatur, nedbør og vind de neste timene">
               <defs>
+                <linearGradient id="weather-stage-fill" x1="0" x2="1" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.98" />
+                  <stop offset="48%" stopColor="#f7fbf5" stopOpacity="0.96" />
+                  <stop offset="100%" stopColor="#eef8f1" stopOpacity="0.9" />
+                </linearGradient>
                 <linearGradient id="weather-temp-fill" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#d95f42" stopOpacity="0.24" />
-                  <stop offset="100%" stopColor="#d95f42" stopOpacity="0" />
+                  <stop offset="0%" stopColor="#c83624" stopOpacity="0.2" />
+                  <stop offset="100%" stopColor="#c83624" stopOpacity="0" />
                 </linearGradient>
                 <linearGradient id="weather-rain-fill" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#3d8be8" stopOpacity="0.9" />
-                  <stop offset="100%" stopColor="#85bdf6" stopOpacity="0.36" />
+                  <stop offset="0%" stopColor="#2f8df0" stopOpacity="0.88" />
+                  <stop offset="100%" stopColor="#7ab9fb" stopOpacity="0.32" />
                 </linearGradient>
               </defs>
-              {[34, 72, 110, 148, 184, 222, 250, 306].map((y) => (
+              <rect className="weather-hourly-stage" x="0" y="0" width={chart.width} height={chart.height} rx="26" />
+              {[chart.top, (chart.top + chart.tempBottom) / 2, chart.tempBottom, chart.windTop, chart.windBottom].map((y) => (
                 <line key={y} x1={chart.left} x2={chart.right} y1={y} y2={y} className="weather-hourly-grid" />
               ))}
               {chart.tickIndexes.map((index) => {
@@ -806,12 +840,13 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
                 return <line key={`v-${index}`} x1={x} x2={x} y1="34" y2="306" className="weather-hourly-grid weather-hourly-grid--vertical" />;
               })}
               {chart.dayMarkers.map((marker) => (
-                <text key={marker.label} x={marker.x} y="22" className="weather-hourly-day">{marker.label}</text>
+                <text key={marker.label} x={marker.x} y="28" className="weather-hourly-day">{marker.label}</text>
               ))}
               {chart.yTicks.map((tick) => (
-                <text key={tick.label} x="10" y={tick.y + 4} className="weather-hourly-axis">{tick.label}</text>
+                <text key={tick.label} x="18" y={tick.y + 4} className="weather-hourly-axis">{tick.label}</text>
               ))}
               <path d={chart.tempArea} className="weather-hourly-temp-area" />
+              <path d={chart.tempLine} className="weather-hourly-temp-glow" />
               <path d={chart.tempLine} className="weather-hourly-temp-line" />
               {chart.points.map((point, index) => {
                 const x = chart.tempCoords[index].x;
@@ -820,21 +855,22 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
                 return amount > 0 ? (
                   <rect
                     key={`rain-${point.time}`}
-                    x={x - 4}
+                    x={x - 5}
                     y={chart.rainBottom - height}
-                    width="8"
+                    width="10"
                     height={height}
                     rx="3"
                     className="weather-hourly-rain-bar"
                   />
                 ) : null;
               })}
+              <path d={chart.windLine} className="weather-hourly-wind-glow" />
               <path d={chart.windLine} className="weather-hourly-wind-line" />
               {chart.iconIndexes.map((index) => {
                 const point = chart.points[index];
                 const x = chart.tempCoords[index].x;
                 return (
-                  <foreignObject key={`icon-${point.time}`} x={x - 17} y={chart.tempCoords[index].y - 44} width="34" height="34">
+                  <foreignObject key={`icon-${point.time}`} x={x - 18} y={chart.tempCoords[index].y - 39} width="36" height="34">
                     <WeatherGlyph symbolCode={point.symbol_code} compact />
                   </foreignObject>
                 );
@@ -844,12 +880,12 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
                 const x = chart.tempCoords[index].x;
                 return (
                   <g key={`tick-${point.time}`}>
-                    <text x={x} y="242" className="weather-hourly-hour">{formatWeatherHour(point.time)}</text>
+                    <text x={x} y="202" className="weather-hourly-hour">{formatWeatherHour(point.time)}</text>
                     <text
                       x={x}
-                      y="322"
+                      y="286"
                       className="weather-hourly-wind-arrow"
-                      style={{ transform: `rotate(${weatherWindArrowRotation(point.wind_from_direction)}deg)`, transformOrigin: `${x}px 316px` }}
+                      style={{ transform: `rotate(${weatherWindArrowRotation(point.wind_from_direction)}deg)`, transformOrigin: `${x}px 280px` }}
                     >
                       ↑
                     </text>
