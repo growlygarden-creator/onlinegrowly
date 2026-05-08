@@ -1766,8 +1766,10 @@ input {
   gap: 16px;
   padding: 18px;
   border-radius: 24px;
+  border-color: rgba(38, 98, 65, 0.12);
   background:
-    linear-gradient(180deg, rgba(255, 246, 248, 0.94), rgba(255, 255, 255, 0.96)),
+    radial-gradient(circle at 12% 0%, rgba(255, 255, 255, 0.96), transparent 32%),
+    linear-gradient(180deg, rgba(255, 254, 250, 0.98), rgba(247, 251, 244, 0.98)),
     var(--card);
 }
 
@@ -1898,7 +1900,7 @@ input {
   border: 1px solid rgba(38, 98, 65, 0.1);
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.72);
-  color: var(--muted);
+  color: #4f5f55;
   font: inherit;
   font-weight: 850;
   line-height: 1;
@@ -1912,7 +1914,7 @@ input {
 
 .theme-dark .assistant-card {
   background:
-    linear-gradient(180deg, rgba(40, 31, 37, 0.52), rgba(32, 43, 33, 0.94)),
+    linear-gradient(180deg, rgba(31, 49, 35, 0.94), rgba(23, 36, 27, 0.96)),
     var(--card);
 }
 
@@ -1924,6 +1926,7 @@ input {
 
 .assistant-chat-head h2 {
   margin: 0;
+  color: var(--text);
 }
 
 .assistant-card__avatar {
@@ -1932,9 +1935,9 @@ input {
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: #fff8df;
+  background: #fff9db;
   color: #318a52;
-  border: 1px solid rgba(49, 138, 82, 0.12);
+  border: 1px solid rgba(49, 138, 82, 0.18);
 }
 
 .theme-dark .assistant-card__avatar {
@@ -1964,10 +1967,14 @@ input {
   border-radius: 18px;
   line-height: 1.38;
   font-size: 0.94rem;
+  box-shadow: 0 8px 18px rgba(24, 48, 30, 0.08);
 }
 
 .assistant-message p {
   margin: 0;
+  color: inherit;
+  font-weight: inherit;
+  line-height: inherit;
   white-space: pre-line;
 }
 
@@ -1985,21 +1992,39 @@ input {
 
 .assistant-message--assistant {
   justify-self: start;
+  border: 1px solid rgba(38, 98, 65, 0.08);
   border-bottom-left-radius: 6px;
-  background: rgba(237, 245, 235, 0.86);
-  color: var(--text);
+  background: rgba(255, 255, 255, 0.9);
+  color: #16241a;
+  font-weight: 650;
 }
 
 .assistant-message--user {
   justify-self: end;
   border-bottom-right-radius: 6px;
-  background: var(--accent);
-  color: #ffffff;
-  font-weight: 700;
+  background: linear-gradient(135deg, #236a43, #174e31);
+  color: #f8fff7;
+  font-weight: 850;
+  text-wrap: pretty;
+}
+
+.assistant-message--user p {
+  color: #f8fff7;
 }
 
 .theme-dark .assistant-message--assistant {
+  border-color: rgba(235, 250, 229, 0.1);
   background: rgba(238, 246, 235, 0.1);
+  color: #eef6eb;
+}
+
+.theme-dark .assistant-message--user {
+  background: linear-gradient(135deg, #7bd28a, #4fa765);
+  color: #0e2114;
+}
+
+.theme-dark .assistant-message--user p {
+  color: #0e2114;
 }
 
 .assistant-message--error {
@@ -2066,10 +2091,10 @@ input {
   padding: 0 12px;
   border: 1px solid rgba(38, 98, 65, 0.1);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  color: var(--accent-strong);
+  background: rgba(255, 255, 255, 0.9);
+  color: #174e31;
   font-size: 0.86rem;
-  font-weight: 700;
+  font-weight: 850;
 }
 
 .assistant-prompt-row button:disabled,
@@ -2088,10 +2113,20 @@ input {
   min-width: 0;
   min-height: 46px;
   padding: 0 14px;
-  border: 1px solid rgba(38, 98, 65, 0.12);
+  border: 1px solid rgba(38, 98, 65, 0.18);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.94);
   color: var(--text);
+}
+
+.assistant-form input:not([type="file"])::placeholder {
+  color: #7b857d;
+}
+
+.assistant-form input:not([type="file"]):focus {
+  border-color: rgba(35, 106, 67, 0.5);
+  box-shadow: 0 0 0 4px rgba(47, 138, 84, 0.14);
+  outline: none;
 }
 
 .assistant-file-input {
@@ -2207,6 +2242,10 @@ input {
   color: var(--text);
 }
 
+.theme-dark .assistant-form input:not([type="file"])::placeholder {
+  color: #b7c5b3;
+}
+
 .assistant-form button {
   min-height: 46px;
   padding: 0 16px;
@@ -2264,13 +2303,15 @@ input {
   display: block;
   padding: 9px 11px;
   border-radius: 13px;
-  background: rgba(255, 255, 255, 0.66);
-  color: var(--text);
+  background: rgba(255, 255, 255, 0.9);
+  color: #16241a;
   line-height: 1.35;
+  font-weight: 650;
 }
 
 .theme-dark .assistant-answer-list span {
   background: rgba(238, 246, 235, 0.08);
+  color: #eef6eb;
 }
 
 .assistant-answer--error {
