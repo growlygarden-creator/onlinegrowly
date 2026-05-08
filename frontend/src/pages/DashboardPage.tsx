@@ -603,21 +603,58 @@ function greenhouseScene(theme: "light" | "dark"): { image: string; mode: "day" 
   return { image: greenhouseDay, mode: "day" };
 }
 
-function weatherIcon(symbolCode: string | undefined): string {
+type WeatherGlyphKind = "sun" | "partly" | "cloud" | "rain" | "snow";
+
+function weatherGlyphKind(symbolCode: string | undefined): WeatherGlyphKind {
   const code = (symbolCode || "").toLowerCase();
   if (code.includes("rain") || code.includes("sleet")) {
-    return "☔";
+    return "rain";
   }
   if (code.includes("snow")) {
-    return "❄";
+    return "snow";
   }
   if (code.includes("cloud")) {
-    return "☁";
+    return "cloud";
   }
   if (code.includes("fair") || code.includes("partly")) {
-    return "⛅";
+    return "partly";
   }
-  return "☀";
+  return "sun";
+}
+
+function WeatherGlyph({ symbolCode, compact = false, className = "" }: { symbolCode?: string; compact?: boolean; className?: string }) {
+  const kind = weatherGlyphKind(symbolCode);
+  const isCloudy = kind === "cloud" || kind === "rain" || kind === "snow" || kind === "partly";
+
+  return (
+    <span className={`${className} weather-glyph weather-glyph--${kind}${compact ? " weather-glyph--compact" : ""}`} aria-hidden="true">
+      <svg viewBox="0 0 64 64" focusable="false">
+        {kind === "sun" || kind === "partly" ? (
+          <g className="weather-glyph__sun">
+            <circle cx={kind === "partly" ? 25 : 32} cy={kind === "partly" ? 24 : 30} r={kind === "partly" ? 10 : 13} />
+            <path d={kind === "partly"
+              ? "M25 6v7M25 35v7M7 24h7M36 24h7M12.5 11.5l5 5M32.5 31.5l5 5M12.5 36.5l5-5M32.5 16.5l5-5"
+              : "M32 8v8M32 44v8M10 30h8M46 30h8M16.5 14.5l5.8 5.8M41.7 39.7l5.8 5.8M16.5 45.5l5.8-5.8M41.7 20.3l5.8-5.8"} />
+          </g>
+        ) : null}
+        {isCloudy ? (
+          <g className="weather-glyph__cloud">
+            <path d="M19.5 43.5h25.8c6.4 0 10.7-3.8 10.7-9.2 0-5.1-3.8-8.9-9.2-9.2C44.9 18.7 39.5 14 32.7 14c-7.1 0-12.8 5-14.2 11.6-6 .5-10.5 4.2-10.5 9 0 5.4 4.5 8.9 11.5 8.9Z" />
+          </g>
+        ) : null}
+        {kind === "rain" ? (
+          <g className="weather-glyph__rain">
+            <path d="M24 49l-3 6M34 49l-3 6M44 49l-3 6" />
+          </g>
+        ) : null}
+        {kind === "snow" ? (
+          <g className="weather-glyph__snow">
+            <path d="M26 51h.1M34 54h.1M43 51h.1" />
+          </g>
+        ) : null}
+      </svg>
+    </span>
+  );
 }
 
 function formatUpdatedAt(value: string | null | undefined): string {
@@ -818,8 +855,8 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const weatherHumidity = metricText(weatherNow?.relative_humidity, "%", 0);
   const weatherWind = metricText(weatherNow?.wind_speed, " m/s", 1);
   const weatherDays = weather?.forecast.days.slice(0, 4) ?? [];
-  const currentWeatherIcon = weatherIcon(weatherNow?.symbol_code || weatherDays[0]?.symbol_code);
-  const climateTitle = weather ? "Lokalt dyrkevær" : hasPairedHub ? "Vekstforhold" : "Dyrkested";
+  const currentWeatherSymbol = weatherNow?.symbol_code || weatherDays[0]?.symbol_code;
+  const climateTitle = weather ? "Lokalt dyrkevær" : hasLiveSensorData ? "Vekstforhold" : hasPairedHub ? "Klar for første måling" : "Dyrkested";
   const climateNote = hasPairedHub
     ? (hasLiveSensorData ? status.note : weather ? "Værprognosen brukes sammen med huben når Growly gir råd." : "Legg inn dyrkested for værbaserte råd.")
     : weather
@@ -906,7 +943,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
             <div className="climate-visual-stack">
               <div className="weather-overview-panel">
                 <div className="weather-overview-main">
-                  <span className="weather-overview-icon" aria-hidden="true">{currentWeatherIcon}</span>
+                  <WeatherGlyph className="weather-overview-icon" symbolCode={currentWeatherSymbol} />
                   <div>
                     <span>{weather ? "Vær ved dyrkested" : "Værbaserte råd"}</span>
                     <strong>{weather ? weatherTemperature : "Legg inn dyrkested"}</strong>
@@ -917,7 +954,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                   <div className="weather-overview-days">
                     {weatherDays.map((day) => (
                       <span key={day.date}>
-                        <em aria-hidden="true">{weatherIcon(day.symbol_code)}</em>
+                        <em aria-hidden="true"><WeatherGlyph symbolCode={day.symbol_code} compact /></em>
                         <small>{new Date(`${day.date}T12:00:00`).toLocaleDateString("nb-NO", { weekday: "short" })}</small>
                         <strong>{typeof day.temperature_max === "number" ? `${day.temperature_max.toFixed(0)}°` : "–"}</strong>
                       </span>

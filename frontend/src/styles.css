@@ -349,7 +349,7 @@ input {
   position: relative;
   overflow: hidden;
   border-radius: 22px;
-  min-height: 214px;
+  min-height: clamp(240px, 27vw, 320px);
   background: #edf5e7;
   border: 1px solid rgba(22, 61, 42, 0.1);
   box-shadow:
@@ -370,15 +370,15 @@ input {
 .overview-image-banner__image {
   display: block;
   width: 100%;
-  height: 214px;
+  height: clamp(240px, 27vw, 320px);
   margin: 0;
   object-fit: cover;
-  object-position: center 58%;
-  filter: saturate(0.94) contrast(0.96);
+  object-position: center 50%;
+  filter: saturate(1.02) contrast(0.99);
 }
 
 .overview-image-banner--day .overview-image-banner__image {
-  object-position: center 64%;
+  object-position: center 48%;
 }
 
 .overview-image-banner--evening {
@@ -429,8 +429,63 @@ input {
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.78);
   box-shadow: inset 0 0 0 1px rgba(47, 138, 84, 0.09);
-  font-size: 2rem;
   line-height: 1;
+}
+
+.weather-glyph {
+  display: inline-grid;
+  place-items: center;
+  color: #2f7a4e;
+}
+
+.weather-glyph svg {
+  width: 46px;
+  height: 46px;
+  overflow: visible;
+}
+
+.weather-glyph__sun {
+  fill: #f4bd56;
+  stroke: #d99326;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.8;
+}
+
+.weather-glyph__sun circle {
+  stroke-width: 2.5;
+}
+
+.weather-glyph__cloud {
+  fill: #fbfff7;
+  stroke: #c9dfd3;
+  stroke-linejoin: round;
+  stroke-width: 3;
+  filter: drop-shadow(0 8px 10px rgba(60, 102, 76, 0.14));
+}
+
+.weather-glyph__rain {
+  fill: none;
+  stroke: #5d9bd8;
+  stroke-linecap: round;
+  stroke-width: 4;
+}
+
+.weather-glyph__snow {
+  fill: none;
+  stroke: #8fb7df;
+  stroke-linecap: round;
+  stroke-width: 7;
+}
+
+.weather-glyph--compact {
+  width: 27px;
+  height: 24px;
+}
+
+.weather-glyph--compact svg {
+  width: 27px;
+  height: 27px;
 }
 
 .weather-overview-main span:not(.weather-overview-icon),
@@ -462,7 +517,7 @@ input {
   gap: 8px;
 }
 
-.weather-overview-days span {
+.weather-overview-days > span {
   display: grid;
   justify-items: center;
   gap: 2px;
@@ -473,9 +528,11 @@ input {
 }
 
 .weather-overview-days em {
-  font-size: 1.1rem;
   font-style: normal;
   line-height: 1;
+  display: grid;
+  place-items: center;
+  min-height: 28px;
 }
 
 .weather-overview-days strong {
@@ -547,7 +604,7 @@ input {
 }
 
 .theme-dark .weather-overview-icon,
-.theme-dark .weather-overview-days span {
+.theme-dark .weather-overview-days > span {
   background: rgba(235, 244, 232, 0.08);
 }
 
