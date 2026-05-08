@@ -52,6 +52,10 @@ type HomeTask = {
 
 const currentMonthName = new Date().toLocaleDateString("nb-NO", { month: "long" });
 
+function isHubActive(value: unknown): boolean {
+  return value === true || value === 1 || value === "1";
+}
+
 const dashboardPlantProfiles: Record<
   string,
   {
@@ -1133,14 +1137,15 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   }, [trendMetric, trendRange, selectedHubId]);
 
   const firstName = session?.user?.full_name?.split(" ")[0] || session?.username || "Growly";
-  const status = growthStatus(sample);
   const scene = greenhouseScene(theme);
   const weatherNow = weather?.forecast.now;
-  const hasPairedHub = !!session?.hub?.is_active;
-  const temperature = metricText(sample?.air_temperature ?? sample?.temperature, "°C", 0);
-  const humidity = metricText(sample?.air_humidity, "%", 0);
-  const pressure = metricText(sample?.air_pressure, " hPa", 0);
-  const lux = metricText(sample?.lux, " lx", 0);
+  const hasActiveHub = isHubActive(session?.hub?.is_active);
+  const activeSample = hasActiveHub ? sample : null;
+  const status = growthStatus(activeSample);
+  const temperature = metricText(activeSample?.air_temperature ?? activeSample?.temperature, "°C", 0);
+  const humidity = metricText(activeSample?.air_humidity, "%", 0);
+  const pressure = metricText(activeSample?.air_pressure, " hPa", 0);
+  const lux = metricText(activeSample?.lux, " lx", 0);
   const weatherTemperature = metricText(weatherNow?.air_temperature, "°C", 0);
   const weatherHumidity = metricText(weatherNow?.relative_humidity, "%", 0);
   const weatherWind = metricText(weatherNow?.wind_speed, " m/s", 1);
@@ -1163,14 +1168,14 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
       to: "/kartotek",
     },
   ];
-  const updatedAt = formatUpdatedAt(sample?.recorded_at);
-  const weeklyTasks = buildWeeklyTasks(sample, !!weather, dashboardPlants.length);
+  const updatedAt = formatUpdatedAt(activeSample?.recorded_at);
+  const weeklyTasks = buildWeeklyTasks(activeSample, !!weather, dashboardPlants.length);
   const primaryTask = weeklyTasks[0] ?? null;
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
-  const activeReportValue = reportMetric ? climateValue(sample, reportMetric) : null;
+  const activeReportValue = reportMetric ? climateValue(activeSample, reportMetric) : null;
   const soilMetrics = soilMetricConfigs.map((metric) => ({
     ...metric,
-    value: formatTrendValue(sampleValue(sample, metric.key), metric.unit, metric.digits),
+    value: formatTrendValue(sampleValue(activeSample, metric.key), metric.unit, metric.digits),
   }));
   const activeTrendConfig = trendMetricConfigs.find((metric) => metric.key === trendMetric);
   const trendValues = trendPoints.map((point) => Number(point.value)).filter((value) => Number.isFinite(value));
@@ -1228,32 +1233,32 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
 
       <section className="settings-section home-hero-section">
         <article className="soft-card premium-hero premium-hero--climate home-start-card">
+          {weather ? (
+            <button
+              className="home-weather-chip"
+              type="button"
+              onClick={() => setWeatherSheetOpen((open) => !open)}
+              aria-expanded={weatherSheetOpen}
+            >
+              <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
+              <span>
+                <small>Vær ved dyrkested</small>
+                <strong>{weatherTemperature}</strong>
+                <em>Fukt {weatherHumidity} · vind {weatherWind}</em>
+              </span>
+            </button>
+          ) : (
+            <Link className="home-weather-chip" to="/settings">
+              <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
+              <span>
+                <small>Dyrkested</small>
+                <strong>Sett opp vær</strong>
+                <em>Gir bedre råd</em>
+              </span>
+            </Link>
+          )}
           <div className={`overview-image-banner home-greenhouse-hero overview-image-banner--${scene.mode}`}>
             <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />
-            {weather ? (
-              <button
-                className="home-weather-chip"
-                type="button"
-                onClick={() => setWeatherSheetOpen((open) => !open)}
-                aria-expanded={weatherSheetOpen}
-              >
-                <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
-                <span>
-                  <small>Vær ved dyrkested</small>
-                  <strong>{weatherTemperature}</strong>
-                  <em>Fukt {weatherHumidity} · vind {weatherWind}</em>
-                </span>
-              </button>
-            ) : (
-              <Link className="home-weather-chip" to="/settings">
-                <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
-                <span>
-                  <small>Dyrkested</small>
-                  <strong>Sett opp vær</strong>
-                  <em>Gir bedre råd</em>
-                </span>
-              </Link>
-            )}
           </div>
 
           {weather && weatherSheetOpen ? (
@@ -1296,27 +1301,31 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                   );
                 })}
               </div>
+              <div className="home-forecast-legend" aria-label="Forklaring av farger">
+                <strong>Temperaturspenn</strong>
+                <span><i className="home-forecast-legend__cool" aria-hidden="true" /> Kjøligere</span>
+                <span><i className="home-forecast-legend__warm" aria-hidden="true" /> Varmere</span>
+              </div>
               {weatherHourlyOpen ? <WeatherHourlyCard weather={weather} /> : null}
             </div>
           ) : null}
 
-          <div className="home-sensor-summary" aria-label="Drivhusverdier">
-            <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("temperature")}>
-              <span><img src={tempDot} alt="" aria-hidden="true" /> Temperatur</span>
-              <strong>{hasPairedHub ? temperature : "—"}</strong>
-            </button>
-            <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("humidity")}>
-              <span><img src={humidityDot} alt="" aria-hidden="true" /> Luftfukt</span>
-              <strong>{hasPairedHub ? humidity : "—"}</strong>
-            </button>
-            <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("lux")}>
-              <span><i className="metric-strip__sun-dot" aria-hidden="true" /> Lys</span>
-              <strong>{hasPairedHub ? lux : "—"}</strong>
-            </button>
-          </div>
-
-          {hasPairedHub ? (
+          {hasActiveHub ? (
             <>
+              <div className="home-sensor-summary" aria-label="Drivhusverdier">
+                <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("temperature")}>
+                  <span><img src={tempDot} alt="" aria-hidden="true" /> Temperatur</span>
+                  <strong>{temperature}</strong>
+                </button>
+                <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("humidity")}>
+                  <span><img src={humidityDot} alt="" aria-hidden="true" /> Luftfukt</span>
+                  <strong>{humidity}</strong>
+                </button>
+                <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("lux")}>
+                  <span><i className="metric-strip__sun-dot" aria-hidden="true" /> Lys</span>
+                  <strong>{lux}</strong>
+                </button>
+              </div>
               <button className="home-details-toggle" type="button" onClick={() => setSensorDetailsOpen((open) => !open)}>
                 {sensorDetailsOpen ? "Skjul detaljer" : "Detaljer"}
               </button>
@@ -1368,10 +1377,10 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
           {dashboardPlants.length ? dashboardPlants.slice(0, 4).map((plant, index) => {
             const profile = dashboardPlantProfiles[plant.profileId] ?? dashboardPlantProfiles.tomato;
             const sowedAt = plant.sowedAt ?? undefined;
-            const progress = plantProgress(plant.profileId, index, sample, sowedAt);
+            const progress = plantProgress(plant.profileId, index, activeSample, sowedAt);
             const timeline = plantTimeline(plant.profileId, progress, sowedAt, index);
             const stage = plantStage(plant.profileId, progress);
-            const nextAction = plantNextAction(plant.profileId, progress, sample);
+            const nextAction = plantNextAction(plant.profileId, progress, activeSample);
             return (
               <article className="home-plant-row soft-card" key={plant.instanceId ?? `${plant.profileId}-${plant.nickname}`}>
                 <PlantAvatar

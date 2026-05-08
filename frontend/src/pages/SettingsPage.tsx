@@ -25,6 +25,10 @@ function initialsFromName(name: string): string {
     .join("");
 }
 
+function isHubActive(value: unknown): boolean {
+  return value === true || value === 1 || value === "1";
+}
+
 export function SettingsPage({ session, setSession }: SettingsPageProps) {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
@@ -233,7 +237,7 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
   const hubLocation = session?.hub?.location_label || "";
   const hubId = session?.hub?.hub_id || "Venter på paring";
   const hubCount = session?.hubs?.length ?? (session?.hub ? 1 : 0);
-  const hubActive = !!session?.hub?.is_active;
+  const hubActive = isHubActive(session?.hub?.is_active);
   const weatherConfigured = !!weatherLatitude && !!weatherLongitude;
 
   return (
