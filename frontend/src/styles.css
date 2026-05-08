@@ -892,7 +892,7 @@ input {
 
 .weather-hourly-chart {
   display: block;
-  min-width: 720px;
+  min-width: 1180px;
   width: 100%;
   height: 214px;
 }

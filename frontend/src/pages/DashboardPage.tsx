@@ -717,8 +717,9 @@ function weatherHourlyChart(hours: WeatherHour[]) {
     return null;
   }
 
+  const width = 2200;
   const left = 46;
-  const right = 748;
+  const right = 2160;
   const top = 34;
   const tempBottom = 184;
   const rainBottom = 222;
@@ -773,6 +774,7 @@ function weatherHourlyChart(hours: WeatherHour[]) {
     maxRain,
     rainBottom,
     rainTop: 194,
+    width,
     left,
     right,
   };
@@ -785,7 +787,7 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
     <section className="weather-inline-card weather-sheet__panel soft-card" aria-label="Timesvis værgraf">
         {chart ? (
           <div className="weather-hourly-card">
-            <svg className="weather-hourly-chart" viewBox="0 0 800 326" role="img" aria-label="Graf for temperatur, nedbør og vind de neste timene">
+            <svg className="weather-hourly-chart" viewBox={`0 0 ${chart.width} 326`} role="img" aria-label="Graf for temperatur, nedbør og vind de neste timene">
               <defs>
                 <linearGradient id="weather-temp-fill" x1="0" x2="0" y1="0" y2="1">
                   <stop offset="0%" stopColor="#d95f42" stopOpacity="0.24" />
@@ -797,7 +799,7 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
                 </linearGradient>
               </defs>
               {[34, 72, 110, 148, 184, 222, 250, 306].map((y) => (
-                <line key={y} x1="46" x2="748" y1={y} y2={y} className="weather-hourly-grid" />
+                <line key={y} x1={chart.left} x2={chart.right} y1={y} y2={y} className="weather-hourly-grid" />
               ))}
               {chart.tickIndexes.map((index) => {
                 const x = chart.tempCoords[index].x;
