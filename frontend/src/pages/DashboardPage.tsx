@@ -780,14 +780,13 @@ function weatherHourlyChart(hours: WeatherHour[]) {
 
 function WeatherHourlyCard({ weather, onClose }: { weather: WeatherForecast; onClose: () => void }) {
   const chart = weatherHourlyChart(weather.forecast.hours ?? []);
-  const now = weather.forecast.now;
   const updatedAt = formatUpdatedAt(weather.forecast.updated_at);
 
   return (
     <section className="weather-inline-card weather-sheet__panel soft-card" aria-label="Timesvis værgraf">
       <div className="weather-sheet__header">
         <div>
-          <span>Timesvis prognose</span>
+          <span>Timesgraf</span>
           <h2>Været ved dyrkested</h2>
           <p>{weather.location.address || "Lokal prognose"} · {updatedAt}</p>
         </div>
@@ -797,15 +796,6 @@ function WeatherHourlyCard({ weather, onClose }: { weather: WeatherForecast; onC
           </svg>
         </button>
       </div>
-
-        <div className="weather-sheet__summary">
-          <div>
-            <WeatherGlyph symbolCode={now?.symbol_code} />
-            <span>{weatherIconLabel(now?.symbol_code)}</span>
-          </div>
-          <strong>{metricText(now?.air_temperature, "°C", 0)}</strong>
-          <small>Fukt {metricText(now?.relative_humidity, "%", 0)} · vind {metricText(now?.wind_speed, " m/s", 1)}</small>
-        </div>
 
         {chart ? (
           <div className="weather-hourly-card">
