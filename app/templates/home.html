@@ -39,7 +39,7 @@
                     <p class="zone-kicker">Luft</p>
                     <h2>Uteluft</h2>
                 </div>
-                <p class="zone-note">GY-BM/BME280-sensor for test i fri luft. Disse kortene er klare for lufttemperatur, luftfuktighet og atmosfærisk trykk.</p>
+                <p class="zone-note">BME280-sensor for test i fri luft. Disse kortene er klare for lufttemperatur, luftfuktighet og atmosfærisk trykk.</p>
             </div>
             <div class="stats-grid air-grid">
                 <button class="metric-card metric-card-air" type="button" data-metric="air_temperature" data-label="Lufttemperatur" data-unit="C">
@@ -1061,7 +1061,7 @@
                 setMetric("air_pressure", sensor.air_pressure, " hPa");
                 setMetric("lux", sensor.lux, " lx");
                 airHumidityNote.textContent = sensor.air_humidity === null || sensor.air_humidity === undefined
-                    ? "Ikke støttet av denne sensoren - type BMP280 til bestilling"
+                    ? "Ingen luftfuktighet fra BME280 - sjekk I2C/VCC/GND"
                     : "Kommer fra luftsensor";
                 setMetric("humidity", sensor.humidity, " %");
                 setMetric("temperature", sensor.temperature, " C");
@@ -1083,7 +1083,7 @@
             } catch (error) {
                 Object.keys(metricMap).forEach((key) => setMetric(key, "-"));
                 Object.keys(rangeMap).forEach((key) => setMetricRange(key, null));
-                airHumidityNote.textContent = "Ikke støttet av denne sensoren - type BMP280 til bestilling";
+                airHumidityNote.textContent = "Ingen luftfuktighet fra BME280 - sjekk I2C/VCC/GND";
                 trendSummary.textContent = error.message;
             }
         }

@@ -1,7 +1,5 @@
 #include <Arduino.h>
 #include <Adafruit_BME280.h>
-#include <Adafruit_BMP280.h>
-#include <DHT.h>
 #include <DNSServer.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
@@ -22,8 +20,6 @@ HardwareSerial rs485Serial(1);
 DNSServer dnsServer;
 Preferences preferences;
 Adafruit_BME280 bme280;
-Adafruit_BMP280 bmp280;
-DHT dht22(DeviceConfig::DHT22_DATA_PIN, DHT22);
 
 String configuredWifiSsid;
 String configuredWifiPassword;
@@ -57,8 +53,9 @@ unsigned long cloudSampleIntervalMs = DeviceConfig::BACKEND_UPLOAD_INTERVAL_MS;
 constexpr uint8_t kBh1750PrimaryAddress = 0x23;
 constexpr uint8_t kBh1750SecondaryAddress = 0x5C;
 constexpr uint8_t kBh1750ContinuousHighResMode = 0x10;
-constexpr uint8_t kBm280PrimaryAddress = 0x76;
-constexpr uint8_t kBm280SecondaryAddress = 0x77;
+constexpr uint8_t kBme280PrimaryAddress = 0x76;
+constexpr uint8_t kBme280SecondaryAddress = 0x77;
+constexpr uint8_t kBme280ChipId = 0x60;
 
 struct Bh1750State {
     bool available = false;
@@ -74,8 +71,6 @@ struct AirSensorState {
     bool available = false;
     bool valid = false;
     bool humidityAvailable = false;
-    bool dhtAvailable = false;
-    bool bmpOnly = false;
     uint8_t address = 0;
     uint8_t chipId = 0;
     float temperature = 0.0f;
@@ -348,64 +343,62 @@ bool initBh1750AtAddress(uint8_t address) {
     return true;
 }
 
-bool initBm280AtAddress(uint8_t address) {
+bool initBme280AtAddress(uint8_t address) {
     Wire.beginTransmission(address);
     Wire.write(0xD0);
     if (Wire.endTransmission() != 0) {
-        Serial.printf("BM280 probe failed to read chip ID at 0x%02X\n", address);
+        Serial.printf("BME280 probe failed to read chip ID at 0x%02X\n", address);
         return false;
     }
     delay(2);
     Wire.beginTransmission(address);
     Wire.write(0xD0);
     if (Wire.endTransmission(false) != 0) {
-        Serial.printf("BM280 register select failed at 0x%02X\n", address);
+        Serial.printf("BME280 register select failed at 0x%02X\n", address);
         return false;
     }
-    if (Wire.requestFrom(static_cast<int>(address), 1, true) != 1 || Wire.available() < 1) {
-        Serial.printf("BM280 chip ID not available at 0x%02X\n", address);
+    if (Wire.requestFrom(address, static_cast<size_t>(1), true) != 1 || Wire.available() < 1) {
+        Serial.printf("BME280 chip ID not available at 0x%02X\n", address);
         return false;
     }
 
     const uint8_t chipId = Wire.read();
-    Serial.printf("BM280 raw chip ID at 0x%02X: 0x%02X\n", address, chipId);
+    Serial.printf("BME280 raw chip ID at 0x%02X: 0x%02X\n", address, chipId);
 
-    if (chipId == 0x60) {
-        if (!bme280.begin(address, &Wire)) {
-            return false;
-        }
-
-        airSensorState.available = true;
-        airSensorState.address = address;
+    if (chipId != kBme280ChipId) {
         airSensorState.chipId = chipId;
-        airSensorState.bmpOnly = false;
-        airSensorState.humidityAvailable = true;
-        return true;
-    }
-
-    if (chipId == 0x58) {
-        delay(5);
-        if (!bmp280.begin(address, 0x58)) {
-            Serial.printf("BMP280 begin failed at 0x%02X\n", address);
-            return false;
-        }
-
-        airSensorState.available = true;
-        airSensorState.address = address;
-        airSensorState.chipId = chipId;
-        airSensorState.bmpOnly = true;
         airSensorState.humidityAvailable = false;
-        return true;
-    }
-
-    airSensorState.chipId = chipId;
-    airSensorState.bmpOnly = false;
-    airSensorState.humidityAvailable = false;
-    if (chipId != 0x58 && chipId != 0x60) {
-        Serial.printf("Unsupported BMx280 chip ID 0x%02X at 0x%02X\n", chipId, address);
+        if (chipId == 0x58) {
+            Serial.printf("BMP280 found at 0x%02X, but Growly now expects BME280 for humidity\n", address);
+        } else {
+            Serial.printf("Unsupported BME280 chip ID 0x%02X at 0x%02X\n", chipId, address);
+        }
         return false;
     }
-    return false;
+
+    if (!bme280.begin(address, &Wire)) {
+        Serial.printf("BME280 begin failed at 0x%02X\n", address);
+        return false;
+    }
+
+    airSensorState.available = true;
+    airSensorState.address = address;
+    airSensorState.chipId = chipId;
+    airSensorState.humidityAvailable = true;
+    return true;
+}
+
+void setupAirSensor() {
+    if (initBme280AtAddress(kBme280PrimaryAddress) || initBme280AtAddress(kBme280SecondaryAddress)) {
+        Serial.printf(
+            "BME280 ready on I2C address 0x%02X (SDA=%d, SCL=%d)\n",
+            airSensorState.address,
+            DeviceConfig::I2C_SDA_PIN,
+            DeviceConfig::I2C_SCL_PIN);
+        return;
+    }
+
+    Serial.println("BME280 not found on 0x76 or 0x77");
 }
 
 void scanI2cDevices() {
@@ -448,23 +441,6 @@ void setupBh1750() {
     }
 }
 
-void setupAirSensor() {
-    if (initBm280AtAddress(kBm280PrimaryAddress) || initBm280AtAddress(kBm280SecondaryAddress)) {
-        Serial.printf(
-            "%s ready on I2C address 0x%02X (SDA=%d, SCL=%d)\n",
-            airSensorState.bmpOnly ? "BMP280" : "BME280",
-            airSensorState.address,
-            DeviceConfig::I2C_SDA_PIN,
-            DeviceConfig::I2C_SCL_PIN);
-    } else {
-        Serial.println("BME280/BMP280 not found on 0x76 or 0x77");
-    }
-
-    dht22.begin();
-    airSensorState.dhtAvailable = true;
-    Serial.printf("DHT22 enabled on GPIO%d for temporary air humidity\n", DeviceConfig::DHT22_DATA_PIN);
-}
-
 bool readBh1750Lux(float& lux) {
     if (!bh1750State.available) {
         return false;
@@ -499,65 +475,33 @@ void pollBh1750() {
 }
 
 void pollAirSensor() {
-    if (!airSensorState.available && !airSensorState.dhtAvailable) {
+    if (!airSensorState.available) {
         return;
     }
 
-    float temperature = NAN;
-    float pressurePa = NAN;
-    float humidity = NAN;
+    const float temperature = bme280.readTemperature();
+    const float pressurePa = bme280.readPressure();
+    const float humidity = bme280.readHumidity();
 
-    if (airSensorState.available) {
-        temperature = airSensorState.bmpOnly ? bmp280.readTemperature() : bme280.readTemperature();
-        pressurePa = airSensorState.bmpOnly ? bmp280.readPressure() : bme280.readPressure();
-        if (!airSensorState.bmpOnly) {
-            humidity = bme280.readHumidity();
-        }
-    }
-
-    if (airSensorState.dhtAvailable) {
-        const float dhtHumidity = dht22.readHumidity();
-        const float dhtTemperature = dht22.readTemperature();
-        if (!isnan(dhtHumidity)) {
-            humidity = dhtHumidity;
-        }
-        if (isnan(temperature) && !isnan(dhtTemperature)) {
-            temperature = dhtTemperature;
-        }
-    }
-
-    if (isnan(temperature) || (airSensorState.available && isnan(pressurePa))) {
+    if (isnan(temperature) || isnan(pressurePa) || isnan(humidity)) {
         airSensorState.valid = false;
         airSensorState.humidityAvailable = false;
-        Serial.println("Air sensor read failed");
+        Serial.println("BME280 read failed");
         return;
     }
 
     airSensorState.temperature = temperature;
-    airSensorState.pressureHpa = isnan(pressurePa) ? NAN : pressurePa / 100.0f;
+    airSensorState.pressureHpa = pressurePa / 100.0f;
     airSensorState.humidity = humidity;
-    airSensorState.humidityAvailable = !isnan(humidity);
+    airSensorState.humidityAvailable = true;
     airSensorState.valid = true;
     airSensorState.lastReadAt = millis();
 
-    if (airSensorState.available && airSensorState.humidityAvailable) {
-        Serial.printf(
-            "%s + humidity | air_temperature=%.2f air_humidity=%.2f air_pressure=%.2f hPa\n",
-            airSensorState.bmpOnly ? "BMP280/DHT22" : "BME280",
-            airSensorState.temperature,
-            airSensorState.humidity,
-            airSensorState.pressureHpa);
-    } else if (airSensorState.available) {
-        Serial.printf(
-            "BMP280 | air_temperature=%.2f air_pressure=%.2f hPa\n",
-            airSensorState.temperature,
-            airSensorState.pressureHpa);
-    } else {
-        Serial.printf(
-            "DHT22 | air_temperature=%.2f air_humidity=%.2f\n",
-            airSensorState.temperature,
-            airSensorState.humidity);
-    }
+    Serial.printf(
+        "BME280 | air_temperature=%.2f air_humidity=%.2f air_pressure=%.2f hPa\n",
+        airSensorState.temperature,
+        airSensorState.humidity,
+        airSensorState.pressureHpa);
 }
 
 uint16_t modbusCrc(const uint8_t* data, size_t length) {
@@ -1003,6 +947,72 @@ bool beginHttpClient(HTTPClient& http, WiFiClient& plainClient, WiFiClientSecure
     return http.begin(plainClient, url);
 }
 
+int firstDigitIndex(const String& version) {
+    for (int i = 0; i < static_cast<int>(version.length()); ++i) {
+        if (isdigit(static_cast<unsigned char>(version[i]))) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int compareFirmwareVersions(const String& candidateVersion, const String& currentVersion) {
+    int candidateIndex = firstDigitIndex(candidateVersion);
+    int currentIndex = firstDigitIndex(currentVersion);
+    if (candidateIndex < 0 || currentIndex < 0) {
+        return candidateVersion == currentVersion ? 0 : -1;
+    }
+
+    while (candidateIndex < static_cast<int>(candidateVersion.length()) ||
+           currentIndex < static_cast<int>(currentVersion.length())) {
+        long candidatePart = 0;
+        long currentPart = 0;
+        bool candidateHasPart = false;
+        bool currentHasPart = false;
+
+        while (candidateIndex < static_cast<int>(candidateVersion.length()) &&
+               isdigit(static_cast<unsigned char>(candidateVersion[candidateIndex]))) {
+            candidateHasPart = true;
+            candidatePart = (candidatePart * 10) + (candidateVersion[candidateIndex] - '0');
+            ++candidateIndex;
+        }
+        while (currentIndex < static_cast<int>(currentVersion.length()) &&
+               isdigit(static_cast<unsigned char>(currentVersion[currentIndex]))) {
+            currentHasPart = true;
+            currentPart = (currentPart * 10) + (currentVersion[currentIndex] - '0');
+            ++currentIndex;
+        }
+
+        if (!candidateHasPart && !currentHasPart) {
+            return 0;
+        }
+        if (candidatePart > currentPart) {
+            return 1;
+        }
+        if (candidatePart < currentPart) {
+            return -1;
+        }
+
+        if (candidateIndex < static_cast<int>(candidateVersion.length()) && candidateVersion[candidateIndex] == '.') {
+            ++candidateIndex;
+        } else if (candidateIndex < static_cast<int>(candidateVersion.length())) {
+            candidateIndex = candidateVersion.length();
+        }
+
+        if (currentIndex < static_cast<int>(currentVersion.length()) && currentVersion[currentIndex] == '.') {
+            ++currentIndex;
+        } else if (currentIndex < static_cast<int>(currentVersion.length())) {
+            currentIndex = currentVersion.length();
+        }
+    }
+
+    return 0;
+}
+
+bool isFirmwareCandidateNewer(const String& candidateVersion, const String& currentVersion) {
+    return compareFirmwareVersions(candidateVersion, currentVersion) > 0;
+}
+
 bool ensureHubPairing(bool forceRetry) {
     if (pairedHubId.length() > 0 && configuredPairingCode.length() == 0) {
         pairingStatusMessage = "Huben er paret som " + pairedHubId + ".";
@@ -1063,6 +1073,15 @@ bool ensureHubPairing(bool forceRetry) {
 
     if (statusCode < 200 || statusCode >= 300) {
         const String backendError = extractJsonStringValue(responseBody, "error");
+        if (pairedHubId.length() > 0 &&
+            (backendError == "pairing_token_not_found" ||
+             backendError == "pairing_token_used" ||
+             backendError == "pairing_token_expired")) {
+            savePairingCode("");
+            pairingStatusMessage = "Huben er paret som " + pairedHubId + ".";
+            Serial.println("Cleared stale pairing code because hub is already paired.");
+            return true;
+        }
         pairingStatusMessage = backendError.length() > 0 ? ("Pairing feilet: " + backendError) : ("Pairing feilet med HTTP " + String(statusCode));
         return false;
     }
@@ -1255,6 +1274,12 @@ void pollDeviceConfig(bool force) {
     const String latestVersion = extractJsonStringValue(responseBody, "latest_version");
     const String firmwareUrl = extractJsonStringValue(responseBody, "url");
     if (updateAvailable && latestVersion.length() > 0 && firmwareUrl.length() > 0) {
+        if (!isFirmwareCandidateNewer(latestVersion, DeviceConfig::FIRMWARE_VERSION)) {
+            firmwareStatusMessage = "OTA ignorert: server-versjonen er ikke nyere.";
+            Serial.printf("OTA skipped: %s is not newer than %s\n", latestVersion.c_str(), DeviceConfig::FIRMWARE_VERSION);
+            reportDeviceStatus("ota_skipped", latestVersion + "_not_newer");
+            return;
+        }
         performFirmwareUpdate(latestVersion, firmwareUrl);
         return;
     }

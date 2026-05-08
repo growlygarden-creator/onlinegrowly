@@ -1,6 +1,6 @@
 # Growly Garden manual
 
-Sist oppdatert: 29. april 2026
+Sist oppdatert: 8. mai 2026
 
 Dette dokumentet er en samlet forklaring på hvor Growly Garden står nå, hvordan appen brukes, og hvordan Render, Supabase, ESP-kortet og sensorene henger sammen.
 
@@ -32,8 +32,7 @@ Prosjektet består nå av fire hoveddeler:
 
 Dette virker lokalt på ESP-kortet:
 
-- BMP280 gir lufttemperatur og lufttrykk.
-- AM2302 gir luftfuktighet.
+- BME280 gir lufttemperatur, luftfuktighet og lufttrykk.
 - BH1750 gir lysverdi.
 - 7-in-1 jordsensor gir jordverdier når RS485-koblingen er frisk.
 
@@ -51,7 +50,7 @@ error: ""
 Det som fortsatt må gjøres:
 
 - Pare huben på nytt mot appen/Render. Kortet hadde sist `hub_id: ""`.
-- Når BME280 kommer, kan AM2302 fjernes eller beholdes som backup.
+- BME280 har erstattet BMP280 og AM2302. AM2302/GPIO10 trengs ikke lenger.
 - Når vi vil bruke OTA i praksis, må firmware-binær legges på en offentlig HTTPS-adresse og Render må få `ACTIVE_FIRMWARE_VERSION` og `ACTIVE_FIRMWARE_URL`.
 
 ## Hvordan bruke appen
@@ -207,7 +206,7 @@ Hvis `valid` er `false` og `error` er `timeout`, er det som regel 7-in-1 jordsen
 
 ### I2C-buss
 
-I2C brukes av BMP280 og BH1750.
+I2C brukes av BME280 og BH1750.
 
 ```text
 GPIO8 -> SDA
@@ -218,11 +217,12 @@ GND   -> GND
 
 Ikke bruk GPIO8 eller GPIO9 til andre sensorer.
 
-### BMP280
+### BME280
 
-BMP280 gir:
+BME280 gir:
 
 - lufttemperatur
+- luftfuktighet
 - lufttrykk
 
 Kobling:
@@ -238,23 +238,7 @@ SDO       -> GND
 
 `SDO -> GND` gir vanligvis adresse `0x76`.
 
-BMP280 gir ikke luftfuktighet.
-
-### AM2302
-
-AM2302 brukes midlertidig til luftfuktighet.
-
-Kobling:
-
-```text
-Rød   -> 3V3
-Svart -> GND
-Gul   -> GPIO10
-```
-
-Viktig: ikke koble AM2302 til GPIO9. GPIO9 er I2C-klokken for BMP280/BH1750.
-
-Firmware bruker DHT22-protokoll for AM2302. Det er riktig for denne sensoren.
+BME280 erstatter både BMP280 og AM2302 i dette oppsettet. GPIO10 brukes ikke lenger til luftfuktighet.
 
 ### BH1750
 
@@ -288,9 +272,11 @@ MAX485 til jordsensor:
 ```text
 A            -> gul/grønn
 B            -> blå
-Sensor brun  -> +5V
+Sensor VCC / brun -> +5V
 Sensor svart -> GND
 ```
+
+Viktig: VCC-ledningen på sensorsiden av 7-in-1-sensoren skal til +5V strømforsyning. Den skal ikke kobles til en GPIO. MAX485-modulens VCC på ESP-siden står fortsatt på 3V3, og GND må være felles mellom ESP32, MAX485 og sensorstrømmen.
 
 Hvis jordsensoren gir timeout, sjekk:
 
@@ -399,7 +385,7 @@ OTA betyr at ESP-kortet kan oppdateres over nettet.
 
 Dette er nå bygget inn:
 
-- firmware har versjon, for eksempel `0.1.1-dht22`
+- firmware har versjon, for eksempel `0.1.8-bme280`
 - ESP poller Render på `/api/device/config`
 - Render svarer med firmware-info hvis `ACTIVE_FIRMWARE_VERSION` og `ACTIVE_FIRMWARE_URL` er satt
 - ESP laster ned `.bin`-filen og flasher seg selv
@@ -424,14 +410,14 @@ Normal OTA-flyt:
 6. Sett i Render:
 
 ```text
-ACTIVE_FIRMWARE_VERSION=ny-versjon
+ACTIVE_FIRMWARE_VERSION=0.1.8-bme280
 ACTIVE_FIRMWARE_URL=https://...
 ```
 
 7. Deploy Render.
 8. ESP-kortet oppdaterer seg ved neste config-poll.
 
-Viktig: første OTA-klare firmware måtte flashes med kabel. Det er gjort.
+Viktig: første OTA-klare firmware måtte flashes med kabel. Det er gjort. Firmware ignorerer nå OTA-versjoner som er eldre enn den som allerede kjører, slik at Render ikke kan rulle huben tilbake ved et uhell.
 
 ## Lokale kommandoer
 
@@ -488,8 +474,7 @@ Vanlige årsaker:
 
 - jordsensor timeout
 - BH1750 ikke funnet
-- BMP280 ikke funnet
-- AM2302 feil koblet
+- BME280 ikke funnet
 - Wi-Fi ikke koblet
 
 Sjekk først:
@@ -507,21 +492,24 @@ valid: false
 
 er det ofte RS485/jordsensoren.
 
-### AM2302 viser `air_humidity: null`
+### BME280 viser `air_humidity: null`
 
 Sjekk:
 
 ```text
-Rød   -> 3V3
-Svart -> GND
-Gul   -> GPIO10
+VCC / VIN -> 3V3
+GND       -> GND
+SDA / SDI -> GPIO8
+SCL / SCK -> GPIO9
+CSB / CS  -> 3V3
+SDO       -> GND
 ```
 
-Ikke bruk GPIO9.
+Hvis firmware logger chip ID `0x58`, er modulen fortsatt BMP280 og kan ikke gi luftfuktighet. BME280 skal normalt gi chip ID `0x60`.
 
-### BMP280 viser rart trykk
+### BME280 viser rart trykk
 
-Hvis trykket hopper til veldig feil verdi, sjekk at AM2302 ikke ligger på GPIO8/GPIO9 og forstyrrer I2C.
+Hvis trykket hopper til veldig feil verdi, sjekk først at BME280 har stabil 3V3, felles GND og riktig SDA/SCL på GPIO8/GPIO9.
 
 Normal verdi hos oss var rundt:
 
@@ -583,5 +571,5 @@ Anbefalt rekkefølge når vi fortsetter:
 1. Pare huben på nytt mot appen/Render.
 2. Sjekke at data begynner å komme inn i Supabase.
 3. Bekrefte at trender i appen bruker nye målinger.
-4. Rydde OTA-flyten: hvor firmware-binær skal hostes.
-5. Når BME280 kommer, bytte fra BMP280 + AM2302 til BME280 alene, eller la AM2302 være backup.
+4. Sett `ACTIVE_FIRMWARE_VERSION=0.1.8-bme280` og riktig `ACTIVE_FIRMWARE_URL` i Render, eller fjern de variablene så bundled firmware brukes.
+5. Bekreft at Render viser huben på firmware `0.1.8-bme280` etter deploy.

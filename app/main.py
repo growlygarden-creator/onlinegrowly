@@ -572,6 +572,37 @@ def bundled_firmware_info() -> tuple[str, str]:
     return version, url
 
 
+def firmware_version_parts(version: str) -> tuple[int, ...]:
+    value = str(version or "").strip()
+    start = next((index for index, char in enumerate(value) if char.isdigit()), -1)
+    if start < 0:
+        return ()
+    core_chars: list[str] = []
+    for char in value[start:]:
+        if char.isdigit() or char == ".":
+            core_chars.append(char)
+            continue
+        break
+    return tuple(int(part) for part in "".join(core_chars).split(".") if part != "")
+
+
+def is_newer_firmware_version(candidate_version: str, current_version: str) -> bool:
+    candidate = str(candidate_version or "").strip()
+    current = str(current_version or "").strip()
+    if not candidate:
+        return False
+    if not current:
+        return True
+    candidate_parts = firmware_version_parts(candidate)
+    current_parts = firmware_version_parts(current)
+    if not candidate_parts or not current_parts:
+        return False
+    max_length = max(len(candidate_parts), len(current_parts))
+    padded_candidate = candidate_parts + (0,) * (max_length - len(candidate_parts))
+    padded_current = current_parts + (0,) * (max_length - len(current_parts))
+    return padded_candidate > padded_current
+
+
 def build_email_shell(title: str, intro: str, body: str, next_label: str, next_text: str, button_label: str, button_url: str, footer: str) -> str:
     safe_title = html.escape(title)
     safe_intro = html.escape(intro)
@@ -2665,7 +2696,7 @@ def device_config_response(hub_id: str, current_version: str = "") -> dict[str, 
     update_available = (
         bool(latest_version)
         and bool(firmware_url)
-        and latest_version != str(current_version or "").strip()
+        and is_newer_firmware_version(latest_version, current_version)
     )
 
     return {

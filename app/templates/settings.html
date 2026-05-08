@@ -111,7 +111,7 @@
                     </div>
                 </label>
                 <label class="field">
-                    <span>Luftsensor DHT22/BMP280</span>
+                    <span>Luftsensor BME280</span>
                     <div class="unit-input">
                         <input id="sample-time-air" type="number" min="1" step="1" value="{{ sample_settings['sample_time_air_ms'] // 60000 }}">
                         <span class="unit-suffix">min</span>
@@ -177,10 +177,10 @@
                     <div class="wiring-list">
                         <div class="wiring-line"><span>A</span><strong>gul/grønn</strong></div>
                         <div class="wiring-line"><span>B</span><strong>blå</strong></div>
-                        <div class="wiring-line"><span>Sensor brun</span><strong>+5V</strong></div>
+                        <div class="wiring-line"><span>Sensor VCC / brun</span><strong>+5V</strong></div>
                         <div class="wiring-line"><span>Sensor svart</span><strong>GND</strong></div>
                     </div>
-                    <p class="helper-text">Hvis jordsensoren gir timeout, er første test alltid å bytte A og B.</p>
+                    <p class="helper-text">VCC-ledningen på sensorsiden skal til +5V strømforsyning. Den skal ikke på en GPIO. Hvis jordsensoren gir timeout, er første test å bytte A og B.</p>
                 </article>
 
                 <article class="wiring-block">
@@ -191,7 +191,7 @@
                         <div class="wiring-line"><span>3V3</span><strong>VCC</strong></div>
                         <div class="wiring-line"><span>GND</span><strong>GND</strong></div>
                     </div>
-                    <p class="helper-text">BH1750 og BMP280 deler samme SDA og SCL på denne bussen.</p>
+                    <p class="helper-text">BH1750 og BME280 deler samme SDA og SCL på denne bussen.</p>
                 </article>
 
                 <article class="wiring-block">
@@ -207,7 +207,7 @@
                 </article>
 
                 <article class="wiring-block">
-                    <h3>BMP280 luftsensor</h3>
+                    <h3>BME280 luftsensor</h3>
                     <div class="wiring-list">
                         <div class="wiring-line"><span>VCC / VIN</span><strong>3V3</strong></div>
                         <div class="wiring-line"><span>GND</span><strong>GND</strong></div>
@@ -216,17 +216,7 @@
                         <div class="wiring-line"><span>CSB / CS</span><strong>3V3</strong></div>
                         <div class="wiring-line"><span>SDO</span><strong>GND</strong></div>
                     </div>
-                    <p class="helper-text">Modulen du har nå svarer som BMP280 på 0x76. Den gir temperatur og lufttrykk, men ikke luftfuktighet.</p>
-                </article>
-
-                <article class="wiring-block">
-                    <h3>AM2302 luftfuktighet</h3>
-                    <div class="wiring-list">
-                        <div class="wiring-line"><span>Rød</span><strong>3V3</strong></div>
-                        <div class="wiring-line"><span>Svart</span><strong>GND</strong></div>
-                        <div class="wiring-line"><span>Gul</span><strong>GPIO10</strong></div>
-                    </div>
-                    <p class="helper-text">AM2302 brukes midlertidig til luftfuktighet sammen med BMP280. Ikke bruk GPIO9 her, den er SCL på I2C-bussen.</p>
+                    <p class="helper-text">BME280 svarer normalt på 0x76 når SDO går til GND. Den gir lufttemperatur, luftfuktighet og lufttrykk alene.</p>
                 </article>
 
                 <article class="wiring-block">
