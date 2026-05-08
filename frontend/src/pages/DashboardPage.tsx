@@ -570,23 +570,6 @@ function plantTimeline(profileId: string, progress: number, sowedAt?: string, in
   };
 }
 
-function plantSensorSignal(sample: LatestSample | null): { label: string; tone: "good" | "watch" | "bad" } {
-  const soilHumidity = sample?.humidity;
-  const airTemperature = sample?.air_temperature ?? sample?.temperature;
-  const airHumidity = sample?.air_humidity;
-
-  if (typeof soilHumidity === "number" && soilHumidity < 42) {
-    return { label: "Tørr sone", tone: "bad" };
-  }
-  if (typeof airTemperature === "number" && airTemperature > 29) {
-    return { label: "Varmt klima", tone: "watch" };
-  }
-  if (typeof airHumidity === "number" && airHumidity > 78) {
-    return { label: "Lufting", tone: "watch" };
-  }
-  return { label: "I balanse", tone: "good" };
-}
-
 function plantNextAction(profileId: string, progress: number, sample: LatestSample | null): string {
   const soilHumidity = sample?.humidity;
   if (typeof soilHumidity === "number" && soilHumidity < 42) {
@@ -1247,31 +1230,32 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
         <article className="soft-card premium-hero premium-hero--climate home-start-card">
           <div className={`overview-image-banner home-greenhouse-hero overview-image-banner--${scene.mode}`}>
             <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />
-            {weather ? (
-              <button
-                className="home-weather-chip"
-                type="button"
-                onClick={() => setWeatherSheetOpen((open) => !open)}
-                aria-expanded={weatherSheetOpen}
-              >
-                <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
-                <span>
-                  <small>Vær ved dyrkested</small>
-                  <strong>{weatherTemperature}</strong>
-                  <em>Fukt {weatherHumidity} · vind {weatherWind}</em>
-                </span>
-              </button>
-            ) : (
-              <Link className="home-weather-chip" to="/settings">
-                <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
-                <span>
-                  <small>Dyrkested</small>
-                  <strong>Sett opp vær</strong>
-                  <em>Gir bedre råd</em>
-                </span>
-              </Link>
-            )}
           </div>
+
+          {weather ? (
+            <button
+              className="home-weather-chip"
+              type="button"
+              onClick={() => setWeatherSheetOpen((open) => !open)}
+              aria-expanded={weatherSheetOpen}
+            >
+              <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
+              <span>
+                <small>Vær ved dyrkested</small>
+                <strong>{weatherTemperature}</strong>
+                <em>Fukt {weatherHumidity} · vind {weatherWind}</em>
+              </span>
+            </button>
+          ) : (
+            <Link className="home-weather-chip" to="/settings">
+              <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
+              <span>
+                <small>Dyrkested</small>
+                <strong>Sett opp vær</strong>
+                <em>Gir bedre råd</em>
+              </span>
+            </Link>
+          )}
 
           {weather && weatherSheetOpen ? (
             <div className="home-forecast-card soft-card" ref={weatherGraphRef}>
@@ -1304,7 +1288,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
               <strong>{hasPairedHub ? temperature : "—"}</strong>
             </button>
             <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("humidity")}>
-              <span><img src={humidityDot} alt="" aria-hidden="true" /> Luftfuktighet</span>
+              <span><img src={humidityDot} alt="" aria-hidden="true" /> Luftfukt</span>
               <strong>{hasPairedHub ? humidity : "—"}</strong>
             </button>
             <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("lux")}>
@@ -1369,55 +1353,21 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
             const progress = plantProgress(plant.profileId, index, sample, sowedAt);
             const timeline = plantTimeline(plant.profileId, progress, sowedAt, index);
             const stage = plantStage(plant.profileId, progress);
-            const sensorSignal = plantSensorSignal(sample);
             const nextAction = plantNextAction(plant.profileId, progress, sample);
             return (
-              <article className="growth-row growth-story-card soft-card" key={plant.instanceId ?? `${plant.profileId}-${plant.nickname}`}>
+              <article className="home-plant-row soft-card" key={plant.instanceId ?? `${plant.profileId}-${plant.nickname}`}>
                 <PlantAvatar
                   tone={profile.tone}
                   plantId={plant.catalogItemId ?? plant.profileId}
                   name={plant.nickname || profile.name}
-                  className="growth-row__avatar"
+                  className="home-plant-row__avatar"
                 />
-                <div className="growth-row__body">
-                  <div className="growth-row__head">
-                    <span>
-                      <strong>{plant.nickname || profile.name}</strong>
-                      <em>{stage}</em>
-                    </span>
-                    <b>{timeline.dayLabel}</b>
-                  </div>
-
-                  <div className="growth-journey" aria-label={`Dyrkereise for ${plant.nickname || profile.name}`}>
-                    {["Sådd", "Spirer", "Vekst", "Høst"].map((label, stepIndex) => (
-                      <span
-                        className={stepIndex <= timeline.activeStep ? "is-active" : ""}
-                        key={label}
-                      >
-                        <i />
-                        <small>{label}</small>
-                      </span>
-                    ))}
-                  </div>
-
-                  <div className="growth-story-meta">
-                    <span>
-                      <small>{timeline.sowedLabel}</small>
-                      <strong>{timeline.ageLabel}</strong>
-                    </span>
-                    <span>
-                      <small>{timeline.harvestLabel}</small>
-                      <strong>{timeline.daysLeftLabel}</strong>
-                    </span>
-                  </div>
-
-                  <div className="growth-story-action">
-                    <span className={`growth-sensor-pill growth-sensor-pill--${sensorSignal.tone}`}>
-                      {sensorSignal.label}
-                    </span>
-                    <p>{nextAction}</p>
-                  </div>
+                <div>
+                  <strong>{plant.nickname || profile.name}</strong>
+                  <span>{stage} · {timeline.dayLabel}</span>
+                  <p>{nextAction}</p>
                 </div>
+                <b>{timeline.daysLeftLabel}</b>
               </article>
             );
           }) : (
@@ -1427,6 +1377,11 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
               <Link to="/drivhus">Legg til plante</Link>
             </article>
           )}
+          {dashboardPlants.length > 4 ? (
+            <Link className="home-plant-more" to="/drivhus">
+              Se {dashboardPlants.length - 4} flere planter
+            </Link>
+          ) : null}
         </div>
       </section>
 

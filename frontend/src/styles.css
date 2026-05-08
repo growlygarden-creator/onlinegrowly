@@ -754,8 +754,8 @@ input {
 }
 
 .home-start-card {
-  gap: 14px;
-  padding: 14px;
+  gap: 10px;
+  padding: 12px;
 }
 
 .home-greenhouse-hero {
@@ -775,24 +775,24 @@ input {
 }
 
 .home-weather-chip {
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 14px;
-  z-index: 2;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
+  gap: 9px;
   align-items: center;
-  min-height: 74px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.84);
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid rgba(38, 98, 65, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.48);
   color: var(--text);
   text-align: left;
-  box-shadow: 0 18px 38px rgba(21, 39, 28, 0.18);
-  backdrop-filter: blur(16px) saturate(1.12);
+  box-shadow: none;
+  backdrop-filter: blur(10px) saturate(1.04);
+}
+
+.home-weather-chip .weather-glyph svg {
+  width: 34px;
+  height: 34px;
 }
 
 .home-weather-chip small,
@@ -812,16 +812,16 @@ input {
 .home-weather-chip strong {
   display: block;
   color: var(--text);
-  font-size: 1.45rem;
+  font-size: 1.1rem;
   line-height: 1;
 }
 
 .home-weather-chip em {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--muted);
   font-style: normal;
-  font-size: 0.88rem;
+  font-size: 0.78rem;
 }
 
 .home-sensor-summary {
@@ -842,9 +842,10 @@ input {
 }
 
 .home-sensor-tile {
-  gap: 8px;
-  padding: 13px;
-  border-radius: 20px;
+  gap: 6px;
+  min-height: 76px;
+  padding: 10px;
+  border-radius: 17px;
   text-align: left;
 }
 
@@ -855,27 +856,27 @@ input {
   color: var(--muted);
   text-transform: none;
   letter-spacing: 0;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
 }
 
 .home-sensor-tile img,
 .home-detail-grid img {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   object-fit: contain;
 }
 
 .home-sensor-tile strong {
   color: var(--text);
-  font-size: clamp(1.12rem, 2.6vw, 1.55rem);
+  font-size: clamp(1.06rem, 2.2vw, 1.35rem);
   line-height: 1;
   letter-spacing: -0.03em;
 }
 
 .home-details-toggle {
-  justify-self: start;
-  min-height: 36px;
-  padding: 0 13px;
+  justify-self: end;
+  min-height: 30px;
+  padding: 0 11px;
   border: 1px solid rgba(38, 98, 65, 0.1);
   border-radius: 999px;
   background: rgba(237, 245, 235, 0.88);
@@ -913,21 +914,26 @@ input {
 
 .home-today-card {
   display: grid;
-  gap: 5px;
-  padding: 14px;
-  border-radius: 20px;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 17px;
   background: rgba(231, 241, 227, 0.72);
 }
 
 .home-today-card strong {
   color: var(--text);
-  font-size: 1.06rem;
+  font-size: 0.98rem;
 }
 
 .home-today-card p {
   margin: 0;
   color: var(--muted);
-  line-height: 1.38;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.3;
+  font-size: 0.86rem;
 }
 
 .home-shortcuts {
@@ -938,13 +944,14 @@ input {
 
 .home-shortcut {
   gap: 5px;
-  min-height: 62px;
-  padding: 12px;
-  border-radius: 18px;
+  min-height: 50px;
+  padding: 9px;
+  border-radius: 16px;
 }
 
 .home-shortcut strong {
   color: var(--text);
+  font-size: 0.9rem;
   line-height: 1.15;
 }
 
@@ -2335,6 +2342,70 @@ input {
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.32;
+}
+
+.home-plant-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 18px;
+}
+
+.home-plant-row__avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+}
+
+.home-plant-row strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.98rem;
+  line-height: 1.1;
+}
+
+.home-plant-row span {
+  display: block;
+  margin-top: 2px;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.home-plant-row p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  font-size: 0.82rem;
+  line-height: 1.24;
+}
+
+.home-plant-row b {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: #edf5eb;
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.home-plant-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  border-radius: 999px;
+  background: rgba(231, 241, 227, 0.8);
+  color: var(--accent-strong);
+  font-weight: 850;
 }
 
 .empty-state-card {
@@ -6133,7 +6204,7 @@ input {
 
   .home-sensor-summary,
   .home-shortcuts {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .home-forecast-days {
@@ -6198,19 +6269,47 @@ input {
   }
 
   .home-weather-chip {
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
-    min-height: 68px;
-    border-radius: 20px;
-  }
-
-  .home-weather-chip strong {
-    font-size: 1.28rem;
+    min-height: 44px;
+    border-radius: 15px;
   }
 
   .home-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .home-sensor-summary {
+    gap: 6px;
+  }
+
+  .home-sensor-tile {
+    min-height: 64px;
+    padding: 8px;
+  }
+
+  .home-sensor-tile span {
+    gap: 5px;
+    font-size: 0.68rem;
+  }
+
+  .home-sensor-tile strong {
+    font-size: 1.12rem;
+  }
+
+  .home-shortcuts {
+    gap: 6px;
+  }
+
+  .home-shortcut {
+    min-height: 46px;
+    padding: 8px;
+  }
+
+  .home-shortcut small {
+    font-size: 0.6rem;
+  }
+
+  .home-shortcut strong {
+    font-size: 0.78rem;
   }
 
   .home-forecast-days {
