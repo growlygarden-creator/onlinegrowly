@@ -20,7 +20,7 @@ from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request as UrlRequest, urlopen
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Form, Query, Request
+from fastapi import BackgroundTasks, FastAPI, Form, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -1310,6 +1310,30 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS customer_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                hub_id TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'annet',
+                title TEXT NOT NULL DEFAULT '',
+                message TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'ai_chat',
+                conversation_json TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'ny',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(username) REFERENCES app_users(username)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_customer_messages_user_status
+            ON customer_messages(username, status, created_at)
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS plant_profiles (
                 profile_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -1395,6 +1419,70 @@ def init_db() -> None:
                 FOREIGN KEY(base_plant_id) REFERENCES plant_profiles(profile_id),
                 FOREIGN KEY(variant_id) REFERENCES plant_variants(variant_id)
             )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS growly_plants (
+                plant_id TEXT PRIMARY KEY,
+                remote_plant_id TEXT,
+                hub_id TEXT NOT NULL,
+                owner_username TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                catalog_item_id TEXT NOT NULL DEFAULT '',
+                variant_id TEXT,
+                cultivar_id TEXT,
+                display_name TEXT NOT NULL,
+                location_label TEXT NOT NULL DEFAULT 'greenhouse',
+                sowed_at TEXT,
+                moved_to_greenhouse_at TEXT,
+                has_seven_in_one INTEGER NOT NULL DEFAULT 0,
+                watering_enabled INTEGER NOT NULL DEFAULT 0,
+                archived_at TEXT,
+                deleted_at TEXT,
+                sync_status TEXT NOT NULL DEFAULT 'pending',
+                sync_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(hub_id) REFERENCES hubs(hub_id),
+                FOREIGN KEY(owner_username) REFERENCES app_users(username)
+            )
+            """
+        )
+        plant_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(growly_plants)").fetchall()
+        }
+        plant_column_defaults = {
+            "remote_plant_id": "TEXT",
+            "catalog_item_id": "TEXT NOT NULL DEFAULT ''",
+            "variant_id": "TEXT",
+            "cultivar_id": "TEXT",
+            "location_label": "TEXT NOT NULL DEFAULT 'greenhouse'",
+            "sowed_at": "TEXT",
+            "moved_to_greenhouse_at": "TEXT",
+            "has_seven_in_one": "INTEGER NOT NULL DEFAULT 0",
+            "watering_enabled": "INTEGER NOT NULL DEFAULT 0",
+            "archived_at": "TEXT",
+            "deleted_at": "TEXT",
+            "sync_status": "TEXT NOT NULL DEFAULT 'pending'",
+            "sync_error": "TEXT NOT NULL DEFAULT ''",
+            "created_at": "TEXT NOT NULL DEFAULT ''",
+            "updated_at": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column_name, column_definition in plant_column_defaults.items():
+            if column_name not in plant_columns:
+                connection.execute(f"ALTER TABLE growly_plants ADD COLUMN {column_name} {column_definition}")
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_growly_plants_owner_hub
+            ON growly_plants(owner_username, hub_id, archived_at, created_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_growly_plants_remote
+            ON growly_plants(remote_plant_id)
             """
         )
         pairing_columns = {
@@ -2429,6 +2517,13 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
             deleted_hub_ids.append(target_hub_id)
             connection.execute(
                 """
+                DELETE FROM growly_plants
+                WHERE hub_id = ?
+                """,
+                (target_hub_id,),
+            )
+            connection.execute(
+                """
                 DELETE FROM pairing_tokens
                 WHERE paired_hub_id = ?
                 """,
@@ -2455,6 +2550,17 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
         )
         connection.execute(
             """
+            UPDATE growly_plants
+            SET owner_username = ?,
+                sync_status = 'pending',
+                sync_error = '',
+                updated_at = ?
+            WHERE hub_id = ?
+            """,
+            (clean_username, now, clean_hub_id),
+        )
+        connection.execute(
+            """
             DELETE FROM hub_members
             WHERE hub_id = ?
               AND role = 'owner'
@@ -2467,8 +2573,10 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
 
     for deleted_hub_id in deleted_hub_ids:
         best_effort_delete_supabase_sensor_samples(deleted_hub_id)
+        best_effort_delete_supabase_plants_for_hub(deleted_hub_id)
         best_effort_delete_supabase_hub(deleted_hub_id)
     hub = find_hub(clean_hub_id) or {}
+    best_effort_sync_user_plants(clean_username, clean_hub_id)
     best_effort_sync_core_to_supabase("hub transfer")
     return hub
 
@@ -2483,6 +2591,13 @@ def delete_hub(hub_id: str) -> None:
         connection.execute(
             """
             DELETE FROM sensor_samples
+            WHERE hub_id = ?
+            """,
+            (clean_hub_id,),
+        )
+        connection.execute(
+            """
+            DELETE FROM growly_plants
             WHERE hub_id = ?
             """,
             (clean_hub_id,),
@@ -2512,6 +2627,7 @@ def delete_hub(hub_id: str) -> None:
 
     best_effort_delete_supabase_hub(clean_hub_id)
     best_effort_delete_supabase_sensor_samples(clean_hub_id)
+    best_effort_delete_supabase_plants_for_hub(clean_hub_id)
     best_effort_sync_core_to_supabase("hub delete")
 
 
@@ -2812,7 +2928,10 @@ def list_app_users() -> list[dict[str, Any]]:
                    u.is_active, u.is_admin, u.email_verified,
                    u.created_at, u.updated_at,
                    h.hub_id, h.hub_name, h.owner_username,
-                   COALESCE(hc.hub_count, 0) AS hub_count
+                   COALESCE(hc.hub_count, 0) AS hub_count,
+                   COALESCE(cm.message_count, 0) AS message_count,
+                   COALESCE(cm.unread_message_count, 0) AS unread_message_count,
+                   cm.last_message_at
             FROM app_users u
             LEFT JOIN (
                 SELECT hm.username, MIN(h.hub_id) AS hub_id
@@ -2826,6 +2945,14 @@ def list_app_users() -> list[dict[str, Any]]:
                 FROM hub_members
                 GROUP BY username
             ) hc ON hc.username = u.username
+            LEFT JOIN (
+                SELECT username,
+                       COUNT(*) AS message_count,
+                       SUM(CASE WHEN status = 'ny' THEN 1 ELSE 0 END) AS unread_message_count,
+                       MAX(created_at) AS last_message_at
+                FROM customer_messages
+                GROUP BY username
+            ) cm ON cm.username = u.username
             ORDER BY u.username COLLATE NOCASE ASC
             """
         ).fetchall()
@@ -3116,6 +3243,13 @@ def delete_app_user(username: str, acting_username: str) -> None:
             )
             connection.execute(
                 """
+                DELETE FROM growly_plants
+                WHERE hub_id = ?
+                """,
+                (hub_id,),
+            )
+            connection.execute(
+                """
                 DELETE FROM hub_members
                 WHERE hub_id = ?
                 """,
@@ -3138,6 +3272,13 @@ def delete_app_user(username: str, acting_username: str) -> None:
 
         connection.execute(
             """
+            DELETE FROM growly_plants
+            WHERE owner_username = ?
+            """,
+            (username,),
+        )
+        connection.execute(
+            """
             DELETE FROM hub_members
             WHERE username = ?
             """,
@@ -3147,6 +3288,13 @@ def delete_app_user(username: str, acting_username: str) -> None:
             """
             DELETE FROM pairing_tokens
             WHERE target_username = ?
+            """,
+            (username,),
+        )
+        connection.execute(
+            """
+            DELETE FROM customer_messages
+            WHERE username = ?
             """,
             (username,),
         )
@@ -3162,7 +3310,9 @@ def delete_app_user(username: str, acting_username: str) -> None:
         hub_id = str(hub["hub_id"]) if hub and hub["hub_id"] else ""
         if hub_id:
             best_effort_delete_supabase_sensor_samples(hub_id)
+            best_effort_delete_supabase_plants_for_hub(hub_id)
             best_effort_delete_supabase_hub(hub_id)
+    best_effort_delete_supabase_plants_for_user(username)
     best_effort_delete_supabase_user(username)
     best_effort_sync_core_to_supabase("user delete")
 
@@ -3175,6 +3325,203 @@ def reset_app_user_password(username: str) -> str:
     temporary_password = f"Growly-{secrets.token_urlsafe(6)}"
     update_app_user(username, password=temporary_password)
     return temporary_password
+
+
+CUSTOMER_MESSAGE_CATEGORIES = {"utfordring", "forslag", "tips", "sporsmal", "annet"}
+CUSTOMER_MESSAGE_STATUSES = {"ny", "lest", "arkivert"}
+
+
+def clean_customer_message_category(category: Any) -> str:
+    normalized = (
+        str(category or "")
+        .strip()
+        .lower()
+        .replace("æ", "ae")
+        .replace("ø", "o")
+        .replace("å", "a")
+    )
+    if normalized in CUSTOMER_MESSAGE_CATEGORIES:
+        return normalized
+    if normalized in {"sporsmal", "question"}:
+        return "sporsmal"
+    if normalized in {"problem", "bug", "feil"}:
+        return "utfordring"
+    if normalized in {"improvement", "feature"}:
+        return "forslag"
+    return "annet"
+
+
+def clean_customer_message_conversation(conversation: Any) -> list[dict[str, str]]:
+    if not isinstance(conversation, list):
+        return []
+    cleaned: list[dict[str, str]] = []
+    for item in conversation[-18:]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if role not in {"user", "assistant"}:
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        entry = {
+            "role": role,
+            "text": text[:1200],
+        }
+        image_name = str(item.get("imageName") or item.get("image_name") or "").strip()
+        if image_name:
+            entry["imageName"] = image_name[:120]
+        cleaned.append(entry)
+    return cleaned
+
+
+def customer_message_payload(row: dict[str, Any]) -> dict[str, Any]:
+    conversation: list[dict[str, str]] = []
+    try:
+        parsed = json.loads(str(row.get("conversation_json") or "[]"))
+        if isinstance(parsed, list):
+            conversation = clean_customer_message_conversation(parsed)
+    except json.JSONDecodeError:
+        conversation = []
+    return {
+        "id": row.get("id"),
+        "username": row.get("username"),
+        "full_name": row.get("full_name") or "",
+        "email": row.get("email") or "",
+        "hub_id": row.get("hub_id") or "",
+        "category": row.get("category") or "annet",
+        "title": row.get("title") or "",
+        "message": row.get("message") or "",
+        "source": row.get("source") or "ai_chat",
+        "conversation": conversation,
+        "status": row.get("status") or "ny",
+        "created_at": row.get("created_at") or "",
+        "updated_at": row.get("updated_at") or "",
+    }
+
+
+def create_customer_message(username: str, hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    user = find_app_user(username)
+    if not user:
+        raise ValueError("user_not_found")
+
+    message = str(payload.get("message") or "").strip()
+    if len(message) < 8:
+        raise ValueError("missing_message")
+    if len(message) > 4000:
+        raise ValueError("message_too_long")
+
+    title = str(payload.get("title") or "").strip()
+    if not title:
+        title = message.splitlines()[0].strip()
+    title = title[:120]
+    category = clean_customer_message_category(payload.get("category"))
+    conversation = clean_customer_message_conversation(payload.get("conversation"))
+    now = utc_now_iso()
+
+    with db_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO customer_messages (
+                username, hub_id, category, title, message, source,
+                conversation_json, status, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, 'ai_chat', ?, 'ny', ?, ?)
+            """,
+            (
+                username,
+                str(hub_id or "").strip(),
+                category,
+                title,
+                message,
+                json.dumps(conversation, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+        message_id = cursor.lastrowid
+
+    created = find_customer_message(message_id)
+    if not created:
+        raise ValueError("message_create_failed")
+    return created
+
+
+def find_customer_message(message_id: int) -> dict[str, Any] | None:
+    with db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT m.id, m.username, u.full_name, u.email, m.hub_id, m.category,
+                   m.title, m.message, m.source, m.conversation_json,
+                   m.status, m.created_at, m.updated_at
+            FROM customer_messages m
+            LEFT JOIN app_users u ON u.username = m.username
+            WHERE m.id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+    return customer_message_payload(dict(row)) if row else None
+
+
+def list_customer_messages(username: str = "", limit: int = 100) -> list[dict[str, Any]]:
+    clean_username = username.strip()
+    params: list[Any] = []
+    where_clause = ""
+    if clean_username:
+        where_clause = "WHERE lower(m.username) = lower(?)"
+        params.append(clean_username)
+    params.append(max(1, min(limit, 300)))
+
+    with db_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT m.id, m.username, u.full_name, u.email, m.hub_id, m.category,
+                   m.title, m.message, m.source, m.conversation_json,
+                   m.status, m.created_at, m.updated_at
+            FROM customer_messages m
+            LEFT JOIN app_users u ON u.username = m.username
+            {where_clause}
+            ORDER BY CASE m.status WHEN 'ny' THEN 0 WHEN 'lest' THEN 1 ELSE 2 END,
+                     m.created_at DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    return [customer_message_payload(dict(row)) for row in rows]
+
+
+def update_customer_message_status(message_id: int, status: str) -> dict[str, Any]:
+    clean_status = str(status or "").strip().lower()
+    if clean_status not in CUSTOMER_MESSAGE_STATUSES:
+        raise ValueError("invalid_status")
+
+    with db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT id
+            FROM customer_messages
+            WHERE id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("message_not_found")
+        connection.execute(
+            """
+            UPDATE customer_messages
+            SET status = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (clean_status, utc_now_iso(), message_id),
+        )
+        connection.commit()
+
+    updated = find_customer_message(message_id)
+    if not updated:
+        raise ValueError("message_not_found")
+    return updated
 
 
 def normalized_sensor_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -3388,14 +3735,17 @@ def ask_openai_growly(question: str, context: dict[str, Any], image: dict[str, s
                         "type": "input_text",
                         "text": (
                             "Du er Growly Dyrkeassistent, en rolig norsk hageassistent for drivhus. "
-                            "Svar ekstremt kort, konkret og handlingsorientert på norsk. "
-                            "Bruk maks 3 punkter, maks 18 ord per punkt. "
-                            "Ikke bruk Markdown, fet tekst, overskrifter, nummererte lange lister eller forklaringsavsnitt. "
-                            "Start hvert punkt med et tydelig verb. "
+                            "Svar vennlig, premium og konkret på norsk. "
+                            "Bruk 2-3 korte setninger i ett lite avsnitt, maks 55 ord totalt. "
+                            "Ikke bruk Markdown, fet tekst, overskrifter, punktliste eller lange forklaringsavsnitt med mindre brukeren ber om det. "
+                            "Forklar kort hva målingen betyr, hvorfor den måles, og ett trygt neste steg når det passer. "
                             "Svar også på generelle drivhus-, dyrke- og plantepleiespørsmål når sensordata ikke er relevant. "
                             "Bruk sensorene som ekstra kontekst, ikke som eneste grunnlag for svaret. "
-                            "Bruk sensordata og plantekrav når de finnes. "
+                            "Bruk konkrete sensorverdier og plantekrav når de finnes, men ikke overdriv presisjonen. "
                             "Hvis brukeren sender bilde, vurder synlige tegn på planten og foreslå trygg neste handling. "
+                            "Hvis brukeren snakker om problemer, forslag eller ønsker for selve Growly-appen, "
+                            "still ett kort oppfølgingsspørsmål og hjelp dem å formulere tilbakemeldingen. "
+                            "Ikke si at noe er sendt til admin; det skjer bare når brukeren bekrefter i appen. "
                             "Hvis data mangler, si det tydelig i ett kort punkt. "
                             "Ikke gi bastante sykdomsdiagnoser; gi sannsynlige årsaker og trygge tiltak."
                         ),
@@ -4079,10 +4429,32 @@ def best_effort_delete_supabase_sensor_samples(hub_id: str) -> None:
         print(f"Supabase sensor sample delete skipped for {hub_id}: {exc}")
 
 
+def best_effort_delete_supabase_plants_for_hub(hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    try:
+        supabase_delete_rows("growly_plants", {"hub_id": f"eq.{hub_id}"})
+    except Exception as exc:
+        print(f"Supabase plant delete skipped for hub {hub_id}: {exc}")
+
+
+def best_effort_delete_supabase_plants_for_user(username: str) -> None:
+    if not supabase_enabled():
+        return
+    try:
+        supabase_delete_rows("growly_plants", {"owner_username": f"eq.{username}"})
+    except Exception as exc:
+        print(f"Supabase plant delete skipped for user {username}: {exc}")
+
+
 def plant_row_payload(row: dict[str, Any]) -> dict[str, Any]:
+    remote_plant_id = row.get("remote_plant_id") if "remote_plant_id" in row else row.get("remotePlantId") or row.get("plant_id")
+    sync_status = str(row.get("sync_status") or "synced").strip() or "synced"
     return {
         "plant_id": row.get("plant_id"),
         "instanceId": row.get("plant_id"),
+        "remote_plant_id": remote_plant_id,
+        "remotePlantId": remote_plant_id,
         "hub_id": row.get("hub_id"),
         "owner_username": row.get("owner_username"),
         "profileId": row.get("profile_id"),
@@ -4107,12 +4479,97 @@ def plant_row_payload(row: dict[str, Any]) -> dict[str, Any]:
         "watering_enabled": bool(row.get("watering_enabled")),
         "archivedAt": row.get("archived_at"),
         "archived_at": row.get("archived_at"),
+        "deletedAt": row.get("deleted_at"),
+        "deleted_at": row.get("deleted_at"),
+        "syncStatus": sync_status,
+        "sync_status": sync_status,
+        "syncError": row.get("sync_error") or "",
+        "sync_error": row.get("sync_error") or "",
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }
 
 
-def list_user_plants(username: str, hub_id: str, include_archived: bool = False, archived_only: bool = False) -> list[dict[str, Any]]:
+def generate_local_plant_id() -> str:
+    return f"local_{secrets.token_urlsafe(14)}"
+
+
+def bool_to_int(value: Any) -> int:
+    return 1 if bool(value) else 0
+
+
+def plant_mutation_row(username: str, hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    profile_id = str(payload.get("profile_id") or payload.get("profileId") or "").strip()
+    display_name = str(payload.get("display_name") or payload.get("nickname") or "").strip()
+    if not profile_id:
+        raise ValueError("missing_profile_id")
+    if not display_name:
+        raise ValueError("missing_display_name")
+
+    return {
+        "hub_id": hub_id,
+        "owner_username": username,
+        "profile_id": profile_id,
+        "catalog_item_id": str(payload.get("catalog_item_id") or payload.get("catalogItemId") or profile_id).strip() or profile_id,
+        "variant_id": str(payload.get("variant_id") or payload.get("variantId") or "").strip() or None,
+        "cultivar_id": str(payload.get("cultivar_id") or payload.get("cultivarId") or "").strip() or None,
+        "display_name": display_name,
+        "location_label": str(payload.get("location_label") or payload.get("location") or "greenhouse").strip() or "greenhouse",
+        "sowed_at": iso_or_none(payload.get("sowed_at") or payload.get("sowedAt")),
+        "moved_to_greenhouse_at": iso_or_none(payload.get("moved_to_greenhouse_at") or payload.get("movedToGreenhouseAt")),
+        "has_seven_in_one": bool_to_int(payload.get("has_seven_in_one", payload.get("hasSevenInOne", False))),
+        "watering_enabled": bool_to_int(payload.get("watering_enabled", payload.get("wateringEnabled", False))),
+    }
+
+
+def local_plant_by_id(username: str, hub_id: str, plant_id: str) -> dict[str, Any] | None:
+    with db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT plant_id, remote_plant_id, hub_id, owner_username, profile_id, catalog_item_id,
+                   variant_id, cultivar_id, display_name, location_label, sowed_at,
+                   moved_to_greenhouse_at, has_seven_in_one, watering_enabled, archived_at,
+                   deleted_at, sync_status, sync_error, created_at, updated_at
+            FROM growly_plants
+            WHERE owner_username = ?
+              AND hub_id = ?
+              AND deleted_at IS NULL
+              AND (plant_id = ? OR remote_plant_id = ?)
+            LIMIT 1
+            """,
+            (username, hub_id, plant_id, plant_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_local_user_plants(username: str, hub_id: str, include_archived: bool = False, archived_only: bool = False) -> list[dict[str, Any]]:
+    params: list[Any] = [username, hub_id]
+    archive_clause = ""
+    if archived_only:
+        archive_clause = "AND archived_at IS NOT NULL"
+    elif not include_archived:
+        archive_clause = "AND archived_at IS NULL"
+
+    with db_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT plant_id, remote_plant_id, hub_id, owner_username, profile_id, catalog_item_id,
+                   variant_id, cultivar_id, display_name, location_label, sowed_at,
+                   moved_to_greenhouse_at, has_seven_in_one, watering_enabled, archived_at,
+                   deleted_at, sync_status, sync_error, created_at, updated_at
+            FROM growly_plants
+            WHERE owner_username = ?
+              AND hub_id = ?
+              AND deleted_at IS NULL
+              {archive_clause}
+            ORDER BY created_at DESC, updated_at DESC
+            """,
+            params,
+        ).fetchall()
+    return [plant_row_payload(dict(row)) for row in rows]
+
+
+def supabase_list_user_plants(username: str, hub_id: str, include_archived: bool = False, archived_only: bool = False) -> list[dict[str, Any]]:
     if not supabase_enabled():
         return []
     params = {
@@ -4129,45 +4586,295 @@ def list_user_plants(username: str, hub_id: str, include_archived: bool = False,
     return [plant_row_payload(row) for row in rows]
 
 
-def create_user_plant(username: str, hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if not supabase_enabled():
-        raise ValueError("supabase_not_configured")
-
-    profile_id = str(payload.get("profile_id") or payload.get("profileId") or "").strip()
-    display_name = str(payload.get("display_name") or payload.get("nickname") or "").strip()
-    if not profile_id:
-        raise ValueError("missing_profile_id")
-    if not display_name:
-        raise ValueError("missing_display_name")
-
+def remote_plant_payload(row: dict[str, Any]) -> dict[str, Any]:
+    archived_at = iso_or_none(row.get("archived_at"))
     row = {
-        "hub_id": hub_id,
-        "owner_username": username,
-        "profile_id": profile_id,
-        "catalog_item_id": str(payload.get("catalog_item_id") or payload.get("catalogItemId") or profile_id).strip(),
-        "variant_id": str(payload.get("variant_id") or payload.get("variantId") or "").strip() or None,
-        "cultivar_id": str(payload.get("cultivar_id") or payload.get("cultivarId") or "").strip() or None,
-        "display_name": display_name,
-        "location_label": str(payload.get("location_label") or payload.get("location") or "greenhouse").strip() or "greenhouse",
-        "sowed_at": iso_or_none(payload.get("sowed_at") or payload.get("sowedAt")),
-        "moved_to_greenhouse_at": iso_or_none(payload.get("moved_to_greenhouse_at") or payload.get("movedToGreenhouseAt")),
-        "has_seven_in_one": bool(payload.get("has_seven_in_one", payload.get("hasSevenInOne", False))),
-        "watering_enabled": bool(payload.get("watering_enabled", payload.get("wateringEnabled", False))),
+        "hub_id": row["hub_id"],
+        "owner_username": row["owner_username"],
+        "profile_id": row["profile_id"],
+        "catalog_item_id": row.get("catalog_item_id") or row["profile_id"],
+        "variant_id": row.get("variant_id") or None,
+        "cultivar_id": row.get("cultivar_id") or None,
+        "display_name": row.get("display_name") or "",
+        "location_label": row.get("location_label") or "greenhouse",
+        "sowed_at": iso_or_none(row.get("sowed_at")),
+        "moved_to_greenhouse_at": iso_or_none(row.get("moved_to_greenhouse_at")),
+        "has_seven_in_one": bool(row.get("has_seven_in_one")),
+        "watering_enabled": bool(row.get("watering_enabled")),
+        "archived_at": archived_at,
+        "updated_at": row.get("updated_at") or utc_now_iso(),
     }
+    return row
+
+
+def mark_local_plant_sync_error(plant_id: str, error: str) -> None:
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE growly_plants
+            SET sync_status = 'error',
+                sync_error = ?,
+                updated_at = updated_at
+            WHERE plant_id = ?
+            """,
+            (error[:500], plant_id),
+        )
+        connection.commit()
+
+
+def mark_local_plant_synced(plant_id: str, remote_row: dict[str, Any]) -> None:
+    remote_plant_id = str(remote_row.get("plant_id") or remote_row.get("remote_plant_id") or "").strip()
+    if not remote_plant_id:
+        return
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE growly_plants
+            SET remote_plant_id = ?,
+                sync_status = 'synced',
+                sync_error = '',
+                updated_at = COALESCE(NULLIF(?, ''), updated_at)
+            WHERE plant_id = ?
+            """,
+            (remote_plant_id, str(remote_row.get("updated_at") or ""), plant_id),
+        )
+        connection.commit()
+
+
+def push_local_plant_to_supabase(row: dict[str, Any]) -> None:
+    if not supabase_enabled():
+        mark_local_plant_sync_error(str(row["plant_id"]), "supabase_not_configured")
+        return
+
+    remote_id = str(row.get("remote_plant_id") or "").strip()
+    payload = remote_plant_payload(row)
+    if remote_id:
+        rows = supabase_request(
+            "growly_plants",
+            method="PATCH",
+            params={
+                "plant_id": f"eq.{remote_id}",
+                "hub_id": f"eq.{row['hub_id']}",
+                "owner_username": f"eq.{row['owner_username']}",
+            },
+            payload=payload,
+            prefer="return=representation",
+        )
+        if isinstance(rows, list) and rows:
+            mark_local_plant_synced(str(row["plant_id"]), rows[0])
+            return
+
     inserted = supabase_request(
         "growly_plants",
         method="POST",
-        payload=[row],
+        payload=[payload],
         prefer="return=representation",
     )
     if not isinstance(inserted, list) or not inserted:
+        raise ValueError("plant_sync_failed")
+    mark_local_plant_synced(str(row["plant_id"]), inserted[0])
+
+
+def upsert_local_plant_from_remote(username: str, hub_id: str, remote_row: dict[str, Any]) -> None:
+    remote_plant_id = str(remote_row.get("plant_id") or "").strip()
+    if not remote_plant_id:
+        return
+    remote_payload = plant_row_payload(remote_row)
+    now = utc_now_iso()
+
+    with db_connection() as connection:
+        existing = connection.execute(
+            """
+            SELECT plant_id, sync_status, updated_at
+            FROM growly_plants
+            WHERE owner_username = ?
+              AND hub_id = ?
+              AND (remote_plant_id = ? OR plant_id = ?)
+            LIMIT 1
+            """,
+            (username, hub_id, remote_plant_id, remote_plant_id),
+        ).fetchone()
+        if existing and str(existing["sync_status"] or "") in {"pending", "error"}:
+            local_updated_at = str(existing["updated_at"] or "")
+            remote_updated_at = str(remote_row.get("updated_at") or "")
+            if not remote_updated_at or local_updated_at >= remote_updated_at:
+                return
+
+        values = (
+            remote_plant_id,
+            remote_plant_id,
+            hub_id,
+            username,
+            remote_payload.get("profile_id") or "",
+            remote_payload.get("catalog_item_id") or remote_payload.get("profile_id") or "",
+            remote_payload.get("variant_id"),
+            remote_payload.get("cultivar_id"),
+            remote_payload.get("display_name") or "",
+            remote_payload.get("location_label") or "greenhouse",
+            remote_payload.get("sowed_at"),
+            remote_payload.get("moved_to_greenhouse_at"),
+            bool_to_int(remote_payload.get("has_seven_in_one")),
+            bool_to_int(remote_payload.get("watering_enabled")),
+            remote_payload.get("archived_at"),
+            remote_payload.get("deleted_at"),
+            "synced",
+            "",
+            str(remote_row.get("created_at") or now),
+            str(remote_row.get("updated_at") or now),
+        )
+        if existing:
+            connection.execute(
+                """
+                UPDATE growly_plants
+                SET remote_plant_id = ?,
+                    hub_id = ?,
+                    owner_username = ?,
+                    profile_id = ?,
+                    catalog_item_id = ?,
+                    variant_id = ?,
+                    cultivar_id = ?,
+                    display_name = ?,
+                    location_label = ?,
+                    sowed_at = ?,
+                    moved_to_greenhouse_at = ?,
+                    has_seven_in_one = ?,
+                    watering_enabled = ?,
+                    archived_at = ?,
+                    deleted_at = ?,
+                    sync_status = ?,
+                    sync_error = ?,
+                    updated_at = ?
+                WHERE plant_id = ?
+                """,
+                (
+                    values[1],
+                    values[2],
+                    values[3],
+                    values[4],
+                    values[5],
+                    values[6],
+                    values[7],
+                    values[8],
+                    values[9],
+                    values[10],
+                    values[11],
+                    values[12],
+                    values[13],
+                    values[14],
+                    values[15],
+                    values[16],
+                    values[17],
+                    values[19],
+                    str(existing["plant_id"]),
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO growly_plants (
+                    plant_id, remote_plant_id, hub_id, owner_username, profile_id, catalog_item_id,
+                    variant_id, cultivar_id, display_name, location_label, sowed_at,
+                    moved_to_greenhouse_at, has_seven_in_one, watering_enabled, archived_at,
+                    deleted_at, sync_status, sync_error, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+        connection.commit()
+
+
+def sync_pending_local_plants_to_supabase(username: str, hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    with db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT plant_id, remote_plant_id, hub_id, owner_username, profile_id, catalog_item_id,
+                   variant_id, cultivar_id, display_name, location_label, sowed_at,
+                   moved_to_greenhouse_at, has_seven_in_one, watering_enabled, archived_at,
+                   deleted_at, sync_status, sync_error, created_at, updated_at
+            FROM growly_plants
+            WHERE owner_username = ?
+              AND hub_id = ?
+              AND deleted_at IS NULL
+              AND sync_status != 'synced'
+            ORDER BY updated_at ASC
+            """,
+            (username, hub_id),
+        ).fetchall()
+    for row in rows:
+        try:
+            push_local_plant_to_supabase(dict(row))
+        except Exception as exc:
+            mark_local_plant_sync_error(str(row["plant_id"]), str(exc) or "plant_sync_failed")
+
+
+def pull_user_plants_from_supabase(username: str, hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    for plant in supabase_list_user_plants(username, hub_id, include_archived=True, archived_only=False):
+        upsert_local_plant_from_remote(username, hub_id, plant)
+
+
+def best_effort_sync_user_plants(username: str, hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    try:
+        sync_pending_local_plants_to_supabase(username, hub_id)
+        pull_user_plants_from_supabase(username, hub_id)
+    except Exception as exc:
+        print(f"Supabase plant sync skipped for {username}/{hub_id}: {exc}")
+
+
+def list_user_plants(username: str, hub_id: str, include_archived: bool = False, archived_only: bool = False) -> list[dict[str, Any]]:
+    return list_local_user_plants(username, hub_id, include_archived=include_archived, archived_only=archived_only)
+
+
+def create_user_plant(username: str, hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    row = plant_mutation_row(username, hub_id, payload)
+    now = utc_now_iso()
+    plant_id = generate_local_plant_id()
+    with db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO growly_plants (
+                plant_id, remote_plant_id, hub_id, owner_username, profile_id, catalog_item_id,
+                variant_id, cultivar_id, display_name, location_label, sowed_at,
+                moved_to_greenhouse_at, has_seven_in_one, watering_enabled, archived_at,
+                deleted_at, sync_status, sync_error, created_at, updated_at
+            )
+            VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'pending', '', ?, ?)
+            """,
+            (
+                plant_id,
+                row["hub_id"],
+                row["owner_username"],
+                row["profile_id"],
+                row["catalog_item_id"],
+                row["variant_id"],
+                row["cultivar_id"],
+                row["display_name"],
+                row["location_label"],
+                row["sowed_at"],
+                row["moved_to_greenhouse_at"],
+                row["has_seven_in_one"],
+                row["watering_enabled"],
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+    created = local_plant_by_id(username, hub_id, plant_id)
+    if not created:
         raise ValueError("plant_create_failed")
-    return plant_row_payload(inserted[0])
+    return plant_row_payload(created)
 
 
 def update_user_plant(username: str, hub_id: str, plant_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if not supabase_enabled():
-        raise ValueError("supabase_not_configured")
+    existing = local_plant_by_id(username, hub_id, plant_id)
+    if not existing:
+        raise ValueError("plant_not_found")
 
     updates: dict[str, Any] = {"updated_at": utc_now_iso()}
     if "location" in payload or "location_label" in payload:
@@ -4181,20 +4888,36 @@ def update_user_plant(username: str, hub_id: str, plant_id: str, payload: dict[s
     if "archived_at" in payload:
         updates["archived_at"] = iso_or_none(payload.get("archived_at"))
 
-    rows = supabase_request(
-        "growly_plants",
-        method="PATCH",
-        params={
-            "plant_id": f"eq.{plant_id}",
-            "hub_id": f"eq.{hub_id}",
-            "owner_username": f"eq.{username}",
-        },
-        payload=updates,
-        prefer="return=representation",
-    )
-    if not isinstance(rows, list) or not rows:
+    if len(updates) == 1:
+        return plant_row_payload(existing)
+
+    allowed_columns = {
+        "location_label",
+        "moved_to_greenhouse_at",
+        "has_seven_in_one",
+        "watering_enabled",
+        "archived_at",
+        "updated_at",
+    }
+    assignments = [f"{key} = ?" for key in updates if key in allowed_columns]
+    values = [updates[key] for key in updates if key in allowed_columns]
+    assignments.extend(["sync_status = 'pending'", "sync_error = ''"])
+    values.extend([str(existing["plant_id"])])
+
+    with db_connection() as connection:
+        connection.execute(
+            f"""
+            UPDATE growly_plants
+            SET {", ".join(assignments)}
+            WHERE plant_id = ?
+            """,
+            values,
+        )
+        connection.commit()
+    updated = local_plant_by_id(username, hub_id, str(existing["plant_id"]))
+    if not updated:
         raise ValueError("plant_not_found")
-    return plant_row_payload(rows[0])
+    return plant_row_payload(updated)
 
 
 def local_day_summary(hub_id: str) -> dict[str, dict[str, float | None]]:
@@ -5387,6 +6110,29 @@ async def ai_assistant(request: Request, payload: dict[str, Any]):
     return {"ok": True, "answer": answer, "model": OPENAI_MODEL}
 
 
+@app.post("/api/customer-messages")
+async def submit_customer_message(request: Request, payload: dict[str, Any]):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    if is_admin_authenticated(request):
+        return JSONResponse(status_code=403, content={"ok": False, "error": "customer_required"})
+
+    hub_id = ""
+    try:
+        hub = resolve_request_hub(request)
+        hub_id = str(hub["hub_id"])
+    except ValueError as exc:
+        if str(exc) not in {"hub_not_assigned", "hub_not_found"}:
+            return hub_error_response(str(exc))
+
+    try:
+        message = create_customer_message(current_username(request), hub_id, payload)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "message": message}
+
+
 @app.get("/api/plant-profiles")
 async def plant_profiles(request: Request, q: str = ""):
     auth_error = require_viewer_api(request)
@@ -5404,7 +6150,7 @@ async def plant_catalog(request: Request, q: str = ""):
 
 
 @app.get("/api/plants")
-async def get_plants(request: Request, archived: bool = Query(False)):
+async def get_plants(request: Request, background_tasks: BackgroundTasks, archived: bool = Query(False)):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
@@ -5412,65 +6158,68 @@ async def get_plants(request: Request, archived: bool = Query(False)):
         hub = resolve_request_hub(request)
     except ValueError as exc:
         return hub_error_response(str(exc))
-    try:
-        plants = list_user_plants(
-            current_username(request),
-            str(hub["hub_id"]),
-            include_archived=archived,
-            archived_only=archived,
-        )
-    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
-        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "plants_unavailable"})
+    username = current_username(request)
+    hub_id = str(hub["hub_id"])
+    plants = list_user_plants(username, hub_id, include_archived=archived, archived_only=archived)
+    if supabase_enabled():
+        if not plants:
+            best_effort_sync_user_plants(username, hub_id)
+            plants = list_user_plants(username, hub_id, include_archived=archived, archived_only=archived)
+        else:
+            background_tasks.add_task(best_effort_sync_user_plants, username, hub_id)
     return {"ok": True, "plants": plants}
 
 
 @app.post("/api/plants")
-async def add_plant(request: Request, payload: dict[str, Any]):
+async def add_plant(request: Request, background_tasks: BackgroundTasks, payload: dict[str, Any]):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
     try:
         hub = resolve_request_hub(request)
-        plant = create_user_plant(current_username(request), str(hub["hub_id"]), payload)
+        username = current_username(request)
+        hub_id = str(hub["hub_id"])
+        plant = create_user_plant(username, hub_id, payload)
+        background_tasks.add_task(best_effort_sync_user_plants, username, hub_id)
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
-    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "plant_create_failed"})
     return {"ok": True, "plant": plant}
 
 
 @app.patch("/api/plants/{plant_id}")
-async def edit_plant(request: Request, plant_id: str, payload: dict[str, Any]):
+async def edit_plant(request: Request, plant_id: str, background_tasks: BackgroundTasks, payload: dict[str, Any]):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
     try:
         hub = resolve_request_hub(request)
-        plant = update_user_plant(current_username(request), str(hub["hub_id"]), plant_id, payload)
+        username = current_username(request)
+        hub_id = str(hub["hub_id"])
+        plant = update_user_plant(username, hub_id, plant_id, payload)
+        background_tasks.add_task(best_effort_sync_user_plants, username, hub_id)
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
-    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "plant_update_failed"})
     return {"ok": True, "plant": plant}
 
 
 @app.delete("/api/plants/{plant_id}")
-async def archive_plant_api(request: Request, plant_id: str):
+async def archive_plant_api(request: Request, plant_id: str, background_tasks: BackgroundTasks):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
     try:
         hub = resolve_request_hub(request)
+        username = current_username(request)
+        hub_id = str(hub["hub_id"])
         plant = update_user_plant(
-            current_username(request),
-            str(hub["hub_id"]),
+            username,
+            hub_id,
             plant_id,
             {"archived_at": utc_now_iso()},
         )
+        background_tasks.add_task(best_effort_sync_user_plants, username, hub_id)
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
-    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "plant_archive_failed"})
     return {"ok": True, "plant": plant}
 
 
@@ -5633,6 +6382,36 @@ async def get_users(request: Request):
     if auth_error:
         return auth_error
     return {"ok": True, "users": list_app_users()}
+
+
+@app.get("/api/customer-messages")
+async def get_customer_messages(request: Request):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    return {"ok": True, "messages": list_customer_messages()}
+
+
+@app.get("/api/users/{username}/customer-messages")
+async def get_user_customer_messages(request: Request, username: str):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    if not find_app_user(username):
+        return JSONResponse(status_code=404, content={"ok": False, "error": "user_not_found"})
+    return {"ok": True, "messages": list_customer_messages(username)}
+
+
+@app.patch("/api/customer-messages/{message_id}")
+async def edit_customer_message(request: Request, message_id: int, payload: dict[str, Any]):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        message = update_customer_message_status(message_id, str(payload.get("status") or ""))
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "message": message}
 
 
 @app.get("/api/hubs")

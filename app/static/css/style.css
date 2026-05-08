@@ -793,7 +793,7 @@ select {
 
 .customer-stat-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 12px;
     margin: 14px 0;
 }
@@ -986,6 +986,11 @@ select {
     color: var(--danger);
 }
 
+.mini-pill.message {
+    background: rgba(169, 121, 22, 0.12);
+    color: #8a6114;
+}
+
 .customer-detail {
     position: sticky;
     top: 18px;
@@ -1041,6 +1046,76 @@ select {
     flex-wrap: wrap;
     gap: 14px;
     justify-content: space-between;
+}
+
+.customer-messages-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid rgba(47, 157, 100, 0.18);
+    border-radius: 14px;
+    background: rgba(47, 157, 100, 0.07);
+}
+
+.customer-messages-head,
+.customer-message-item__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.customer-messages-head > div {
+    display: grid;
+    gap: 3px;
+}
+
+.customer-messages-head strong,
+.customer-message-item strong {
+    color: var(--text);
+}
+
+.customer-messages-head span,
+.customer-message-item small {
+    color: var(--muted);
+}
+
+.customer-message-list {
+    display: grid;
+    gap: 10px;
+}
+
+.customer-message-item {
+    display: grid;
+    gap: 9px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.78);
+}
+
+.customer-message-item.is-unread {
+    border-color: rgba(169, 121, 22, 0.28);
+    background:
+        linear-gradient(135deg, rgba(169, 121, 22, 0.11), transparent 42%),
+        rgba(255, 255, 255, 0.9);
+}
+
+.customer-message-item p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.45;
+}
+
+.customer-message-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.customer-message-actions .button {
+    min-height: 36px;
+    padding: 0 12px;
 }
 
 .customer-hub-admin-card {

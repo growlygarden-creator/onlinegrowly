@@ -202,6 +202,14 @@ export type GrowlyAssistantImage = {
   name?: string;
 };
 
+export type CustomerMessageCategory = "utfordring" | "forslag" | "tips" | "sporsmal" | "annet";
+
+export type CustomerMessageConversationItem = {
+  role: "assistant" | "user";
+  text: string;
+  imageName?: string;
+};
+
 type ApiError = {
   ok: false;
   error: string;
@@ -729,4 +737,31 @@ export async function askGrowlyAssistant(
   } catch (error) {
     throw error instanceof Error ? error : new Error("ai_unavailable");
   }
+}
+
+export async function sendCustomerMessage(
+  payload: {
+    category: CustomerMessageCategory;
+    title: string;
+    message: string;
+    conversation: CustomerMessageConversationItem[];
+  },
+  hubId = "",
+): Promise<boolean> {
+  const response = await fetchWithTimeout(apiUrl(appendHubId("/api/customer-messages", hubId)), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      ...authHeaders({ "Content-Type": "application/json" }),
+    },
+    body: JSON.stringify(payload),
+  }, AUTH_REQUEST_TIMEOUT_MS);
+
+  if (!response.ok) {
+    const result = await parseJson<ApiError>(response);
+    throw new Error(result.error);
+  }
+
+  const result = await parseJson<{ ok: true }>(response);
+  return result.ok;
 }

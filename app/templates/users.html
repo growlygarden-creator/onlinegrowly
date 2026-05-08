@@ -54,8 +54,12 @@
                         <span>Med hub</span>
                         <strong id="stat-hub">0</strong>
                     </div>
+                    <div class="customer-stat">
+                        <span>Nye meldinger</span>
+                        <strong id="stat-messages">0</strong>
+                    </div>
                 </div>
-                <p class="helper-text">Brukere opprettes via web-linken. Her håndterer du eksisterende kunder, tilgang, kontaktinfo og passord.</p>
+                <p class="helper-text">Brukere opprettes via web-linken. Her håndterer du eksisterende kunder, tilgang, kontaktinfo, meldinger og passord.</p>
             </article>
         </section>
 
@@ -151,7 +155,8 @@
             total: document.getElementById("stat-total"),
             active: document.getElementById("stat-active"),
             admin: document.getElementById("stat-admin"),
-            hub: document.getElementById("stat-hub")
+            hub: document.getElementById("stat-hub"),
+            messages: document.getElementById("stat-messages")
         };
 
         const errorMessages = {
@@ -174,12 +179,15 @@
             admin_cannot_own_hub: "Admin-brukere kan ikke eie hub.",
             hub_not_found: "Huben finnes ikke.",
             target_has_hub: "Ny eier har allerede hub.",
-            target_hub_has_samples: "Ny eier har allerede hub med sensordata. Velg erstatt hvis dette er riktig."
+            target_hub_has_samples: "Ny eier har allerede hub med sensordata. Velg erstatt hvis dette er riktig.",
+            message_not_found: "Meldingen finnes ikke.",
+            invalid_status: "Ugyldig meldingsstatus."
         };
 
         let users = [];
         let selectedUsername = "";
         let activeFilter = "all";
+        let messageCache = {};
 
         function humanError(error) {
             return errorMessages[error] || error || "Ukjent feil";
@@ -192,6 +200,26 @@
                 .replaceAll(">", "&gt;")
                 .replaceAll('"', "&quot;")
                 .replaceAll("'", "&#039;");
+        }
+
+        function formatDate(value) {
+            if (!value) return "Ukjent tid";
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return value;
+            return new Intl.DateTimeFormat("nb-NO", {
+                dateStyle: "medium",
+                timeStyle: "short"
+            }).format(date);
+        }
+
+        function messageCategoryLabel(category) {
+            return {
+                utfordring: "Utfordring",
+                forslag: "Forslag",
+                tips: "Tips",
+                sporsmal: "Spørsmål",
+                annet: "Annet"
+            }[category] || "Annet";
         }
 
         function setUserStatus(text, mode = "") {
@@ -210,7 +238,9 @@
                 user.email,
                 user.phone,
                 user.hub_id,
-                user.hub_name
+                user.hub_name,
+                user.message_count,
+                user.unread_message_count
             ].join(" ").toLowerCase();
         }
 
@@ -247,6 +277,7 @@
             stats.active.textContent = users.filter((user) => user.is_active).length;
             stats.admin.textContent = users.filter((user) => user.is_admin).length;
             stats.hub.textContent = users.filter((user) => user.hub_id).length;
+            stats.messages.textContent = users.reduce((sum, user) => sum + Number(user.unread_message_count || 0), 0);
         }
 
         function userInitials(user) {
@@ -279,15 +310,23 @@
                 const statusClass = user.is_active ? "online" : "offline";
                 const hub = user.hub_id ? escapeHtml(user.hub_id) : "Ingen hub";
                 const emailState = user.is_admin || user.email_verified ? "E-post bekreftet" : "Venter på bekreftelse";
+                const unreadMessages = Number(user.unread_message_count || 0);
+                const totalMessages = Number(user.message_count || 0);
+                const messageText = unreadMessages
+                    ? `${unreadMessages} ny${unreadMessages === 1 ? "" : "e"} melding${unreadMessages === 1 ? "" : "er"}`
+                    : totalMessages
+                        ? `${totalMessages} melding${totalMessages === 1 ? "" : "er"}`
+                        : "Ingen meldinger";
                 return `
                     <button class="customer-row${selected}" type="button" data-user-select="${escapeHtml(user.username)}">
                         <span class="customer-avatar">${escapeHtml(userInitials(user))}</span>
                         <span class="customer-row-main">
                             <strong>${escapeHtml(displayName(user))}</strong>
-                            <small>${escapeHtml(user.email || "Ingen e-post")} · ${hub} · ${emailState}</small>
+                            <small>${escapeHtml(user.email || "Ingen e-post")} · ${hub} · ${emailState} · ${messageText}</small>
                         </span>
                         <span class="customer-row-meta">
                             <span class="mini-pill ${statusClass}">${state}</span>
+                            ${unreadMessages ? `<span class="mini-pill message">${unreadMessages} ny</span>` : ""}
                             <small>${role}</small>
                         </span>
                     </button>
@@ -299,6 +338,46 @@
 
         function selectedUser() {
             return users.find((user) => user.username === selectedUsername);
+        }
+
+        function renderCustomerMessages(user) {
+            const messages = messageCache[user.username];
+            if (!messages) {
+                return `
+                    <div class="customer-message-list">
+                        <p class="helper-text">Laster meldinger...</p>
+                    </div>
+                `;
+            }
+            if (!messages.length) {
+                return `
+                    <div class="customer-message-list">
+                        <p class="helper-text">Ingen meldinger fra Growly-chatten ennå.</p>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="customer-message-list">
+                    ${messages.map((message) => {
+                        const isUnread = message.status === "ny";
+                        return `
+                            <article class="customer-message-item${isUnread ? " is-unread" : ""}">
+                                <div class="customer-message-item__head">
+                                    <span class="mini-pill ${isUnread ? "message" : ""}">${messageCategoryLabel(message.category)}</span>
+                                    <small>${formatDate(message.created_at)}</small>
+                                </div>
+                                <strong>${escapeHtml(message.title || "Melding fra kunde")}</strong>
+                                <p>${escapeHtml(message.message || "").replaceAll("\n", "<br>")}</p>
+                                <div class="customer-message-actions">
+                                    ${message.status === "ny" ? `<button type="button" class="button subtle-button" data-message-id="${message.id}" data-message-status="lest">Marker lest</button>` : ""}
+                                    ${message.status !== "arkivert" ? `<button type="button" class="button subtle-button" data-message-id="${message.id}" data-message-status="arkivert">Arkiver</button>` : ""}
+                                </div>
+                            </article>
+                        `;
+                    }).join("")}
+                </div>
+            `;
         }
 
         function renderDetail() {
@@ -314,6 +393,7 @@
             }
 
             const cannotDeleteSelf = user.username === currentUsername;
+            const unreadMessages = Number(user.unread_message_count || 0);
             userDetail.innerHTML = `
                 <div class="customer-detail-head">
                     <span class="customer-avatar large">${escapeHtml(userInitials(user))}</span>
@@ -345,6 +425,17 @@
                         <span>E-poststatus</span>
                         <strong>${user.is_admin || user.email_verified ? "Bekreftet" : "Ikke bekreftet"}</strong>
                     </div>
+                </div>
+
+                <div class="customer-messages-card">
+                    <div class="customer-messages-head">
+                        <div>
+                            <strong>Meldinger fra Growly-chatten</strong>
+                            <span>${unreadMessages ? `${unreadMessages} nye trenger svar` : "Ingen nye meldinger"}</span>
+                        </div>
+                        <button type="button" class="button subtle-button" data-message-refresh="${escapeHtml(user.username)}">Oppdater</button>
+                    </div>
+                    ${renderCustomerMessages(user)}
                 </div>
 
                 <div class="customer-edit-grid">
@@ -402,6 +493,9 @@
                     <button type="button" class="button danger-button" data-detail-delete="${escapeHtml(user.username)}" ${cannotDeleteSelf ? "disabled" : ""}>Slett bruker</button>
                 </div>
             `;
+            if (!messageCache[user.username]) {
+                loadCustomerMessages(user.username).catch((error) => setUserStatus(`Feil: ${humanError(error.message)}`, "offline"));
+            }
         }
 
         function updateUsers(nextUsers, preferredSelection = selectedUsername) {
@@ -420,6 +514,55 @@
                 throw new Error(payload.error || "users_load_failed");
             }
             updateUsers(payload.users || []);
+        }
+
+        async function loadCustomerMessages(username) {
+            const response = await fetch(`/api/users/${encodeURIComponent(username)}/customer-messages`, { cache: "no-store" });
+            const payload = await response.json();
+            if (!payload.ok) {
+                throw new Error(payload.error || "messages_load_failed");
+            }
+            messageCache = { ...messageCache, [username]: payload.messages || [] };
+            if (selectedUsername === username) {
+                renderDetail();
+            }
+        }
+
+        async function updateCustomerMessageStatus(messageId, status) {
+            setUserStatus("Oppdaterer melding...", "warning");
+            try {
+                const response = await fetch(`/api/customer-messages/${encodeURIComponent(messageId)}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status })
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "message_update_failed");
+                }
+                const message = result.message;
+                if (message?.username) {
+                    const cached = messageCache[message.username] || [];
+                    const previous = cached.find((item) => item.id === message.id);
+                    messageCache = {
+                        ...messageCache,
+                        [message.username]: cached.map((item) => item.id === message.id ? message : item)
+                    };
+                    users = users.map((user) => {
+                        if (user.username !== message.username) return user;
+                        const unreadDelta = previous?.status === "ny" && message.status !== "ny" ? -1 : 0;
+                        return {
+                            ...user,
+                            unread_message_count: Math.max(0, Number(user.unread_message_count || 0) + unreadDelta)
+                        };
+                    });
+                    renderStats();
+                    renderList();
+                }
+                setUserStatus("Melding oppdatert", "online");
+            } catch (error) {
+                setUserStatus(`Feil: ${humanError(error.message)}`, "offline");
+            }
         }
 
         function detailPayload() {
@@ -580,6 +723,18 @@
         });
 
         userDetail.addEventListener("click", (event) => {
+            const refreshMessagesButton = event.target.closest("[data-message-refresh]");
+            if (refreshMessagesButton) {
+                loadCustomerMessages(refreshMessagesButton.dataset.messageRefresh)
+                    .then(() => setUserStatus("Meldinger oppdatert", "online"))
+                    .catch((error) => setUserStatus(`Feil: ${humanError(error.message)}`, "offline"));
+                return;
+            }
+            const messageStatusButton = event.target.closest("[data-message-id][data-message-status]");
+            if (messageStatusButton) {
+                updateCustomerMessageStatus(messageStatusButton.dataset.messageId, messageStatusButton.dataset.messageStatus);
+                return;
+            }
             const saveButton = event.target.closest("[data-detail-save]");
             if (saveButton) {
                 updateUser(saveButton.dataset.detailSave);

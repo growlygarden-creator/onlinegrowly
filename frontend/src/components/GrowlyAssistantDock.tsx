@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { askGrowlyAssistant, type GrowlyAssistantImage } from "../lib/api";
+import {
+  askGrowlyAssistant,
+  sendCustomerMessage,
+  type CustomerMessageCategory,
+  type CustomerMessageConversationItem,
+  type GrowlyAssistantImage,
+} from "../lib/api";
 
 type AssistantPrompt = { label: string; question: string };
 type AssistantMessage = {
@@ -9,35 +15,127 @@ type AssistantMessage = {
   isError?: boolean;
   imageName?: string;
 };
+type FeedbackDraft = {
+  category: CustomerMessageCategory;
+  step: "detail" | "improvement" | "ready";
+  title: string;
+  initialText: string;
+  detailText: string;
+  desiredText: string;
+  summary: string;
+  conversation: CustomerMessageConversationItem[];
+};
 
 const assistantPrompts: AssistantPrompt[] = [
   { label: "Hva bør jeg gjøre nå?", question: "Hva bør jeg gjøre i drivhuset akkurat nå basert på sensorene?" },
   { label: "Hvem trenger vann?", question: "Hvilke planter eller forhold tyder på at jeg bør vanne nå?" },
   { label: "Tolk sensorene", question: "Tolk siste sensordata og si hva som er bra, hva jeg bør følge med på, og neste tiltak." },
   { label: "Hva kan sås?", question: "Hva kan jeg så eller plante denne måneden i drivhuset?" },
+  { label: "Gi tilbakemelding", question: "Jeg vil gi en tilbakemelding eller et forslag om Growly-appen." },
 ];
 
 const initialAssistantMessages: AssistantMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    text: "Hei! Jeg kan hjelpe med vanning, plantebilder, sensorer og neste steg i drivhuset.",
+    text: "Hei! Spør meg om vanning, sensorene, plantebilder eller neste steg. Jeg svarer kort og trygt.",
   },
 ];
 
 function assistantAnswerItems(answer: string): string[] {
   const cleanedAnswer = answer.replace(/\r/g, "").replace(/\*\*/g, "").trim();
+  const hasStructuredLines = /(?:^|\n)\s*(?:[-*]|\d+[.)])\s+/.test(cleanedAnswer);
   const lines = cleanedAnswer
     .split(/\n+/)
     .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, "").trim())
     .filter(Boolean);
-  const candidates = lines.length > 1 ? lines : (cleanedAnswer.match(/[^.!?]+[.!?]?/g) ?? [cleanedAnswer]);
+  const candidates = hasStructuredLines || lines.length > 1 ? lines : [cleanedAnswer];
 
   return candidates
     .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, "").trim())
     .filter(Boolean)
-    .slice(0, 3)
-    .map((line) => (line.length > 120 ? `${line.slice(0, 117).trim()}...` : line));
+    .slice(0, hasStructuredLines || lines.length > 1 ? 3 : 1)
+    .map((line) => (line.length > 260 ? `${line.slice(0, 257).trim()}...` : line));
+}
+
+function feedbackCategory(text: string): CustomerMessageCategory {
+  const lower = normalizeFeedbackText(text);
+  if (/(tips|triks|trick)/.test(lower)) return "tips";
+  if (/(forslag|forbedring|onsker|ønsker|burde|savner|ide|idé)/.test(lower)) return "forslag";
+  if (/(sporsmal|spørsmål|\?)/.test(lower)) return "sporsmal";
+  if (/(vanskelig|forvirr|feil|bug|problem|utfordring|funker ikke|virker ikke)/.test(lower)) return "utfordring";
+  return "annet";
+}
+
+function normalizeFeedbackText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/æ/g, "ae")
+    .replace(/ø/g, "o")
+    .replace(/å/g, "a");
+}
+
+function hasFeedbackIntent(text: string): boolean {
+  const lower = normalizeFeedbackText(text);
+  const productWords = [
+    "appen",
+    "app",
+    "growly",
+    "kalender",
+    "chat",
+    "meny",
+    "side",
+    "knapp",
+    "funksjon",
+    "innlogging",
+    "konto",
+    "dashboard",
+    "oversikt",
+  ];
+  const feedbackWords = [
+    "tilbakemelding",
+    "forslag",
+    "forbedring",
+    "tips",
+    "triks",
+    "vanskelig",
+    "forvirr",
+    "savner",
+    "onsker",
+    "burde",
+    "feil",
+    "bug",
+    "problem",
+    "utfordring",
+    "send til",
+    "gi beskjed",
+    "si fra",
+  ];
+
+  if (/(tilbakemelding|forslag|forbedring).*(geir|admin|growly|app)/.test(lower)) return true;
+  return productWords.some((word) => lower.includes(word)) && feedbackWords.some((word) => lower.includes(word));
+}
+
+function feedbackTitle(text: string): string {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (/kalender/i.test(cleaned)) return "Tilbakemelding om kalenderen";
+  if (/innlogging|logg inn/i.test(cleaned)) return "Tilbakemelding om innlogging";
+  if (/chat|ai/i.test(cleaned)) return "Tilbakemelding om Growly-chatten";
+  return cleaned.length > 72 ? `${cleaned.slice(0, 69).trim()}...` : cleaned || "Tilbakemelding fra Growly-chatten";
+}
+
+function feedbackSummary(draft: Pick<FeedbackDraft, "initialText" | "detailText" | "desiredText">): string {
+  return [
+    `Hva brukeren tok opp: ${draft.initialText.trim()}`,
+    draft.detailText ? `Hva som er vanskelig: ${draft.detailText.trim()}` : "",
+    draft.desiredText ? `Ønsket forbedring: ${draft.desiredText.trim()}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function shouldCancelFeedback(text: string): boolean {
+  return /^(avbryt|stopp|ikke send|dropp|glem det|cancel)$/i.test(text.trim());
 }
 
 type GrowlyAssistantDockProps = {
@@ -51,6 +149,8 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantImage, setAssistantImage] = useState<GrowlyAssistantImage | null>(null);
   const [assistantImageError, setAssistantImageError] = useState("");
+  const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft | null>(null);
+  const [feedbackSending, setFeedbackSending] = useState(false);
   const assistantLogRef = useRef<HTMLDivElement | null>(null);
   const assistantFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -84,6 +184,106 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
     reader.readAsDataURL(file);
   }
 
+  function appendAssistantMessage(text: string, isError = false) {
+    setAssistantMessages((messages) => [
+      ...messages,
+      { id: `assistant-${Date.now()}-${Math.random()}`, role: "assistant", text, isError },
+    ]);
+  }
+
+  function nextFeedbackMessage(question: string): boolean {
+    if (!question.trim()) {
+      return false;
+    }
+    if (feedbackDraft && shouldCancelFeedback(question)) {
+      setFeedbackDraft(null);
+      appendAssistantMessage("Klart, jeg sender ingenting videre.");
+      return true;
+    }
+
+    if (!feedbackDraft && !hasFeedbackIntent(question)) {
+      return false;
+    }
+
+    if (!feedbackDraft) {
+      const reply = "Det kan jeg samle til Geir. Hva er det som gjør dette vanskelig, og hvor i appen skjer det?";
+      setFeedbackDraft({
+        category: feedbackCategory(question),
+        step: "detail",
+        title: feedbackTitle(question),
+        initialText: question,
+        detailText: "",
+        desiredText: "",
+        summary: feedbackSummary({ initialText: question, detailText: "", desiredText: "" }),
+        conversation: [
+          { role: "user", text: question },
+          { role: "assistant", text: reply },
+        ],
+      });
+      appendAssistantMessage(reply);
+      return true;
+    }
+
+    if (feedbackDraft.step === "detail") {
+      const reply = "Takk, det var nyttig. Hvordan skulle det helst fungert for deg?";
+      const updated = {
+        ...feedbackDraft,
+        step: "improvement" as const,
+        detailText: question,
+        summary: feedbackSummary({ ...feedbackDraft, detailText: question }),
+        conversation: [
+          ...feedbackDraft.conversation,
+          { role: "user" as const, text: question },
+          { role: "assistant" as const, text: reply },
+        ],
+      };
+      setFeedbackDraft(updated);
+      appendAssistantMessage(reply);
+      return true;
+    }
+
+    const desiredText = feedbackDraft.step === "ready"
+      ? `${feedbackDraft.desiredText}\n${question}`.trim()
+      : question;
+    const updated = {
+      ...feedbackDraft,
+      step: "ready" as const,
+      desiredText,
+      summary: feedbackSummary({ ...feedbackDraft, desiredText }),
+      conversation: [
+        ...feedbackDraft.conversation,
+        { role: "user" as const, text: question },
+      ],
+    };
+    setFeedbackDraft(updated);
+    appendAssistantMessage("Jeg har laget et kort utkast. Trykk Send til Geir hvis dette skal videre til adminpanelet.");
+    return true;
+  }
+
+  async function submitFeedbackDraft() {
+    if (!feedbackDraft || feedbackSending) {
+      return;
+    }
+    setFeedbackSending(true);
+    try {
+      await sendCustomerMessage(
+        {
+          category: feedbackDraft.category,
+          title: feedbackDraft.title,
+          message: feedbackDraft.summary,
+          conversation: feedbackDraft.conversation,
+        },
+        selectedHubId,
+      );
+      setFeedbackDraft(null);
+      appendAssistantMessage("Takk, dette er sendt til Geir i adminpanelet.");
+    } catch {
+      appendAssistantMessage("Jeg klarte ikke sende dette akkurat nå. Prøv igjen litt senere.", true);
+    } finally {
+      setFeedbackSending(false);
+    }
+  }
+
   async function askAssistant(question: string, image: GrowlyAssistantImage | null = assistantImage) {
     const trimmedQuestion = question.trim() || (image ? "Se på plantebildet og gi korte, trygge råd." : "");
     if ((!trimmedQuestion && !image) || assistantLoading) {
@@ -97,6 +297,9 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
       ...messages,
       { id: `user-${Date.now()}`, role: "user", text: trimmedQuestion, imageName: image?.name },
     ]);
+    if (!image && nextFeedbackMessage(trimmedQuestion)) {
+      return;
+    }
     setAssistantLoading(true);
     try {
       const result = await askGrowlyAssistant(trimmedQuestion, image, selectedHubId);
@@ -120,9 +323,9 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
       const message = error instanceof Error ? error.message : "ai_unavailable";
       const friendlyMessage =
         message === "openai_key_missing"
-          ? "AI-nøkkelen mangler på serveren. Legg OPENAI_API_KEY inn i Render og deploy på nytt."
+          ? "Growly-nøkkelen mangler på serveren. Legg OPENAI_API_KEY inn i Render og deploy på nytt."
           : message === "ai_http_404"
-            ? "AI-endepunktet finnes ikke på serveren ennå. Deploy siste versjon til Render."
+            ? "Growly-endepunktet finnes ikke på serveren ennå. Deploy siste versjon til Render."
             : "Jeg fikk ikke kontakt med Growly akkurat nå. Prøv igjen om litt.";
       setAssistantMessages((messages) => [
         ...messages,
@@ -203,6 +406,26 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
                   Fjern
                 </button>
               ) : null}
+            </div>
+          ) : null}
+
+          {feedbackDraft ? (
+            <div className="assistant-feedback-draft" role="status">
+              <div>
+                <span>{feedbackDraft.step === "ready" ? "Utkast klart" : "Tilbakemelding"}</span>
+                <strong>{feedbackDraft.title}</strong>
+              </div>
+              {feedbackDraft.step === "ready" ? <p>{feedbackDraft.summary}</p> : <p>Jeg stiller noen korte spørsmål før noe sendes videre.</p>}
+              <div className="assistant-feedback-actions">
+                {feedbackDraft.step === "ready" ? (
+                  <button type="button" onClick={submitFeedbackDraft} disabled={feedbackSending}>
+                    {feedbackSending ? "Sender..." : "Send til Geir"}
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => setFeedbackDraft(null)} disabled={feedbackSending}>
+                  Ikke send
+                </button>
+              </div>
             </div>
           ) : null}
 
