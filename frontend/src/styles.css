@@ -749,6 +749,265 @@ input {
   line-height: 1.3;
 }
 
+.home-hero-section {
+  margin-top: -4px;
+}
+
+.home-start-card {
+  gap: 14px;
+  padding: 14px;
+}
+
+.home-greenhouse-hero {
+  min-height: 0;
+  border-radius: 26px;
+}
+
+.home-greenhouse-hero .overview-image-banner__image {
+  height: clamp(230px, 34vw, 390px);
+  object-fit: cover;
+}
+
+.home-greenhouse-hero::after {
+  background:
+    linear-gradient(180deg, rgba(16, 32, 20, 0.04), rgba(16, 32, 20, 0.34)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.1), transparent 48%);
+}
+
+.home-weather-chip {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 74px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--text);
+  text-align: left;
+  box-shadow: 0 18px 38px rgba(21, 39, 28, 0.18);
+  backdrop-filter: blur(16px) saturate(1.12);
+}
+
+.home-weather-chip small,
+.home-shortcut small,
+.home-sensor-tile span,
+.home-detail-grid small,
+.home-today-card span,
+.home-forecast-days small,
+.home-forecast-days em {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.home-weather-chip strong {
+  display: block;
+  color: var(--text);
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.home-weather-chip em {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 0.88rem;
+}
+
+.home-sensor-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.home-sensor-tile,
+.home-detail-grid button,
+.home-shortcut {
+  display: grid;
+  min-width: 0;
+  border: 1px solid rgba(38, 98, 65, 0.08);
+  background: rgba(255, 255, 255, 0.7);
+  color: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.home-sensor-tile {
+  gap: 8px;
+  padding: 13px;
+  border-radius: 20px;
+  text-align: left;
+}
+
+.home-sensor-tile span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.9rem;
+}
+
+.home-sensor-tile img,
+.home-detail-grid img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.home-sensor-tile strong {
+  color: var(--text);
+  font-size: clamp(1.12rem, 2.6vw, 1.55rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.home-details-toggle {
+  justify-self: start;
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid rgba(38, 98, 65, 0.1);
+  border-radius: 999px;
+  background: rgba(237, 245, 235, 0.88);
+  color: var(--accent-strong);
+  font: inherit;
+  font-weight: 850;
+}
+
+.home-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.home-detail-grid button {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 18px;
+  text-align: left;
+}
+
+.home-detail-grid small {
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.home-detail-grid strong {
+  grid-column: 2;
+  color: var(--text);
+  font-size: 1.06rem;
+}
+
+.home-today-card {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border-radius: 20px;
+  background: rgba(231, 241, 227, 0.72);
+}
+
+.home-today-card strong {
+  color: var(--text);
+  font-size: 1.06rem;
+}
+
+.home-today-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.38;
+}
+
+.home-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.home-shortcut {
+  gap: 5px;
+  min-height: 62px;
+  padding: 12px;
+  border-radius: 18px;
+}
+
+.home-shortcut strong {
+  color: var(--text);
+  line-height: 1.15;
+}
+
+.home-forecast-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.home-forecast-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-forecast-card__head strong {
+  display: block;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.home-forecast-days {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.home-forecast-days > span {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 7px;
+  border-radius: 18px;
+  background: rgba(247, 250, 245, 0.86);
+}
+
+.home-forecast-days strong {
+  color: var(--text);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.home-forecast-days em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 0.62rem;
+  text-align: center;
+}
+
+.home-forecast-card .weather-inline-card {
+  width: 100%;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  box-shadow: none;
+}
+
 .theme-dark .weather-overview-panel {
   background:
     radial-gradient(circle at top right, rgba(73, 126, 65, 0.3), transparent 44%),
@@ -782,6 +1041,21 @@ input {
 
 .theme-dark .daily-weather-report small {
   background: rgba(235, 244, 232, 0.09);
+}
+
+.theme-dark .home-weather-chip,
+.theme-dark .home-forecast-card,
+.theme-dark .home-sensor-tile,
+.theme-dark .home-detail-grid button,
+.theme-dark .home-shortcut {
+  border-color: rgba(235, 250, 229, 0.12);
+  background: rgba(26, 39, 29, 0.78);
+}
+
+.theme-dark .home-today-card,
+.theme-dark .home-details-toggle,
+.theme-dark .home-forecast-days > span {
+  background: rgba(235, 250, 229, 0.08);
 }
 
 .weather-sheet {
@@ -3570,7 +3844,7 @@ input {
 
 .plant-card-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -3585,6 +3859,26 @@ input {
   border: 1px solid rgba(255, 255, 255, 0.8);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+.greenhouse-plant-card--compact {
+  min-height: 0;
+  gap: 12px;
+  padding: 14px;
+}
+
+.greenhouse-plant-card--compact .greenhouse-plant-card__top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.greenhouse-plant-card--compact .plant-card-next {
+  min-height: 0;
+}
+
+.greenhouse-plant-card--compact .plant-mini-metrics {
+  margin-top: 0;
 }
 
 .greenhouse-plant-card:focus-visible {
@@ -4219,6 +4513,24 @@ input {
   gap: 8px;
 }
 
+.catalog-filter-row--categories {
+  display: flex;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.catalog-filter-row--categories::-webkit-scrollbar {
+  display: none;
+}
+
+.catalog-filter-row--categories button {
+  flex: 0 0 auto;
+  min-width: 108px;
+  padding-inline: 14px;
+  text-transform: capitalize;
+}
+
 .catalog-filter-row button {
   min-height: 40px;
   border: 1px solid rgba(38, 98, 65, 0.1);
@@ -4461,6 +4773,10 @@ input {
 .calendar-day:disabled {
   background: transparent;
   cursor: default;
+}
+
+.calendar-day.is-past {
+  opacity: 0.34;
 }
 
 .calendar-day.is-today {
@@ -5814,6 +6130,15 @@ input {
   .home-command-actions {
     grid-template-columns: 1fr;
   }
+
+  .home-sensor-summary,
+  .home-shortcuts {
+    grid-template-columns: 1fr;
+  }
+
+  .home-forecast-days {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -5866,6 +6191,30 @@ input {
 
   .overview-image-banner__image {
     height: auto;
+  }
+
+  .home-greenhouse-hero .overview-image-banner__image {
+    height: 235px;
+  }
+
+  .home-weather-chip {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    min-height: 68px;
+    border-radius: 20px;
+  }
+
+  .home-weather-chip strong {
+    font-size: 1.28rem;
+  }
+
+  .home-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-forecast-days {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .weather-overview-main {

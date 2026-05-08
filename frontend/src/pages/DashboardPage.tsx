@@ -1036,6 +1036,8 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [dashboardPlants, setDashboardPlants] = useState<DashboardPlant[]>([]);
   const [weatherSheetOpen, setWeatherSheetOpen] = useState(false);
+  const [weatherHourlyOpen, setWeatherHourlyOpen] = useState(false);
+  const [sensorDetailsOpen, setSensorDetailsOpen] = useState(false);
   const weatherGraphRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -1053,6 +1055,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   useEffect(() => {
     if (!weather) {
       setWeatherSheetOpen(false);
+      setWeatherHourlyOpen(false);
     }
   }, [weather]);
 
@@ -1108,6 +1111,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
         setTrendMetric(null);
         setReportMetric(null);
         setWeatherSheetOpen(false);
+        setWeatherHourlyOpen(false);
       }
     }
 
@@ -1148,9 +1152,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const firstName = session?.user?.full_name?.split(" ")[0] || session?.username || "Growly";
   const status = growthStatus(sample);
   const scene = greenhouseScene(theme);
-  const hubOnline = !!session?.hub?.is_active;
   const weatherNow = weather?.forecast.now;
-  const hasLiveSensorData = !!sample;
   const hasPairedHub = !!session?.hub?.is_active;
   const temperature = metricText(sample?.air_temperature ?? sample?.temperature, "°C", 0);
   const humidity = metricText(sample?.air_humidity, "%", 0);
@@ -1159,48 +1161,28 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const weatherTemperature = metricText(weatherNow?.air_temperature, "°C", 0);
   const weatherHumidity = metricText(weatherNow?.relative_humidity, "%", 0);
   const weatherWind = metricText(weatherNow?.wind_speed, " m/s", 1);
-  const weatherDays = weather?.forecast.days.slice(0, 4) ?? [];
+  const weatherDays = weather?.forecast.days.slice(0, 5) ?? [];
   const currentWeatherSymbol = weatherNow?.symbol_code || weatherDays[0]?.symbol_code;
-  const climateTitle = weather ? "Lokalt dyrkevær" : hasLiveSensorData ? "Vekstforhold" : hasPairedHub ? "Klar for første måling" : "Dyrkested";
-  const climateNote = hasPairedHub
-    ? (hasLiveSensorData ? status.note : weather ? "Værprognosen brukes sammen med huben når Growly gir råd." : "Koble dyrkested eller vent på første sensorpakke før Growly konkluderer.")
-    : weather
-      ? "Growly bruker værprognosen til dyrkeråd uten hub."
-      : "Legg inn dyrkested for lokale råd uten sensor.";
-  const climatePill = hasLiveSensorData ? "Målinger aktive" : weather ? "Værdata aktiv" : hubOnline ? "Venter på data" : "Uten hub";
-  const commandTitle = hasLiveSensorData
-    ? "Neste beste steg"
-    : weather
-      ? "Sesongen kan planlegges"
-      : dashboardPlants.length
-        ? "Koble klima til plantene"
-        : "Bygg opp drivhuset";
-  const commandBody = hasLiveSensorData
-    ? "Growly har målinger og kan begynne å prioritere tiltak for plantene dine."
-    : weather
-      ? "Dyrkestedet er på plass. Legg inn planter for å få rådene tettere på hverdagen i drivhuset."
-      : dashboardPlants.length
-        ? "Plantene er registrert. Legg til dyrkested eller hubdata for en mer presis opplevelse."
-        : "Start med noen få planter og et dyrkested. Da får appen en ekte sesong å følge.";
-  const commandActions = [
+  const shortcutActions = [
     {
-      label: dashboardPlants.length ? `${dashboardPlants.length} planter` : "Første plante",
-      value: dashboardPlants.length ? "Aktive i Growly" : "Tomat, agurk eller basilikum",
+      label: "Mine planter",
+      value: dashboardPlants.length ? `${dashboardPlants.length} aktive` : "Legg til første",
       to: "/drivhus",
     },
     {
-      label: weather ? "Dyrkested klart" : "Dyrkested",
-      value: weather ? "Lokal prognose aktiv" : "Gir bedre ukeplan",
-      to: "/settings",
+      label: "Kalender",
+      value: "Fra mai og videre",
+      to: "/kalender",
     },
     {
-      label: hasLiveSensorData ? "Sensorer" : hasPairedHub ? "Sensorgrunnlag" : "Hub",
-      value: hasLiveSensorData ? "Målinger klare" : hasPairedHub ? "Venter på første pakke" : "Kan kobles senere",
-      to: "/settings",
+      label: "Kartotek",
+      value: "Finn plante",
+      to: "/kartotek",
     },
   ];
   const updatedAt = formatUpdatedAt(sample?.recorded_at);
   const weeklyTasks = buildWeeklyTasks(sample, !!weather, dashboardPlants.length);
+  const primaryTask = weeklyTasks[0] ?? null;
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
   const activeReportValue = reportMetric ? climateValue(sample, reportMetric) : null;
   const soilMetrics = soilMetricConfigs.map((metric) => ({
@@ -1261,158 +1243,115 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
         </button>
       </section>
 
-      <section className="home-command-card soft-card" aria-label="Neste steg">
-        <div>
-          <p className="section-kicker">Sesongflyt</p>
-          <h2>{commandTitle}</h2>
-          <span>{commandBody}</span>
-        </div>
-        <div className="home-command-actions">
-          {commandActions.map((action) => (
-            <Link className="home-command-action" to={action.to} key={action.label}>
-              <small>{action.label}</small>
-              <strong>{action.value}</strong>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      <section className="settings-section">
-        <p className="section-kicker">Vekstforhold</p>
-        <article className="soft-card premium-hero premium-hero--climate">
-          <div className="climate-hero-grid">
-            <div className="premium-hero__head">
-              <div>
-                <strong>{climateTitle}</strong>
-                <span>{climateNote}</span>
-              </div>
-              <span className="status-pill status-pill--live">
-                <span className="online-dot" aria-hidden="true" />
-                {climatePill}
-              </span>
-            </div>
-
-            <div className="climate-visual-stack">
-              <div
-                className={`weather-overview-panel${weather ? " weather-overview-panel--interactive" : ""}`}
-                role={weather ? "button" : undefined}
-                tabIndex={weather ? 0 : undefined}
-                onClick={weather ? () => setWeatherSheetOpen((open) => !open) : undefined}
-                onKeyDown={weather ? (event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    setWeatherSheetOpen((open) => !open);
-                  }
-                } : undefined}
+      <section className="settings-section home-hero-section">
+        <article className="soft-card premium-hero premium-hero--climate home-start-card">
+          <div className={`overview-image-banner home-greenhouse-hero overview-image-banner--${scene.mode}`}>
+            <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />
+            {weather ? (
+              <button
+                className="home-weather-chip"
+                type="button"
+                onClick={() => setWeatherSheetOpen((open) => !open)}
+                aria-expanded={weatherSheetOpen}
               >
-                <div className="weather-overview-main">
-                  <WeatherGlyph className="weather-overview-icon" symbolCode={currentWeatherSymbol} />
-                  <div>
-                    <span>{weather ? "Vær ved dyrkested" : "Værbaserte råd"}</span>
-                    <strong>{weather ? weatherTemperature : "Legg inn dyrkested"}</strong>
-                    <p>{weather ? `Fukt ${weatherHumidity} · vind ${weatherWind}` : "Skriv inn adresse i Innstillinger for lokal prognose."}</p>
-                  </div>
+                <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
+                <span>
+                  <small>Vær ved dyrkested</small>
+                  <strong>{weatherTemperature}</strong>
+                  <em>Fukt {weatherHumidity} · vind {weatherWind}</em>
+                </span>
+              </button>
+            ) : (
+              <Link className="home-weather-chip" to="/settings">
+                <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
+                <span>
+                  <small>Dyrkested</small>
+                  <strong>Sett opp vær</strong>
+                  <em>Gir bedre råd</em>
+                </span>
+              </Link>
+            )}
+          </div>
+
+          {weather && weatherSheetOpen ? (
+            <div className="home-forecast-card soft-card" ref={weatherGraphRef}>
+              <div className="home-forecast-card__head">
+                <div>
+                  <p className="section-kicker">Neste dager</p>
+                  <strong>Værvindu for drivhuset</strong>
                 </div>
-                {weatherDays.length ? (
-                  <div className="weather-overview-days">
-                    {weatherDays.map((day) => (
-                      <span key={day.date}>
-                        <em aria-hidden="true"><WeatherGlyph symbolCode={day.symbol_code} compact /></em>
-                        <small>{new Date(`${day.date}T12:00:00`).toLocaleDateString("nb-NO", { weekday: "short" })}</small>
-                        <strong>{typeof day.temperature_max === "number" ? `${day.temperature_max.toFixed(0)}°` : "–"}</strong>
-                        <b>{weatherIconLabel(day.symbol_code)}</b>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <Link className="weather-settings-link" to="/settings">Sett opp</Link>
-                )}
+                <button className="text-action" type="button" onClick={() => setWeatherHourlyOpen((open) => !open)}>
+                  {weatherHourlyOpen ? "Skjul timer" : "Timesvisning"}
+                </button>
               </div>
-
-              {weather && weatherSheetOpen ? (
-                <div ref={weatherGraphRef}>
-                  <WeatherHourlyCard weather={weather} />
-                </div>
-              ) : null}
-
-              {dailyWeatherReport ? (
-                <article className="daily-weather-report">
-                  <div>
-                    <span>Dagens rapport</span>
-                    <strong>{dailyWeatherReport.title}</strong>
-                    <p>{dailyWeatherReport.body}</p>
-                  </div>
-                  <small>{dailyWeatherReport.tip}</small>
-                </article>
-              ) : null}
-
-              <div className={`overview-image-banner overview-image-banner--${scene.mode}`}>
-                <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />
+              <div className="home-forecast-days">
+                {weatherDays.map((day) => (
+                  <span key={day.date}>
+                    <WeatherGlyph symbolCode={day.symbol_code} compact />
+                    <small>{formatWeatherDay(day.date)}</small>
+                    <strong>{typeof day.temperature_max === "number" ? `${day.temperature_max.toFixed(0)}°` : "–"}</strong>
+                    <em>{weatherIconLabel(day.symbol_code)}</em>
+                  </span>
+                ))}
               </div>
+              {weatherHourlyOpen ? <WeatherHourlyCard weather={weather} /> : null}
             </div>
+          ) : null}
+
+          <div className="home-sensor-summary" aria-label="Drivhusverdier">
+            <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("temperature")}>
+              <span><img src={tempDot} alt="" aria-hidden="true" /> Temperatur</span>
+              <strong>{hasPairedHub ? temperature : "—"}</strong>
+            </button>
+            <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("humidity")}>
+              <span><img src={humidityDot} alt="" aria-hidden="true" /> Luftfuktighet</span>
+              <strong>{hasPairedHub ? humidity : "—"}</strong>
+            </button>
+            <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("lux")}>
+              <span><i className="metric-strip__sun-dot" aria-hidden="true" /> Lys</span>
+              <strong>{hasPairedHub ? lux : "—"}</strong>
+            </button>
           </div>
 
           {hasPairedHub ? (
-            <div className="metric-strip">
-              <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("temperature")}>
-                <span className="metric-strip__label">
-                  <img className="metric-strip__dot" src={tempDot} alt="" aria-hidden="true" />
-                  Temperatur
-                </span>
-                <strong>{temperature}</strong>
+            <>
+              <button className="home-details-toggle" type="button" onClick={() => setSensorDetailsOpen((open) => !open)}>
+                {sensorDetailsOpen ? "Skjul detaljer" : "Detaljer"}
               </button>
-              <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("humidity")}>
-                <span className="metric-strip__label">
-                  <img className="metric-strip__dot" src={humidityDot} alt="" aria-hidden="true" />
-                  Luftfuktighet
-                </span>
-                <strong>{humidity}</strong>
-              </button>
-              <button className="metric-strip__item metric-strip__button" type="button" onClick={() => openTrend("air_pressure")}>
-                <span className="metric-strip__label">
-                  <span className="metric-strip__pressure-dot" aria-hidden="true" />
-                  Lufttrykk
-                </span>
-                <strong>{pressure}</strong>
-              </button>
-              <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setSoilPanelOpen(true)}>
-                <span className="metric-strip__label">
-                  <img className="metric-strip__dot" src={soilDot} alt="" aria-hidden="true" />
-                  Jordfuktighet
-                </span>
-                <strong>{status.soil}</strong>
-              </button>
-              <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setReportMetric("lux")}>
-                <span className="metric-strip__label">
-                  <span className="metric-strip__sun-dot" aria-hidden="true" />
-                  Lys
-                </span>
-                <strong>{lux}</strong>
-              </button>
-            </div>
+              {sensorDetailsOpen ? (
+                <div className="home-detail-grid">
+                  <button type="button" onClick={() => openTrend("air_pressure")}>
+                    <span className="metric-strip__pressure-dot" aria-hidden="true" />
+                    <small>Lufttrykk</small>
+                    <strong>{pressure}</strong>
+                  </button>
+                  <button type="button" onClick={() => setSoilPanelOpen(true)}>
+                    <img src={soilDot} alt="" aria-hidden="true" />
+                    <small>Jorddata</small>
+                    <strong>{status.soil}</strong>
+                  </button>
+                </div>
+              ) : null}
+            </>
           ) : null}
-        </article>
-      </section>
 
-      <section className="settings-section">
-        <div className="home-section-head">
-          <div>
-            <p className="section-kicker">Denne uken</p>
-            <h2>{hasLiveSensorData ? "Målebaserte gjøremål" : "Værbaserte gjøremål"}</h2>
-          </div>
-          <Link to="/kalender">Kalender</Link>
-        </div>
-        <div className="weekly-task-list">
-          {weeklyTasks.map((task) => (
-            <article className={`weekly-task-card weekly-task-card--${task.tone} soft-card`} key={task.title}>
-              <span>{task.badge}</span>
-              <div>
-                <strong>{task.title}</strong>
-                <p>{task.detail}</p>
-              </div>
+          {primaryTask || dailyWeatherReport ? (
+            <article className="home-today-card">
+              <span>{primaryTask?.badge ?? "I dag"}</span>
+              <strong>{primaryTask?.title ?? dailyWeatherReport?.title}</strong>
+              <p>{primaryTask?.detail ?? dailyWeatherReport?.body}</p>
             </article>
-          ))}
-        </div>
+          ) : null}
+
+          <div className="home-shortcuts" aria-label="Snarveier">
+            {shortcutActions.map((action) => (
+              <Link className="home-shortcut" to={action.to} key={action.label}>
+                <small>{action.label}</small>
+                <strong>{action.value}</strong>
+              </Link>
+            ))}
+          </div>
+        </article>
       </section>
 
       <section className="settings-section">

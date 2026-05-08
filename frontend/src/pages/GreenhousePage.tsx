@@ -175,23 +175,6 @@ function metricText(value: number | null | undefined, suffix: string, digits = 0
   return `${value.toFixed(digits)}${suffix}`;
 }
 
-function rangeText(range: { optimal: [number, number] } | undefined, suffix: string, digits = 0): string {
-  if (!range) {
-    return "-";
-  }
-
-  return `${range.optimal[0].toFixed(digits)}-${range.optimal[1].toFixed(digits)}${suffix}`;
-}
-
-function luxRangeText(range: { optimal: [number, number] } | undefined): string {
-  if (!range) {
-    return "-";
-  }
-
-  const compact = (value: number) => (value >= 1000 ? `${Math.round(value / 1000)}k` : value.toFixed(0));
-  return `${compact(range.optimal[0])}-${compact(range.optimal[1])} lx`;
-}
-
 function todayDateInputValue(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -818,43 +801,21 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
           ) : plantSummaries.length ? plantSummaries.map(({ plant, profile, catalogItem, status }) => {
               const timeline = plantTimelineSummary(plant, profile, status);
               return (
-                <button className="greenhouse-plant-card soft-card" type="button" key={plant.instanceId} onClick={() => setSelectedPlantId(plant.instanceId)}>
+                <button className="greenhouse-plant-card greenhouse-plant-card--compact soft-card" type="button" key={plant.instanceId} onClick={() => setSelectedPlantId(plant.instanceId)}>
                   <div className="greenhouse-plant-card__top">
                     <PlantAvatar tone={profile.tone} plantId={profile.id} name={plant.nickname || profile.name} family={profile.family} />
-                    <span className={`plant-status-pill plant-status-pill--${status.level}`}>{status.title}</span>
-                  </div>
-                  <div className="plant-card-title-row">
                     <div>
                       <strong>{plant.nickname}</strong>
                       <small>{catalogItem?.subtitle || profile.family}</small>
                     </div>
-                    <span className="plant-day-chip">{timeline.dayLabel}</span>
-                  </div>
-                  <div className="plant-progress-block">
-                    <div className="plant-progress-block__head">
-                      <span>{timeline.phase}</span>
-                      <small>{Math.round(timeline.progress)}%</small>
-                    </div>
-                    <div className="plant-progress-track" aria-hidden="true">
-                      <span style={{ width: `${timeline.progress}%` }} />
-                    </div>
-                  </div>
-                  <div className="plant-card-meta-grid">
-                    <span>
-                      <small>Sådd</small>
-                      <b>{timeline.sowedLabel}</b>
-                    </span>
-                    <span>
-                      <small>Høsting</small>
-                      <b>{timeline.harvestLabel}</b>
-                    </span>
+                    <span className={`plant-status-pill plant-status-pill--${status.level}`}>{status.title}</span>
                   </div>
                   <p className="plant-card-next">{timeline.nextAction}</p>
                   {plantLocation(plant) === "greenhouse" ? (
                     <div className="plant-mini-metrics">
-                      <span>{rangeText(profile.ranges.airTemperature, "°C", 0)}</span>
-                      <span>{rangeText(profile.ranges.airHumidity, "%", 0)}</span>
-                      <span>{luxRangeText(profile.ranges.lux)}</span>
+                      <span>{timeline.dayLabel}</span>
+                      <span>{timeline.phase}</span>
+                      <span>{timeline.harvestLabel}</span>
                       <span>{plant.hasSevenInOne ? "7-i-1" : "Klima"}</span>
                     </div>
                   ) : (

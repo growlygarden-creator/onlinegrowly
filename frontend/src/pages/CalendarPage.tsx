@@ -281,6 +281,26 @@ function currentMonthLabel(): string {
   return new Date().toLocaleDateString("nb-NO", { month: "long" });
 }
 
+const plannerMonthOrder = ["Jan", "Feb", "Mar", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Des"];
+
+function monthRank(month: string): number {
+  return plannerMonthOrder.findIndex((value) => value.toLowerCase() === month.toLowerCase());
+}
+
+function futureCropMonths(crop: PlannerCrop) {
+  const currentMonth = new Date().getMonth();
+  return crop.months
+    .filter((item) => {
+      const rank = monthRank(item.month);
+      return rank >= currentMonth;
+    })
+    .map((item) => {
+      const rank = monthRank(item.month);
+      const tone = rank === currentMonth ? "now" : rank === currentMonth + 1 ? "soon" : "later";
+      return { ...item, tone: tone as PlannerCrop["months"][number]["tone"] };
+    });
+}
+
 function dateParam(date: Date): string {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
@@ -325,13 +345,16 @@ export function CalendarPage({ session }: CalendarPageProps) {
   const [selectedDay, setSelectedDay] = useState(today);
   const name = session?.user?.full_name || session?.username || "bruker";
   const groupedActions = actionGroups();
-  const highlightedCrop = plannerCrops[0];
   const calendarDays = monthGridDays();
   const events = calendarEvents(today);
   const selectedEvents = events.filter((event) => event.day === selectedDay);
   const selectedDate = new Date(now.getFullYear(), now.getMonth(), selectedDay);
   const selectedDateQuery = dateParam(selectedDate);
   const selectedPrimaryAction = selectedEvents[0] ?? null;
+  const currentPlannerCrops = plannerCrops
+    .map((crop) => ({ crop, months: futureCropMonths(crop) }))
+    .filter((entry) => entry.months.length)
+    .slice(0, 3);
 
   return (
     <main className="page-shell app-page planner-page">
@@ -357,13 +380,14 @@ export function CalendarPage({ session }: CalendarPageProps) {
           ))}
           {calendarDays.map((day, index) => {
             const marker = day ? markerForDay(day, events) : null;
+            const isPastDay = !!day && day < today;
             return (
               <button
                 type="button"
-                disabled={!day}
-                className={`calendar-day${day === today ? " is-today" : ""}${day === selectedDay ? " is-selected" : ""}${marker ? ` calendar-day--${marker}` : ""}`}
+                disabled={!day || isPastDay}
+                className={`calendar-day${isPastDay ? " is-past" : ""}${day === today ? " is-today" : ""}${day === selectedDay ? " is-selected" : ""}${marker ? ` calendar-day--${marker}` : ""}`}
                 key={`${day ?? "blank"}-${index}`}
-                onClick={() => day && setSelectedDay(day)}
+                onClick={() => day && !isPastDay && setSelectedDay(day)}
                 aria-label={day ? `Velg ${day}. ${currentMonthLabel()}` : undefined}
               >
                 {day}
@@ -432,7 +456,7 @@ export function CalendarPage({ session }: CalendarPageProps) {
                 <strong>{group.items.length}</strong>
               </div>
               <div className="planner-action-list">
-                {group.items.map((item) => {
+                {group.items.slice(0, 4).map((item) => {
                   const match = catalogMatch(item.plantId);
                   return (
                     <Link className="planner-action-row" to="/drivhus" key={item.id}>
@@ -456,12 +480,12 @@ export function CalendarPage({ session }: CalendarPageProps) {
         <div className="home-section-head">
           <div>
             <p className="section-kicker">Dyrkeplaner</p>
-            <h2>Planter denne måneden</h2>
+            <h2>Fra {currentMonthLabel()} og videre</h2>
           </div>
           <Link to="/kartotek">Kartotek</Link>
         </div>
         <div className="planner-crop-grid">
-          {plannerCrops.slice(0, 3).map((crop) => {
+          {currentPlannerCrops.map(({ crop, months }) => {
             const match = catalogMatch(crop.plantId);
             return (
               <article className="planner-crop-card soft-card" key={crop.id}>
@@ -474,7 +498,7 @@ export function CalendarPage({ session }: CalendarPageProps) {
                   </div>
                 </div>
                 <div className="planner-timeline">
-                  {crop.months.map((item) => (
+                  {months.map((item) => (
                     <span className={`planner-timeline__item planner-timeline__item--${item.tone}`} key={`${crop.id}-${item.month}`}>
                       <strong>{item.month}</strong>
                       {item.task}
@@ -485,34 +509,6 @@ export function CalendarPage({ session }: CalendarPageProps) {
             );
           })}
         </div>
-      </section>
-
-      <section className="planner-split-grid planner-split-grid--quiet">
-        <article className="planner-neighbor-card soft-card">
-          <p className="section-kicker">Plantevenner</p>
-          <h2>{highlightedCrop.title}</h2>
-          <div className="neighbor-columns">
-            <div>
-              <span className="neighbor-label neighbor-label--good">Gode naboer</span>
-              {highlightedCrop.goodNeighbors.map((neighbor) => <strong key={neighbor}>{neighbor}</strong>)}
-            </div>
-            <div>
-              <span className="neighbor-label neighbor-label--bad">Unngå tett på</span>
-              {highlightedCrop.badNeighbors.map((neighbor) => <strong key={neighbor}>{neighbor}</strong>)}
-            </div>
-          </div>
-        </article>
-
-        <article className="planner-health-card soft-card">
-          <p className="section-kicker">Plantehelse</p>
-          <h2>Smart sjekk før diagnose</h2>
-          <p>{highlightedCrop.healthWatch}</p>
-          <div className="health-check-list">
-            <span>Sjekk bladverk og underside</span>
-            <span>Sammenlign med siste fukttrend</span>
-            <span>Se om lys eller lufting har vært utenfor område</span>
-          </div>
-        </article>
       </section>
     </main>
   );

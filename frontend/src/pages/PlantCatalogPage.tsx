@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { fetchPlantCatalog, type AuthSession, type PlantCatalogItem } from "../lib/api";
 import { bundledPlantCatalog } from "../data/plantCatalog";
 import { PlantAvatar } from "../components/PlantAvatar";
@@ -8,8 +7,6 @@ import { plantCareGuide } from "../lib/plantCare";
 type PlantCatalogPageProps = {
   session: AuthSession | null;
 };
-
-type CatalogFilter = "all" | "base" | "variant" | "cultivar";
 
 function kindLabel(kind: PlantCatalogItem["kind"]): string {
   if (kind === "cultivar") return "Sort";
@@ -29,7 +26,7 @@ function compactRange(range: { optimal: [number, number] } | undefined, suffix: 
 export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
   const [items, setItems] = useState<PlantCatalogItem[]>(bundledPlantCatalog);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<CatalogFilter>("all");
+  const [category, setCategory] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,18 +37,32 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
     });
   }, []);
 
+  const catalogCategories = useMemo(() => {
+    const priority = ["grønnsak", "urt", "bær", "blomst", "frukt"];
+    const unique = Array.from(new Set(items.filter((item) => item.kind === "base").map((item) => item.category).filter(Boolean)));
+    return unique.sort((a, b) => {
+      const aRank = priority.indexOf(a);
+      const bRank = priority.indexOf(b);
+      if (aRank !== -1 || bRank !== -1) {
+        return (aRank === -1 ? 99 : aRank) - (bRank === -1 ? 99 : bRank);
+      }
+      return a.localeCompare(b, "nb-NO");
+    });
+  }, [items]);
+
   const filteredItems = useMemo(() => {
     const search = query.trim().toLowerCase();
     return items
-      .filter((item) => filter === "all" || item.kind === filter)
+      .filter((item) => search || item.kind === "base")
+      .filter((item) => category === "all" || item.category === category)
       .filter((item) => {
         if (!search) return true;
         return `${item.display_name} ${item.subtitle} ${item.category} ${item.family} ${item.latin_name}`.toLowerCase().includes(search);
       })
-      .slice(0, 160);
-  }, [filter, items, query]);
+      .slice(0, 80);
+  }, [category, items, query]);
 
-  const selectedItem = items.find((item) => item.id === selectedId) ?? filteredItems[0] ?? null;
+  const selectedItem = selectedId ? items.find((item) => item.id === selectedId) ?? null : null;
   const selectedCareGuide = selectedItem ? plantCareGuide(selectedItem) : null;
 
   return (
@@ -59,37 +70,33 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
       <section className="screen-header">
         <div>
           <h1>Kartotek</h1>
-          <p>Bla i baseplanter, typer og sorter før du legger dem til i Mine planter.</p>
+          <p>Finn riktig plante raskt, og åpne bare detaljene når du trenger dem.</p>
         </div>
       </section>
-
-      <Link className="planner-entry-card soft-card" to="/kalender">
-        <div>
-          <p className="section-kicker">Growly Planlegger</p>
-          <h2>Såkalender, plantevenner og smarte tiltak</h2>
-          <span>Planlegg hva du skal så, hvor det passer, og hva du bør følge med på.</span>
-        </div>
-        <strong>Åpne</strong>
-      </Link>
 
       <section className="settings-section catalog-browser">
         <label className="field">
           <span>Søk i kartoteket</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tomat, Sungold, chili, salat..." />
+          <input
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setSelectedId(null);
+            }}
+            placeholder="Tomat, Sungold, chili, salat..."
+          />
         </label>
 
-        <div className="catalog-filter-row" aria-label="Filter">
-          {[
-            ["all", "Alle"],
-            ["base", "Base"],
-            ["variant", "Typer"],
-            ["cultivar", "Sorter"],
-          ].map(([value, label]) => (
+        <div className="catalog-filter-row catalog-filter-row--categories" aria-label="Kategorier">
+          {[["all", "Alle"], ...catalogCategories.map((value) => [value, value])].map(([value, label]) => (
             <button
-              className={filter === value ? "is-selected" : ""}
+              className={category === value ? "is-selected" : ""}
               type="button"
               key={value}
-              onClick={() => setFilter(value as CatalogFilter)}
+              onClick={() => {
+                setCategory(value);
+                setSelectedId(null);
+              }}
             >
               {label}
             </button>
@@ -107,10 +114,16 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
               <PlantAvatar tone={item.tone} plantId={item.profile_id} name={item.display_name} family={item.family} />
               <span>
                 <strong>{item.display_name}</strong>
-                <small>{kindLabel(item.kind)} · {item.subtitle}</small>
+                <small>{item.category} · {item.subtitle}</small>
               </span>
             </button>
           ))}
+          {!filteredItems.length ? (
+            <article className="soft-card empty-state-card">
+              <strong>Ingen treff</strong>
+              <p>Prøv et annet søk eller velg alle kategorier.</p>
+            </article>
+          ) : null}
         </div>
       </section>
 
