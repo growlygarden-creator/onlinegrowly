@@ -1230,32 +1230,31 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
         <article className="soft-card premium-hero premium-hero--climate home-start-card">
           <div className={`overview-image-banner home-greenhouse-hero overview-image-banner--${scene.mode}`}>
             <img className="overview-image-banner__image" src={scene.image} alt="" aria-hidden="true" />
+            {weather ? (
+              <button
+                className="home-weather-chip"
+                type="button"
+                onClick={() => setWeatherSheetOpen((open) => !open)}
+                aria-expanded={weatherSheetOpen}
+              >
+                <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
+                <span>
+                  <small>Vær ved dyrkested</small>
+                  <strong>{weatherTemperature}</strong>
+                  <em>Fukt {weatherHumidity} · vind {weatherWind}</em>
+                </span>
+              </button>
+            ) : (
+              <Link className="home-weather-chip" to="/settings">
+                <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
+                <span>
+                  <small>Dyrkested</small>
+                  <strong>Sett opp vær</strong>
+                  <em>Gir bedre råd</em>
+                </span>
+              </Link>
+            )}
           </div>
-
-          {weather ? (
-            <button
-              className="home-weather-chip"
-              type="button"
-              onClick={() => setWeatherSheetOpen((open) => !open)}
-              aria-expanded={weatherSheetOpen}
-            >
-              <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
-              <span>
-                <small>Vær ved dyrkested</small>
-                <strong>{weatherTemperature}</strong>
-                <em>Fukt {weatherHumidity} · vind {weatherWind}</em>
-              </span>
-            </button>
-          ) : (
-            <Link className="home-weather-chip" to="/settings">
-              <WeatherGlyph symbolCode={currentWeatherSymbol} compact />
-              <span>
-                <small>Dyrkested</small>
-                <strong>Sett opp vær</strong>
-                <em>Gir bedre råd</em>
-              </span>
-            </Link>
-          )}
 
           {weather && weatherSheetOpen ? (
             <div className="home-forecast-card soft-card" ref={weatherGraphRef}>
@@ -1269,14 +1268,33 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                 </button>
               </div>
               <div className="home-forecast-days">
-                {weatherDays.map((day) => (
-                  <span key={day.date}>
-                    <WeatherGlyph symbolCode={day.symbol_code} compact />
-                    <small>{formatWeatherDay(day.date)}</small>
-                    <strong>{typeof day.temperature_max === "number" ? `${day.temperature_max.toFixed(0)}°` : "–"}</strong>
-                    <em>{weatherIconLabel(day.symbol_code)}</em>
-                  </span>
-                ))}
+                {weatherDays.map((day) => {
+                  const minTemp = typeof day.temperature_min === "number" ? day.temperature_min : null;
+                  const maxTemp = typeof day.temperature_max === "number" ? day.temperature_max : null;
+                  const railLeft = minTemp === null ? 18 : Math.max(4, Math.min(72, (minTemp + 6) * 2.6));
+                  const railWidth = minTemp === null || maxTemp === null ? 28 : Math.max(18, Math.min(72, (maxTemp - minTemp) * 4 + 24));
+                  return (
+                    <span className="home-forecast-day" key={day.date}>
+                      <WeatherGlyph symbolCode={day.symbol_code} compact />
+                      <span className="home-forecast-day__main">
+                        <small>{formatWeatherDay(day.date)}</small>
+                        <strong>{weatherIconLabel(day.symbol_code)}</strong>
+                        <em>
+                          {typeof day.humidity_avg === "number" ? `Fukt ${day.humidity_avg.toFixed(0)}%` : "Fukt —"}
+                          {" · "}
+                          {typeof day.wind_max === "number" ? `vind ${day.wind_max.toFixed(1)} m/s` : "vind —"}
+                        </em>
+                        <span className="home-forecast-day__rail" aria-hidden="true">
+                          <i style={{ left: `${railLeft}%`, width: `${railWidth}%` }} />
+                        </span>
+                      </span>
+                      <span className="home-forecast-day__temp">
+                        <strong>{maxTemp === null ? "–" : `${maxTemp.toFixed(0)}°`}</strong>
+                        <small>{minTemp === null ? "–" : `${minTemp.toFixed(0)}°`}</small>
+                      </span>
+                    </span>
+                  );
+                })}
               </div>
               {weatherHourlyOpen ? <WeatherHourlyCard weather={weather} /> : null}
             </div>
