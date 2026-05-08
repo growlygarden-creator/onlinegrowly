@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   fetchDailyWeatherReport,
@@ -611,7 +611,7 @@ function greenhouseScene(theme: "light" | "dark"): { image: string; mode: "day" 
   return { image: greenhouseDay, mode: "day" };
 }
 
-type WeatherGlyphKind = "sun" | "partly" | "cloud" | "rain" | "snow";
+type WeatherGlyphKind = "sun" | "moon" | "partly" | "cloud" | "rain" | "snow";
 
 function weatherGlyphKind(symbolCode: string | undefined): WeatherGlyphKind {
   const code = (symbolCode || "").toLowerCase();
@@ -621,11 +621,14 @@ function weatherGlyphKind(symbolCode: string | undefined): WeatherGlyphKind {
   if (code.includes("snow")) {
     return "snow";
   }
-  if (code.includes("cloud")) {
-    return "cloud";
-  }
   if (code.includes("fair") || code.includes("partly")) {
     return "partly";
+  }
+  if (code.includes("cloud") || code.includes("fog")) {
+    return "cloud";
+  }
+  if (code.includes("night")) {
+    return "moon";
   }
   return "sun";
 }
@@ -633,12 +636,13 @@ function weatherGlyphKind(symbolCode: string | undefined): WeatherGlyphKind {
 function weatherIconLabel(symbolCode: string | undefined): string {
   const code = (symbolCode || "").toLowerCase();
   if (code.includes("rain") && (code.includes("day") || code.includes("fair") || code.includes("partly"))) {
-    return "Sol og regn";
+    return "Byger";
   }
   const kind = weatherGlyphKind(symbolCode);
   return {
     sun: "Sol",
-    partly: "Sol og skyer",
+    moon: "Klart",
+    partly: "Lettskyet",
     cloud: "Skyet",
     rain: "Regn",
     snow: "Snø",
@@ -649,36 +653,43 @@ function WeatherGlyph({ symbolCode, compact = false, className = "" }: { symbolC
   const code = (symbolCode || "").toLowerCase();
   const kind = weatherGlyphKind(symbolCode);
   const isCloudy = kind === "cloud" || kind === "rain" || kind === "snow" || kind === "partly";
-  const hasSun = kind === "sun" || kind === "partly" || ((kind === "rain" || kind === "snow") && (code.includes("day") || code.includes("fair") || code.includes("partly")));
+  const hasSun = kind === "sun" || kind === "partly" || (kind === "rain" && (code.includes("day") || code.includes("fair") || code.includes("partly")));
+  const hasMoon = kind === "moon" || ((kind === "rain" || kind === "snow") && code.includes("night"));
+  const cloudPath = "M20 45h25.5c6.8 0 11.5-4 11.5-9.9 0-5.4-4.2-9.5-10.1-9.7C44.6 18.4 39 13.5 31.7 13.5c-7.6 0-13.5 5.5-14.6 12.4C11.3 27 7 30.7 7 35.8 7 41.4 11.6 45 20 45Z";
 
   return (
-    <span className={`${className} weather-glyph weather-glyph--${kind}${compact ? " weather-glyph--compact" : ""}`} aria-hidden="true">
+    <span
+      className={`${className} weather-glyph weather-glyph--${kind}${compact ? " weather-glyph--compact" : ""}`}
+      aria-hidden="true"
+      title={weatherIconLabel(symbolCode)}
+    >
       <svg viewBox="0 0 64 64" focusable="false">
         {hasSun ? (
           <g className="weather-glyph__sun">
-            <circle cx={kind === "sun" ? 32 : 25} cy={kind === "sun" ? 30 : 24} r={kind === "sun" ? 13 : 10} />
+            <circle cx={kind === "sun" ? 32 : 23} cy={kind === "sun" ? 31 : 22} r={kind === "sun" ? 14 : 11} />
             <path d={kind === "sun"
-              ? "M32 8v8M32 44v8M10 30h8M46 30h8M16.5 14.5l5.8 5.8M41.7 39.7l5.8 5.8M16.5 45.5l5.8-5.8M41.7 20.3l5.8-5.8"
-              : "M25 6v7M25 35v7M7 24h7M36 24h7M12.5 11.5l5 5M32.5 31.5l5 5M12.5 36.5l5-5M32.5 16.5l5-5"} />
+              ? "M32 6v9M32 47v9M7 31h9M48 31h9M14.4 13.4l6.4 6.4M43.2 42.2l6.4 6.4M14.4 48.6l6.4-6.4M43.2 19.8l6.4-6.4"
+              : "M23 5v7M23 32v7M6 22h7M33 22h7M11 10l5 5M31 30l5 5M11 34l5-5M31 15l5-5"} />
+          </g>
+        ) : null}
+        {hasMoon ? (
+          <g className="weather-glyph__moon">
+            <path d="M42.8 39.6A17.5 17.5 0 0 1 24.4 13.4 17.5 17.5 0 1 0 50.2 34a15.6 15.6 0 0 1-7.4 5.6Z" />
           </g>
         ) : null}
         {isCloudy ? (
           <g className="weather-glyph__cloud">
-            <path
-              fill="#fbfff7"
-              stroke="#bfd5ca"
-              d="M19.5 43.5h25.8c6.4 0 10.7-3.8 10.7-9.2 0-5.1-3.8-8.9-9.2-9.2C44.9 18.7 39.5 14 32.7 14c-7.1 0-12.8 5-14.2 11.6-6 .5-10.5 4.2-10.5 9 0 5.4 4.5 8.9 11.5 8.9Z"
-            />
+            <path d={cloudPath} />
           </g>
         ) : null}
         {kind === "rain" ? (
           <g className="weather-glyph__rain">
-            <path d="M24 49l-3 6M34 49l-3 6M44 49l-3 6" />
+            <path d="M21 50l-4 8M33 50l-4 8M45 50l-4 8" />
           </g>
         ) : null}
         {kind === "snow" ? (
           <g className="weather-glyph__snow">
-            <path d="M26 51h.1M34 54h.1M43 51h.1" />
+            <path d="M24 53h.1M34 57h.1M45 53h.1" />
           </g>
         ) : null}
       </svg>
@@ -746,15 +757,16 @@ function weatherHourlyChart(hours: WeatherHour[]) {
     return null;
   }
 
-  const width = 1440;
-  const height = 300;
-  const left = 54;
-  const right = 1390;
-  const top = 46;
-  const tempBottom = 168;
-  const rainBottom = 184;
-  const windTop = 214;
-  const windBottom = 258;
+  const width = 980;
+  const height = 360;
+  const left = 66;
+  const right = 942;
+  const top = 76;
+  const skyTop = 32;
+  const tempBottom = 212;
+  const rainBottom = 242;
+  const windTop = 280;
+  const windBottom = 326;
   const temperatures = points.map((point) => point.air_temperature);
   const minTemperature = Math.min(...temperatures);
   const maxTemperature = Math.max(...temperatures);
@@ -778,10 +790,10 @@ function weatherHourlyChart(hours: WeatherHour[]) {
   }));
   const tickIndexes = points
     .map((_, index) => index)
-    .filter((index) => index === 0 || index === points.length - 1 || index % 8 === 0);
+    .filter((index) => index === 0 || index === points.length - 1 || index % 6 === 0);
   const iconIndexes = points
     .map((_, index) => index)
-    .filter((index) => index === 0 || index === points.length - 1 || index % 8 === 0);
+    .filter((index) => index === 0 || index === points.length - 1 || index % 6 === 0);
   const dayMarkers = points.reduce<Array<{ label: string; x: number }>>((markers, point, index) => {
     const label = formatWeatherDay(point.time);
     if (label && markers[markers.length - 1]?.label !== label) {
@@ -803,12 +815,13 @@ function weatherHourlyChart(hours: WeatherHour[]) {
     dayMarkers,
     maxRain,
     rainBottom,
-    rainTop: 194,
+    rainTop: 224,
     width,
     height,
     left,
     right,
     top,
+    skyTop,
     tempBottom,
     windTop,
     windBottom,
@@ -844,27 +857,36 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
               ))}
               {chart.tickIndexes.map((index) => {
                 const x = chart.tempCoords[index].x;
-                return <line key={`v-${index}`} x1={x} x2={x} y1="34" y2="306" className="weather-hourly-grid weather-hourly-grid--vertical" />;
+                return <line key={`v-${index}`} x1={x} x2={x} y1="34" y2="326" className="weather-hourly-grid weather-hourly-grid--vertical" />;
               })}
               {chart.dayMarkers.map((marker) => (
-                <text key={marker.label} x={marker.x} y="28" className="weather-hourly-day">{marker.label}</text>
+                <text key={marker.label} x={marker.x} y="24" className="weather-hourly-day">{marker.label}</text>
               ))}
               {chart.yTicks.map((tick) => (
-                <text key={tick.label} x="18" y={tick.y + 4} className="weather-hourly-axis">{tick.label}</text>
+                <text key={tick.label} x="54" y={tick.y + 4} textAnchor="end" className="weather-hourly-axis">{tick.label}</text>
               ))}
               <path d={chart.tempArea} className="weather-hourly-temp-area" />
               <path d={chart.tempLine} className="weather-hourly-temp-glow" />
               <path d={chart.tempLine} className="weather-hourly-temp-line" />
+              {chart.tickIndexes.map((index) => {
+                const point = chart.points[index];
+                const coord = chart.tempCoords[index];
+                return (
+                  <text key={`temp-label-${point.time}`} x={coord.x} y={Math.max(chart.top + 14, coord.y - 12)} className="weather-hourly-temp-label">
+                    {point.air_temperature.toFixed(0)}°
+                  </text>
+                );
+              })}
               {chart.points.map((point, index) => {
                 const x = chart.tempCoords[index].x;
                 const amount = point.precipitation_amount;
-                const height = amount > 0 ? Math.max(3, (amount / chart.maxRain) * 28) : 0;
+                const height = amount > 0 ? Math.max(5, (amount / chart.maxRain) * 30) : 0;
                 return amount > 0 ? (
                   <rect
                     key={`rain-${point.time}`}
-                    x={x - 5}
+                    x={x - 6}
                     y={chart.rainBottom - height}
-                    width="10"
+                    width="12"
                     height={height}
                     rx="3"
                     className="weather-hourly-rain-bar"
@@ -877,7 +899,7 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
                 const point = chart.points[index];
                 const x = chart.tempCoords[index].x;
                 return (
-                  <foreignObject key={`icon-${point.time}`} x={x - 18} y={chart.tempCoords[index].y - 39} width="36" height="34">
+                  <foreignObject key={`icon-${point.time}`} x={x - 25} y={chart.skyTop} width="50" height="48">
                     <WeatherGlyph symbolCode={point.symbol_code} compact />
                   </foreignObject>
                 );
@@ -888,11 +910,14 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
                 return (
                   <g key={`tick-${point.time}`}>
                     <text x={x} y="202" className="weather-hourly-hour">{formatWeatherHour(point.time)}</text>
+                    <text x={x} y="270" className="weather-hourly-rain-label">
+                      {point.precipitation_amount > 0 ? `${point.precipitation_amount.toFixed(1)} mm` : ""}
+                    </text>
                     <text
                       x={x}
-                      y="286"
+                      y="346"
                       className="weather-hourly-wind-arrow"
-                      style={{ transform: `rotate(${weatherWindArrowRotation(point.wind_from_direction)}deg)`, transformOrigin: `${x}px 280px` }}
+                      style={{ transform: `rotate(${weatherWindArrowRotation(point.wind_from_direction)}deg)`, transformOrigin: `${x}px 340px` }}
                     >
                       ↑
                     </text>
@@ -1011,6 +1036,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [dashboardPlants, setDashboardPlants] = useState<DashboardPlant[]>([]);
   const [weatherSheetOpen, setWeatherSheetOpen] = useState(false);
+  const weatherGraphRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchLatestSample(selectedHubId).then((result) => {
@@ -1029,6 +1055,15 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
       setWeatherSheetOpen(false);
     }
   }, [weather]);
+
+  useEffect(() => {
+    if (!weatherSheetOpen) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      weatherGraphRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [weatherSheetOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1285,6 +1320,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                         <em aria-hidden="true"><WeatherGlyph symbolCode={day.symbol_code} compact /></em>
                         <small>{new Date(`${day.date}T12:00:00`).toLocaleDateString("nb-NO", { weekday: "short" })}</small>
                         <strong>{typeof day.temperature_max === "number" ? `${day.temperature_max.toFixed(0)}°` : "–"}</strong>
+                        <b>{weatherIconLabel(day.symbol_code)}</b>
                       </span>
                     ))}
                   </div>
@@ -1294,7 +1330,9 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
               </div>
 
               {weather && weatherSheetOpen ? (
-                <WeatherHourlyCard weather={weather} />
+                <div ref={weatherGraphRef}>
+                  <WeatherHourlyCard weather={weather} />
+                </div>
               ) : null}
 
               {dailyWeatherReport ? (
