@@ -778,25 +778,11 @@ function weatherHourlyChart(hours: WeatherHour[]) {
   };
 }
 
-function WeatherHourlyCard({ weather, onClose }: { weather: WeatherForecast; onClose: () => void }) {
+function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
   const chart = weatherHourlyChart(weather.forecast.hours ?? []);
-  const updatedAt = formatUpdatedAt(weather.forecast.updated_at);
 
   return (
     <section className="weather-inline-card weather-sheet__panel soft-card" aria-label="Timesvis værgraf">
-      <div className="weather-sheet__header">
-        <div>
-          <span>Timesgraf</span>
-          <h2>Været ved dyrkested</h2>
-          <p>{weather.location.address || "Lokal prognose"} · {updatedAt}</p>
-        </div>
-        <button className="weather-sheet__close" type="button" onClick={onClose} aria-label="Lukk værgraf">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
-          </svg>
-        </button>
-      </div>
-
         {chart ? (
           <div className="weather-hourly-card">
             <svg className="weather-hourly-chart" viewBox="0 0 800 326" role="img" aria-label="Graf for temperatur, nedbør og vind de neste timene">
@@ -875,6 +861,7 @@ function WeatherHourlyCard({ weather, onClose }: { weather: WeatherForecast; onC
               <span><i className="legend-wind" /> Vind</span>
               <span><i className="legend-icon" /> Værtype</span>
             </div>
+            <p className="weather-hourly-updated">{formatUpdatedAt(weather.forecast.updated_at)}</p>
           </div>
         ) : (
           <div className="weather-hourly-empty">
@@ -1258,11 +1245,10 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                 ) : (
                   <Link className="weather-settings-link" to="/settings">Sett opp</Link>
                 )}
-                {weather ? <span className="weather-overview-action">{weatherSheetOpen ? "Skjul timesgraf" : "Se timesgraf"}</span> : null}
               </div>
 
               {weather && weatherSheetOpen ? (
-                <WeatherHourlyCard weather={weather} onClose={() => setWeatherSheetOpen(false)} />
+                <WeatherHourlyCard weather={weather} />
               ) : null}
 
               {dailyWeatherReport ? (
