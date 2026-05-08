@@ -34,6 +34,7 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
   const [weatherLongitude, setWeatherLongitude] = useState(session?.hub?.weather_longitude?.toString() || "");
   const [addressMatches, setAddressMatches] = useState<WeatherAddressMatch[]>([]);
   const [addressLookupBusy, setAddressLookupBusy] = useState(false);
+  const [locationLookupBusy, setLocationLookupBusy] = useState(false);
   const [accountPanelOpen, setAccountPanelOpen] = useState(false);
   const [hubPanelOpen, setHubPanelOpen] = useState(false);
   const [weatherPanelOpen, setWeatherPanelOpen] = useState(false);
@@ -189,6 +190,41 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
     setWeatherLongitude(match.longitude.toString());
     setAddressMatches([]);
     setStatus("Adresse funnet. Husk å lagre dyrkested.");
+  }
+
+  function handleUseDeviceLocation() {
+    if (!navigator.geolocation) {
+      setStatus("Nettleseren støtter ikke posisjonshenting.");
+      return;
+    }
+
+    setLocationLookupBusy(true);
+    setStatus("Henter posisjon...");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setWeatherLatitude(position.coords.latitude.toFixed(6));
+        setWeatherLongitude(position.coords.longitude.toFixed(6));
+        if (!weatherAddress.trim()) {
+          setWeatherAddress("Posisjon fra telefon");
+        }
+        setAddressMatches([]);
+        setLocationLookupBusy(false);
+        setStatus("Posisjon hentet. Husk å lagre dyrkested.");
+      },
+      (error) => {
+        setLocationLookupBusy(false);
+        if (error.code === error.PERMISSION_DENIED) {
+          setStatus("Posisjon ble ikke tillatt. Gi tilgang i nettleseren eller skriv inn adresse.");
+          return;
+        }
+        setStatus("Kunne ikke hente posisjon akkurat nå. Prøv adressefeltet i stedet.");
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 300000,
+        timeout: 12000,
+      },
+    );
   }
 
   const displayName = session?.user?.full_name || session?.username || "Growly Garden";
@@ -374,8 +410,8 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
               </svg>
             </div>
             <div className="settings-row__content">
-              <strong>{weatherConfigured ? "Værprognose aktiv" : "Værprognose uten hub"}</strong>
-              <span>{weatherConfigured ? "Lokalt vær brukes til dyrkeråd." : "Legg inn dyrkested for lokale råd uten hub."}</span>
+              <strong>{weatherConfigured ? "Værprognose aktiv" : "Sett dyrkested"}</strong>
+              <span>{weatherConfigured ? "Lokalt vær brukes til dyrkeråd." : "Bruk telefonens posisjon eller skriv inn adresse."}</span>
               <small>{weatherConfigured ? "Dyrkested er satt" : "Ikke satt opp"}</small>
             </div>
             <span className={`chevron${weatherPanelOpen ? " chevron--open" : ""}`}>›</span>
@@ -385,8 +421,8 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
             <div className="weather-settings-panel">
               <div className="settings-divider" />
               <div className="settings-row__content">
-                <strong>Værprognose uten hub</strong>
-                <span>Growly bruker dyrkestedet ditt til værbaserte råd når huben ikke er aktiv.</span>
+                <strong>Dyrkested for vær</strong>
+                <span>Growly lagrer posisjonen på huben og bruker den til lokal værprognose.</span>
               </div>
               <label className="settings-field">
                 <span>Adresse eller sted</span>
@@ -399,9 +435,14 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
                   placeholder="F.eks. Grenaderveien 7 Halden"
                 />
               </label>
-              <button className="secondary-action" type="button" onClick={handleSearchAddress} disabled={addressLookupBusy}>
-                {addressLookupBusy ? "Søker..." : "Finn adresse"}
-              </button>
+              <div className="settings-field-grid">
+                <button className="secondary-action" type="button" onClick={handleSearchAddress} disabled={addressLookupBusy}>
+                  {addressLookupBusy ? "Søker..." : "Finn adresse"}
+                </button>
+                <button className="secondary-action" type="button" onClick={handleUseDeviceLocation} disabled={locationLookupBusy}>
+                  {locationLookupBusy ? "Henter..." : "Bruk min posisjon"}
+                </button>
+              </div>
               {addressMatches.length ? (
                 <div className="address-match-list">
                   {addressMatches.map((match) => (
