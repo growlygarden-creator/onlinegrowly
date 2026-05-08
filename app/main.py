@@ -2466,10 +2466,53 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
         connection.commit()
 
     for deleted_hub_id in deleted_hub_ids:
+        best_effort_delete_supabase_sensor_samples(deleted_hub_id)
         best_effort_delete_supabase_hub(deleted_hub_id)
     hub = find_hub(clean_hub_id) or {}
     best_effort_sync_core_to_supabase("hub transfer")
     return hub
+
+
+def delete_hub(hub_id: str) -> None:
+    clean_hub_id = hub_id.strip()
+    hub = find_hub(clean_hub_id)
+    if not hub:
+        raise ValueError("hub_not_found")
+
+    with db_connection() as connection:
+        connection.execute(
+            """
+            DELETE FROM sensor_samples
+            WHERE hub_id = ?
+            """,
+            (clean_hub_id,),
+        )
+        connection.execute(
+            """
+            DELETE FROM hub_members
+            WHERE hub_id = ?
+            """,
+            (clean_hub_id,),
+        )
+        connection.execute(
+            """
+            DELETE FROM pairing_tokens
+            WHERE paired_hub_id = ?
+            """,
+            (clean_hub_id,),
+        )
+        connection.execute(
+            """
+            DELETE FROM hubs
+            WHERE hub_id = ?
+            """,
+            (clean_hub_id,),
+        )
+        connection.commit()
+
+    best_effort_delete_supabase_hub(clean_hub_id)
+    best_effort_delete_supabase_sensor_samples(clean_hub_id)
+    best_effort_sync_core_to_supabase("hub delete")
 
 
 def ensure_device_hub(hub_id: str, local_ip: str | None = None) -> dict[str, Any]:
@@ -3115,6 +3158,11 @@ def delete_app_user(username: str, acting_username: str) -> None:
             (username,),
         )
         connection.commit()
+    for hub in owned_hubs:
+        hub_id = str(hub["hub_id"]) if hub and hub["hub_id"] else ""
+        if hub_id:
+            best_effort_delete_supabase_sensor_samples(hub_id)
+            best_effort_delete_supabase_hub(hub_id)
     best_effort_delete_supabase_user(username)
     best_effort_sync_core_to_supabase("user delete")
 
@@ -4020,6 +4068,15 @@ def best_effort_delete_supabase_hub(hub_id: str) -> None:
         supabase_delete_rows("growly_hubs", {"hub_id": f"eq.{hub_id}"})
     except Exception as exc:
         print(f"Supabase hub delete skipped for {hub_id}: {exc}")
+
+
+def best_effort_delete_supabase_sensor_samples(hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    try:
+        supabase_delete_rows("sensor_data", {"hub_id": f"eq.{hub_id}"})
+    except Exception as exc:
+        print(f"Supabase sensor sample delete skipped for {hub_id}: {exc}")
 
 
 def plant_row_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -5628,6 +5685,18 @@ async def transfer_hub_owner_api(request: Request, hub_id: str, payload: dict[st
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
     return {"ok": True, "hub": hub, "hubs": list_hubs(), "users": list_app_users()}
+
+
+@app.delete("/api/hubs/{hub_id}")
+async def delete_hub_api(request: Request, hub_id: str):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        delete_hub(hub_id)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "hubs": list_hubs(), "users": list_app_users()}
 
 
 @app.post("/api/hubs/pairing-token")

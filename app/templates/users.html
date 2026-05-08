@@ -168,7 +168,13 @@
             email_exists: "E-postadressen er allerede i bruk.",
             user_not_found: "Brukeren finnes ikke.",
             cannot_delete_self: "Du kan ikke slette brukeren du er innlogget med.",
-            cannot_delete_last_admin: "Du kan ikke slette siste admin-bruker."
+            cannot_delete_last_admin: "Du kan ikke slette siste admin-bruker.",
+            missing_username: "Skriv inn brukernavn eller e-post til ny eier.",
+            user_inactive: "Ny eier er deaktivert.",
+            admin_cannot_own_hub: "Admin-brukere kan ikke eie hub.",
+            hub_not_found: "Huben finnes ikke.",
+            target_has_hub: "Ny eier har allerede hub.",
+            target_hub_has_samples: "Ny eier har allerede hub med sensordata. Velg erstatt hvis dette er riktig."
         };
 
         let users = [];
@@ -371,6 +377,25 @@
                     </label>
                 </div>
 
+                <div class="customer-hub-admin-card">
+                    <div>
+                        <strong>Hub-administrasjon</strong>
+                        <span>${user.hub_id ? `Flytt eller slett ${escapeHtml(user.hub_id)}.` : "Denne brukeren har ingen hub."}</span>
+                    </div>
+                    <label class="field">
+                        <span>Flytt hub til bruker/e-post</span>
+                        <input data-hub-transfer-target type="text" placeholder="geirjohansen@me.com" ${user.hub_id ? "" : "disabled"}>
+                    </label>
+                    <label class="toggle-line">
+                        <input type="checkbox" data-hub-transfer-replace ${user.hub_id ? "" : "disabled"}>
+                        <span>Erstatt og slett eksisterende hub hos ny eier</span>
+                    </label>
+                    <div class="customer-actions">
+                        <button type="button" class="button subtle-button" data-hub-transfer="${escapeHtml(user.hub_id || "")}" ${user.hub_id ? "" : "disabled"}>Flytt hub</button>
+                        <button type="button" class="button danger-button" data-hub-delete="${escapeHtml(user.hub_id || "")}" ${user.hub_id ? "" : "disabled"}>Slett hub</button>
+                    </div>
+                </div>
+
                 <div class="customer-actions">
                     <button type="button" class="button" data-detail-save="${escapeHtml(user.username)}">Lagre endringer</button>
                     <button type="button" class="button subtle-button" data-detail-reset="${escapeHtml(user.username)}">Reset passord</button>
@@ -473,6 +498,60 @@
             }
         }
 
+        async function transferHub(hubId) {
+            const targetInput = userDetail.querySelector("[data-hub-transfer-target]");
+            const replaceInput = userDetail.querySelector("[data-hub-transfer-replace]");
+            const targetUsername = (targetInput?.value || "").trim();
+            if (!targetUsername) {
+                setUserStatus("Feil: skriv inn ny eier for huben", "offline");
+                return;
+            }
+            if (!window.confirm(`Flytte ${hubId} til ${targetUsername}?`)) {
+                return;
+            }
+
+            setUserStatus(`Flytter ${hubId}...`, "warning");
+            try {
+                const response = await fetch(`/api/hubs/${encodeURIComponent(hubId)}/transfer-owner`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        username: targetUsername,
+                        replace_existing: !!replaceInput?.checked
+                    })
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "hub_transfer_failed");
+                }
+                updateUsers(result.users || [], targetUsername);
+                setUserStatus(`${hubId} er flyttet til ${targetUsername}`, "online");
+            } catch (error) {
+                setUserStatus(`Feil: ${humanError(error.message)}`, "offline");
+            }
+        }
+
+        async function deleteHub(hubId) {
+            if (!window.confirm(`Slette hub ${hubId}? Dette fjerner hub, pairing og lokale sensordata for denne huben.`)) {
+                return;
+            }
+
+            setUserStatus(`Sletter ${hubId}...`, "warning");
+            try {
+                const response = await fetch(`/api/hubs/${encodeURIComponent(hubId)}`, {
+                    method: "DELETE"
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "hub_delete_failed");
+                }
+                updateUsers(result.users || []);
+                setUserStatus(`${hubId} er slettet`, "online");
+            } catch (error) {
+                setUserStatus(`Feil: ${humanError(error.message)}`, "offline");
+            }
+        }
+
         refreshUsersButton.addEventListener("click", () => {
             setUserStatus("Oppdaterer...", "warning");
             loadUsers()
@@ -514,6 +593,16 @@
             const deleteButton = event.target.closest("[data-detail-delete]");
             if (deleteButton && !deleteButton.disabled) {
                 deleteUser(deleteButton.dataset.detailDelete);
+                return;
+            }
+            const transferHubButton = event.target.closest("[data-hub-transfer]");
+            if (transferHubButton && !transferHubButton.disabled) {
+                transferHub(transferHubButton.dataset.hubTransfer);
+                return;
+            }
+            const deleteHubButton = event.target.closest("[data-hub-delete]");
+            if (deleteHubButton && !deleteHubButton.disabled) {
+                deleteHub(deleteHubButton.dataset.hubDelete);
             }
         });
 
