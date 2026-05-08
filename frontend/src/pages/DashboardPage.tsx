@@ -778,27 +778,25 @@ function weatherHourlyChart(hours: WeatherHour[]) {
   };
 }
 
-function WeatherHourlySheet({ weather, onClose }: { weather: WeatherForecast; onClose: () => void }) {
+function WeatherHourlyCard({ weather, onClose }: { weather: WeatherForecast; onClose: () => void }) {
   const chart = weatherHourlyChart(weather.forecast.hours ?? []);
   const now = weather.forecast.now;
   const updatedAt = formatUpdatedAt(weather.forecast.updated_at);
 
   return (
-    <div className="weather-sheet" role="dialog" aria-modal="true" aria-label="Timesvis værgraf">
-      <button className="weather-sheet__backdrop" type="button" onClick={onClose} aria-label="Lukk værgraf" />
-      <section className="weather-sheet__panel soft-card">
-        <div className="weather-sheet__header">
-          <div>
-            <span>Timesvis prognose</span>
-            <h2>Været ved dyrkested</h2>
-            <p>{weather.location.address || "Lokal prognose"} · {updatedAt}</p>
-          </div>
-          <button className="weather-sheet__close" type="button" onClick={onClose} aria-label="Lukk værgraf">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
-            </svg>
-          </button>
+    <section className="weather-inline-card weather-sheet__panel soft-card" aria-label="Timesvis værgraf">
+      <div className="weather-sheet__header">
+        <div>
+          <span>Timesvis prognose</span>
+          <h2>Været ved dyrkested</h2>
+          <p>{weather.location.address || "Lokal prognose"} · {updatedAt}</p>
         </div>
+        <button className="weather-sheet__close" type="button" onClick={onClose} aria-label="Lukk værgraf">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+          </svg>
+        </button>
+      </div>
 
         <div className="weather-sheet__summary">
           <div>
@@ -894,8 +892,7 @@ function WeatherHourlySheet({ weather, onClose }: { weather: WeatherForecast; on
             <span>Prøv å oppdatere værprognosen litt senere.</span>
           </div>
         )}
-      </section>
-    </div>
+    </section>
   );
 }
 
@@ -1242,11 +1239,11 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                 className={`weather-overview-panel${weather ? " weather-overview-panel--interactive" : ""}`}
                 role={weather ? "button" : undefined}
                 tabIndex={weather ? 0 : undefined}
-                onClick={weather ? () => setWeatherSheetOpen(true) : undefined}
+                onClick={weather ? () => setWeatherSheetOpen((open) => !open) : undefined}
                 onKeyDown={weather ? (event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    setWeatherSheetOpen(true);
+                    setWeatherSheetOpen((open) => !open);
                   }
                 } : undefined}
               >
@@ -1271,8 +1268,12 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                 ) : (
                   <Link className="weather-settings-link" to="/settings">Sett opp</Link>
                 )}
-                {weather ? <span className="weather-overview-action">Se timesgraf</span> : null}
+                {weather ? <span className="weather-overview-action">{weatherSheetOpen ? "Skjul timesgraf" : "Se timesgraf"}</span> : null}
               </div>
+
+              {weather && weatherSheetOpen ? (
+                <WeatherHourlyCard weather={weather} onClose={() => setWeatherSheetOpen(false)} />
+              ) : null}
 
               {dailyWeatherReport ? (
                 <article className="daily-weather-report">
@@ -1664,9 +1665,6 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
             </div>
           </section>
         </div>
-      ) : null}
-      {weather && weatherSheetOpen ? (
-        <WeatherHourlySheet weather={weather} onClose={() => setWeatherSheetOpen(false)} />
       ) : null}
     </main>
   );

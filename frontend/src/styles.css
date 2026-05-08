@@ -790,6 +790,19 @@ input {
   box-shadow: 0 34px 90px rgba(19, 39, 26, 0.24);
 }
 
+.weather-inline-card {
+  width: 100%;
+  max-height: none;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid rgba(47, 138, 84, 0.13);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 86% 0%, rgba(255, 203, 90, 0.18), transparent 26%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 248, 235, 0.88));
+  box-shadow: 0 18px 42px rgba(39, 87, 52, 0.1);
+}
+
 .weather-sheet__header {
   display: flex;
   justify-content: space-between;
@@ -1008,6 +1021,13 @@ input {
   background:
     radial-gradient(circle at 86% 12%, rgba(255, 203, 90, 0.14), transparent 28%),
     linear-gradient(135deg, rgba(23, 41, 28, 0.96), rgba(15, 28, 19, 0.98));
+}
+
+.theme-dark .weather-inline-card {
+  border-color: rgba(235, 244, 232, 0.13);
+  background:
+    radial-gradient(circle at 86% 0%, rgba(255, 203, 90, 0.1), transparent 26%),
+    linear-gradient(135deg, rgba(25, 48, 31, 0.92), rgba(15, 28, 19, 0.96));
 }
 
 .theme-dark .weather-sheet__summary,
