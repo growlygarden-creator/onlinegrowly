@@ -667,6 +667,29 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     ...metric,
     value: metricText(sampleValue(sample, metric.key), metric.unit, metric.digits),
   }));
+  const sensorUpdatedAt = formatUpdatedAt(sample?.recorded_at);
+  const climateMetrics = [
+    {
+      label: "Lufttemperatur",
+      value: metricText(sample?.air_temperature ?? sample?.temperature, "°C", 0),
+      note: "BME280",
+    },
+    {
+      label: "Luftfuktighet",
+      value: metricText(sample?.air_humidity, "%", 0),
+      note: "BME280",
+    },
+    {
+      label: "Lufttrykk",
+      value: metricText(sample?.air_pressure, " hPa", 0),
+      note: "Atmosfærisk trykk",
+    },
+    {
+      label: "Lys",
+      value: metricText(sample?.lux, " lx", 0),
+      note: "BH1750",
+    },
+  ];
 
   function openAddPlantSheet() {
     setAddPlantFeedback("");
@@ -860,6 +883,22 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
               <button className="empty-state-card__primary" type="button" onClick={openAddPlantSheet}>Søk i kartoteket</button>
             </article>
           )}
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="section-heading-row">
+          <p className="section-kicker">Sensorer</p>
+          <span className="greenhouse-meta-row">{sensorUpdatedAt}</span>
+        </div>
+        <div className="greenhouse-climate-grid">
+          {climateMetrics.map((metric) => (
+            <article className="greenhouse-climate-tile" key={metric.label}>
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+              <small>{metric.note}</small>
+            </article>
+          ))}
         </div>
       </section>
 

@@ -484,6 +484,12 @@ METRIC_KEYS = (
     "salinity",
     "tds",
 )
+
+METRIC_PAYLOAD_ALIASES = {
+    "air_temperature": ("air_temperature", "airTemperature", "air_temperature_c"),
+    "air_humidity": ("air_humidity", "airHumidity", "air_humidity_percent"),
+    "air_pressure": ("air_pressure", "airPressure", "air_pressure_hpa", "pressure_hpa", "pressure"),
+}
 SPAN_CONFIG = {
     "minutes": {
         "window": timedelta(days=1),
@@ -3567,7 +3573,11 @@ def normalized_sensor_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "error": str(payload.get("error", "")),
     }
     for metric in METRIC_KEYS:
-        value = payload.get(metric)
+        value = None
+        for payload_key in METRIC_PAYLOAD_ALIASES.get(metric, (metric,)):
+            if payload_key in payload and payload.get(payload_key) is not None:
+                value = payload.get(payload_key)
+                break
         normalized[metric] = None if value is None else float(value)
     return normalized
 

@@ -7,6 +7,7 @@ export type LatestSample = {
   recorded_at?: string | null;
   air_temperature?: number | null;
   air_humidity?: number | null;
+  air_pressure?: number | null;
   humidity?: number | null;
   temperature?: number | null;
   ph?: number | null;

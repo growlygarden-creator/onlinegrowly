@@ -29,7 +29,7 @@ type DashboardPageProps = {
 };
 
 type SoilMetricKey = "humidity" | "temperature" | "ph" | "conductivity" | "nitrogen" | "phosphorus" | "potassium" | "salinity" | "tds";
-type TrendMetricKey = SoilMetricKey | "air_temperature" | "air_humidity" | "lux";
+type TrendMetricKey = SoilMetricKey | "air_temperature" | "air_humidity" | "air_pressure" | "lux";
 type TrendRange = "24h" | "3d" | "7d" | "all";
 type ClimateReportMetric = "temperature" | "humidity" | "lux";
 type TrendMetricConfig = {
@@ -143,6 +143,13 @@ const trendMetricConfigs: TrendMetricConfig[] = [
     referenceNote: "God balanse gir vekst uten å gjøre klimaet for soppvennlig.",
   },
   {
+    key: "air_pressure",
+    label: "Lufttrykk",
+    unit: "hPa",
+    digits: 0,
+    referenceNote: "Atmosfærisk trykk fra BME280. Bruk det som trend sammen med værskifter, lufting og planteadferd.",
+  },
+  {
     key: "lux",
     label: "Lys",
     unit: "lx",
@@ -187,7 +194,7 @@ const trendMetricConfigs: TrendMetricConfig[] = [
 ];
 
 const soilMetricConfigs = trendMetricConfigs.filter((metric): metric is TrendMetricConfig & { key: SoilMetricKey } =>
-  !["air_temperature", "air_humidity", "lux"].includes(metric.key),
+  !["air_temperature", "air_humidity", "air_pressure", "lux"].includes(metric.key),
 );
 
 const trendRangeOptions: Array<{ key: TrendRange; label: string }> = [
@@ -1112,6 +1119,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const hasPairedHub = !!session?.hub?.is_active;
   const temperature = metricText(sample?.air_temperature ?? sample?.temperature, "°C", 0);
   const humidity = metricText(sample?.air_humidity, "%", 0);
+  const pressure = metricText(sample?.air_pressure, " hPa", 0);
   const lux = metricText(sample?.lux, " lx", 0);
   const weatherTemperature = metricText(weatherNow?.air_temperature, "°C", 0);
   const weatherHumidity = metricText(weatherNow?.relative_humidity, "%", 0);
@@ -1321,6 +1329,13 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                   Luftfuktighet
                 </span>
                 <strong>{humidity}</strong>
+              </button>
+              <button className="metric-strip__item metric-strip__button" type="button" onClick={() => openTrend("air_pressure")}>
+                <span className="metric-strip__label">
+                  <span className="metric-strip__pressure-dot" aria-hidden="true" />
+                  Lufttrykk
+                </span>
+                <strong>{pressure}</strong>
               </button>
               <button className="metric-strip__item metric-strip__button" type="button" onClick={() => setSoilPanelOpen(true)}>
                 <span className="metric-strip__label">
