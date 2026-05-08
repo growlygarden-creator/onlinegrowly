@@ -165,6 +165,8 @@ const detailTrendMetrics: Array<{ key: DetailTrendMetric; label: string; unit: s
   { key: "lux", label: "Lys", unit: "lx", apiMetrics: ["lux"] },
 ];
 
+const starterPlantProfileIds = ["tomato", "cucumber", "basil", "pepper", "chili", "lettuce", "strawberry"];
+
 function metricText(value: number | null | undefined, suffix: string, digits = 0): string {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return "-";
@@ -511,6 +513,8 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const [newSowedAt, setNewSowedAt] = useState(todayDateInputValue);
   const [newLocation, setNewLocation] = useState<"greenhouse" | "outside">("outside");
   const [newHasSevenInOne, setNewHasSevenInOne] = useState(false);
+  const [addPlantFeedback, setAddPlantFeedback] = useState("");
+  const [addingPlant, setAddingPlant] = useState(false);
 
   useEffect(() => {
     fetchLatestSample(selectedHubId).then((result) => {
@@ -631,14 +635,18 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const trendUsesLatestOnly = !detailTrendPoints.length && fallbackTrendPoints.length > 0;
   const activeTrendChart = activeTrendRange ? detailTrendPath(displayTrendPoints, activeTrendRange) : null;
   const baseCatalogItems = searchableCatalogItems.filter((item) => item.kind === "base");
-  const filteredBaseItems = baseCatalogItems.filter((item) => {
-    const query = newPlantQuery.trim().toLowerCase();
-    if (!query) {
-      return true;
-    }
-
-    return `${item.display_name} ${item.name} ${item.subtitle} ${item.family} ${item.category} ${item.latin_name}`.toLowerCase().includes(query);
-  }).slice(0, 80);
+  const starterBaseItems = starterPlantProfileIds
+    .map((profileId) => baseCatalogItems.find((item) => item.profile_id === profileId))
+    .filter((item): item is PlantCatalogItem => Boolean(item));
+  const trimmedNewPlantQuery = newPlantQuery.trim().toLowerCase();
+  const filteredBaseItems = (trimmedNewPlantQuery
+    ? baseCatalogItems.filter((item) =>
+        `${item.display_name} ${item.name} ${item.subtitle} ${item.family} ${item.category} ${item.latin_name}`.toLowerCase().includes(trimmedNewPlantQuery),
+      )
+    : starterBaseItems.length
+      ? starterBaseItems
+      : baseCatalogItems
+  ).slice(0, trimmedNewPlantQuery ? 24 : 7);
   const selectedBaseItem = selectedBaseId ? baseCatalogItems.find((item) => item.profile_id === selectedBaseId) ?? null : null;
   const variantOptions = selectedBaseId
     ? searchableCatalogItems.filter((item) => item.kind === "variant" && item.profile_id === selectedBaseId)
@@ -660,39 +668,65 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     value: metricText(sampleValue(sample, metric.key), metric.unit, metric.digits),
   }));
 
-  async function addPlant() {
-    if (!selectedCatalogItem) {
-      return;
-    }
+  function openAddPlantSheet() {
+    setAddPlantFeedback("");
+    setAddOpen(true);
+  }
 
-    const nextPlant = await createPlant({
-      profileId: selectedCatalogItem.profile_id,
-      variantId: selectedCatalogItem.variant_id,
-      cultivarId: selectedCatalogItem.cultivar_id,
-      catalogItemId: selectedCatalogItem.id,
-      nickname: selectedCatalogItem.display_name,
-      sowedAt: newSowedAt,
-      location: newLocation,
-      movedToGreenhouseAt: newLocation === "greenhouse" ? todayDateInputValue() : null,
-      hasSevenInOne: newLocation === "greenhouse" ? newHasSevenInOne : false,
-      wateringEnabled: false,
-    }, selectedHubId);
-
-    if (!nextPlant) {
-      return;
-    }
-
-    const normalizedPlant = normalizePlant(nextPlant);
-    setPlants((current) => [normalizedPlant, ...current]);
-    setSelectedPlantId(normalizedPlant.instanceId);
-    setAddOpen(false);
-    setNewPlantQuery("");
-    setSelectedBaseId(null);
+  function selectBasePlant(item: PlantCatalogItem) {
+    setSelectedBaseId(item.profile_id);
     setSelectedVariantId(null);
     setSelectedCultivarId(null);
-    setNewSowedAt(todayDateInputValue());
-    setNewLocation("outside");
-    setNewHasSevenInOne(false);
+    setNewPlantQuery(item.display_name);
+    setAddPlantFeedback("");
+  }
+
+  function startWithPlant(item: PlantCatalogItem) {
+    selectBasePlant(item);
+    setAddOpen(true);
+  }
+
+  async function addPlant() {
+    if (!selectedCatalogItem || addingPlant) {
+      return;
+    }
+
+    setAddingPlant(true);
+    setAddPlantFeedback("");
+    try {
+      const nextPlant = await createPlant({
+        profileId: selectedCatalogItem.profile_id,
+        variantId: selectedCatalogItem.variant_id,
+        cultivarId: selectedCatalogItem.cultivar_id,
+        catalogItemId: selectedCatalogItem.id,
+        nickname: selectedCatalogItem.display_name,
+        sowedAt: newSowedAt,
+        location: newLocation,
+        movedToGreenhouseAt: newLocation === "greenhouse" ? todayDateInputValue() : null,
+        hasSevenInOne: newLocation === "greenhouse" ? newHasSevenInOne : false,
+        wateringEnabled: false,
+      }, selectedHubId);
+
+      if (!nextPlant) {
+        setAddPlantFeedback("Kunne ikke lagre planten akkurat nå. Sjekk at plantelagring er aktivert, så prøver vi igjen.");
+        return;
+      }
+
+      const normalizedPlant = normalizePlant(nextPlant);
+      setPlants((current) => [normalizedPlant, ...current]);
+      setSelectedPlantId(normalizedPlant.instanceId);
+      setAddOpen(false);
+      setNewPlantQuery("");
+      setSelectedBaseId(null);
+      setSelectedVariantId(null);
+      setSelectedCultivarId(null);
+      setNewSowedAt(todayDateInputValue());
+      setNewLocation("outside");
+      setNewHasSevenInOne(false);
+      setAddPlantFeedback("");
+    } finally {
+      setAddingPlant(false);
+    }
   }
 
   async function toggleSevenInOne(instanceId: string) {
@@ -740,7 +774,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
           <h1>Drivhus <span className="leaf-mark">🌿</span></h1>
           <p>Alt som står inne i drivhuset, med klima vurdert per plante.</p>
         </div>
-        <button className="icon-button" type="button" aria-label="Legg til plante" onClick={() => setAddOpen(true)}>
+        <button className="icon-button" type="button" aria-label="Legg til plante" onClick={openAddPlantSheet}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
           </svg>
@@ -750,7 +784,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
       <section className="settings-section">
         <div className="section-heading-row">
           <p className="section-kicker">Planter</p>
-          <button className="text-action" type="button" onClick={() => setAddOpen(true)}>Legg til</button>
+          <button className="text-action" type="button" onClick={openAddPlantSheet}>Legg til</button>
         </div>
         <div className="plant-card-grid">
           {plantsLoading ? (
@@ -809,10 +843,21 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                 </button>
               );
           }) : (
-            <article className="soft-card empty-state-card">
+            <article className="soft-card empty-state-card empty-state-card--rich">
               <strong>Start med blankt drivhus</strong>
-              <p>Denne brukeren har ingen planter enda. Legg til første plante når du er klar.</p>
-              <button type="button" onClick={() => setAddOpen(true)}>Legg til plante</button>
+              <p>Velg en trygg startplante, så får Growly noe konkret å følge gjennom sesongen.</p>
+              <div className="starter-plant-grid">
+                {starterBaseItems.slice(0, 3).map((item) => (
+                  <button className="starter-plant-button" type="button" key={item.id} onClick={() => startWithPlant(item)}>
+                    <PlantAvatar tone={item.tone} plantId={item.profile_id} name={item.display_name} />
+                    <span>
+                      <strong>{item.display_name}</strong>
+                      <small>{item.subtitle || item.family}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <button className="empty-state-card__primary" type="button" onClick={openAddPlantSheet}>Søk i kartoteket</button>
             </article>
           )}
         </div>
@@ -1063,7 +1108,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
       {addOpen ? (
         <div className="greenhouse-sheet" role="dialog" aria-modal="true" aria-labelledby="add-plant-title">
           <button className="greenhouse-sheet__backdrop" type="button" aria-label="Lukk" onClick={() => setAddOpen(false)} />
-          <section className="greenhouse-sheet__panel soft-card greenhouse-sheet__panel--compact">
+          <section className="greenhouse-sheet__panel soft-card greenhouse-sheet__panel--compact add-plant-panel">
             <div className="greenhouse-sheet__header">
               <div>
                 <p className="section-kicker">Ny plante</p>
@@ -1085,44 +1130,51 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                   setSelectedBaseId(null);
                   setSelectedVariantId(null);
                   setSelectedCultivarId(null);
+                  setAddPlantFeedback("");
                 }}
                 placeholder="Tomat, paprika, chili, agurk..."
               />
             </label>
 
             {!selectedBaseItem ? (
-              <div className="plant-search-results">
-                {catalogLoading ? (
-                  <div className="plant-search-empty">
-                    <strong>Henter plantekartotek</strong>
-                    <span>Laster baseplanter, varianter og sorter.</span>
-                  </div>
-                ) : null}
-                {filteredBaseItems.map((item) => (
-                  <button
-                    className="plant-search-result"
-                    type="button"
-                    key={item.id}
-                    onClick={() => {
-                      setSelectedBaseId(item.profile_id);
-                      setSelectedVariantId(null);
-                      setSelectedCultivarId(null);
-                    }}
-                  >
-                    <PlantAvatar tone={item.tone} plantId={item.profile_id} name={item.display_name} family={item.family} />
-                    <span>
-                      <strong>{item.display_name}</strong>
-                      <small>Base · {item.subtitle}</small>
-                    </span>
-                  </button>
-                ))}
-                {!catalogLoading && !filteredBaseItems.length ? (
-                  <div className="plant-search-empty">
-                    <strong>Ingen treff enda</strong>
-                    <span>Vi kan legge denne planten inn i profil-databasen senere.</span>
-                  </div>
-                ) : null}
-              </div>
+              <>
+                <div className="plant-modal-intro">
+                  <strong>{trimmedNewPlantQuery ? "Treff i plantekartoteket" : "Anbefalt start"}</strong>
+                  <span>
+                    {trimmedNewPlantQuery
+                      ? "Velg den profilen som passer planten best."
+                      : "Start med en vanlig drivhusplante, eller søk mer presist over."}
+                  </span>
+                </div>
+                <div className="plant-search-results">
+                  {catalogLoading ? (
+                    <div className="plant-search-empty">
+                      <strong>Henter plantekartotek</strong>
+                      <span>Laster baseplanter, varianter og sorter.</span>
+                    </div>
+                  ) : null}
+                  {filteredBaseItems.map((item) => (
+                    <button
+                      className="plant-search-result"
+                      type="button"
+                      key={item.id}
+                      onClick={() => selectBasePlant(item)}
+                    >
+                      <PlantAvatar tone={item.tone} plantId={item.profile_id} name={item.display_name} family={item.family} />
+                      <span>
+                        <strong>{item.display_name}</strong>
+                        <small>Base · {item.subtitle}</small>
+                      </span>
+                    </button>
+                  ))}
+                  {!catalogLoading && !filteredBaseItems.length ? (
+                    <div className="plant-search-empty">
+                      <strong>Ingen treff enda</strong>
+                      <span>Vi kan legge denne planten inn i profil-databasen senere.</span>
+                    </div>
+                  ) : null}
+                </div>
+              </>
             ) : (
               <div className="plant-step-panel">
                 <button
@@ -1132,6 +1184,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                     setSelectedBaseId(null);
                     setSelectedVariantId(null);
                     setSelectedCultivarId(null);
+                    setAddPlantFeedback("");
                   }}
                 >
                   Bytt plante
@@ -1232,16 +1285,20 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
             </div>
 
             {newLocation === "greenhouse" ? (
-            <button className="toggle-row" type="button" onClick={() => setNewHasSevenInOne((value) => !value)}>
-              <span>
-                <strong>Har 7-i-1 sensor</strong>
-                <small>Vis jordverdier direkte på planten.</small>
-              </span>
-              <span className={`ios-switch${newHasSevenInOne ? " is-on" : ""}`} aria-hidden="true" />
-            </button>
+              <button className="toggle-row" type="button" onClick={() => setNewHasSevenInOne((value) => !value)}>
+                <span>
+                  <strong>Har 7-i-1 sensor</strong>
+                  <small>Vis jordverdier direkte på planten.</small>
+                </span>
+                <span className={`ios-switch${newHasSevenInOne ? " is-on" : ""}`} aria-hidden="true" />
+              </button>
             ) : null}
 
-            <button className="primary-action" type="button" onClick={addPlant} disabled={!selectedCatalogItem}>Legg til plante</button>
+            {addPlantFeedback ? <p className="plant-submit-feedback" role="status">{addPlantFeedback}</p> : null}
+
+            <button className="primary-action add-plant-panel__submit" type="button" onClick={addPlant} disabled={!selectedCatalogItem || addingPlant}>
+              {addingPlant ? "Legger til..." : "Legg til plante"}
+            </button>
           </section>
         </div>
       ) : null}

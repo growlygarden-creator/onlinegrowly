@@ -639,7 +639,11 @@ function WeatherGlyph({ symbolCode, compact = false, className = "" }: { symbolC
         ) : null}
         {isCloudy ? (
           <g className="weather-glyph__cloud">
-            <path d="M19.5 43.5h25.8c6.4 0 10.7-3.8 10.7-9.2 0-5.1-3.8-8.9-9.2-9.2C44.9 18.7 39.5 14 32.7 14c-7.1 0-12.8 5-14.2 11.6-6 .5-10.5 4.2-10.5 9 0 5.4 4.5 8.9 11.5 8.9Z" />
+            <path
+              fill="#fbfff7"
+              stroke="#bfd5ca"
+              d="M19.5 43.5h25.8c6.4 0 10.7-3.8 10.7-9.2 0-5.1-3.8-8.9-9.2-9.2C44.9 18.7 39.5 14 32.7 14c-7.1 0-12.8 5-14.2 11.6-6 .5-10.5 4.2-10.5 9 0 5.4 4.5 8.9 11.5 8.9Z"
+            />
           </g>
         ) : null}
         {kind === "rain" ? (
@@ -858,11 +862,42 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const currentWeatherSymbol = weatherNow?.symbol_code || weatherDays[0]?.symbol_code;
   const climateTitle = weather ? "Lokalt dyrkevær" : hasLiveSensorData ? "Vekstforhold" : hasPairedHub ? "Klar for første måling" : "Dyrkested";
   const climateNote = hasPairedHub
-    ? (hasLiveSensorData ? status.note : weather ? "Værprognosen brukes sammen med huben når Growly gir råd." : "Legg inn dyrkested for værbaserte råd.")
+    ? (hasLiveSensorData ? status.note : weather ? "Værprognosen brukes sammen med huben når Growly gir råd." : "Koble dyrkested eller vent på første sensorpakke før Growly konkluderer.")
     : weather
       ? "Growly bruker værprognosen til dyrkeråd uten hub."
       : "Legg inn dyrkested for lokale råd uten sensor.";
-  const climatePill = hasLiveSensorData ? "Målinger aktive" : weather ? "Værdata aktiv" : hubOnline ? "Hub klar" : "Uten hub";
+  const climatePill = hasLiveSensorData ? "Målinger aktive" : weather ? "Værdata aktiv" : hubOnline ? "Venter på data" : "Uten hub";
+  const commandTitle = hasLiveSensorData
+    ? "Neste beste steg"
+    : weather
+      ? "Sesongen kan planlegges"
+      : dashboardPlants.length
+        ? "Koble klima til plantene"
+        : "Bygg opp drivhuset";
+  const commandBody = hasLiveSensorData
+    ? "Growly har målinger og kan begynne å prioritere tiltak for plantene dine."
+    : weather
+      ? "Dyrkestedet er på plass. Legg inn planter for å få rådene tettere på hverdagen i drivhuset."
+      : dashboardPlants.length
+        ? "Plantene er registrert. Legg til dyrkested eller hubdata for en mer presis opplevelse."
+        : "Start med noen få planter og et dyrkested. Da får appen en ekte sesong å følge.";
+  const commandActions = [
+    {
+      label: dashboardPlants.length ? `${dashboardPlants.length} planter` : "Første plante",
+      value: dashboardPlants.length ? "Aktive i Growly" : "Tomat, agurk eller basilikum",
+      to: "/drivhus",
+    },
+    {
+      label: weather ? "Dyrkested klart" : "Dyrkested",
+      value: weather ? "Lokal prognose aktiv" : "Gir bedre ukeplan",
+      to: "/settings",
+    },
+    {
+      label: hasLiveSensorData ? "Sensorer" : hasPairedHub ? "Sensorgrunnlag" : "Hub",
+      value: hasLiveSensorData ? "Målinger klare" : hasPairedHub ? "Venter på første pakke" : "Kan kobles senere",
+      to: "/settings",
+    },
+  ];
   const updatedAt = formatUpdatedAt(sample?.recorded_at);
   const weeklyTasks = buildWeeklyTasks(sample, !!weather, dashboardPlants.length);
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
@@ -923,6 +958,22 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
             </svg>
           )}
         </button>
+      </section>
+
+      <section className="home-command-card soft-card" aria-label="Neste steg">
+        <div>
+          <p className="section-kicker">Sesongflyt</p>
+          <h2>{commandTitle}</h2>
+          <span>{commandBody}</span>
+        </div>
+        <div className="home-command-actions">
+          {commandActions.map((action) => (
+            <Link className="home-command-action" to={action.to} key={action.label}>
+              <small>{action.label}</small>
+              <strong>{action.value}</strong>
+            </Link>
+          ))}
+        </div>
       </section>
 
       <section className="settings-section">

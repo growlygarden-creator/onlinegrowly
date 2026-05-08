@@ -21,7 +21,7 @@ const initialAssistantMessages: AssistantMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    text: "Hei! Spør meg om vanning, sensorene eller hva du bør gjøre nå.",
+    text: "Hei! Jeg kan hjelpe med vanning, plantebilder, sensorer og neste steg i drivhuset.",
   },
 ];
 
@@ -106,7 +106,7 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
           {
             id: `assistant-error-${Date.now()}`,
             role: "assistant",
-            text: "Jeg fikk ikke kontakt med Growly AI akkurat nå. Prøv igjen om litt.",
+            text: "Jeg fikk ikke kontakt med Growly akkurat nå. Prøv igjen om litt.",
             isError: true,
           },
         ]);
@@ -123,7 +123,7 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
           ? "AI-nøkkelen mangler på serveren. Legg OPENAI_API_KEY inn i Render og deploy på nytt."
           : message === "ai_http_404"
             ? "AI-endepunktet finnes ikke på serveren ennå. Deploy siste versjon til Render."
-            : "Jeg fikk ikke kontakt med Growly AI akkurat nå. Prøv igjen om litt.";
+            : "Jeg fikk ikke kontakt med Growly akkurat nå. Prøv igjen om litt.";
       setAssistantMessages((messages) => [
         ...messages,
         { id: `assistant-error-${Date.now()}`, role: "assistant", text: friendlyMessage, isError: true },
@@ -148,10 +148,12 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
             </div>
             <div>
               <p className="section-kicker">Dyrkeassistent</p>
-              <h2>Chat med Growly</h2>
+              <h2>Growly</h2>
             </div>
             <button className="assistant-close-button" type="button" onClick={() => setAssistantOpen(false)} aria-label="Lukk chat">
-              x
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+              </svg>
             </button>
           </div>
 
@@ -242,7 +244,7 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
       ) : null}
       <button className="assistant-bubble-button" type="button" onClick={() => setAssistantOpen((open) => !open)} aria-label="Åpne Growly-chat">
         <span className="assistant-bubble-mark" aria-hidden="true">
-          <span>AI</span>
+          <span>G</span>
           <svg viewBox="0 0 24 24">
             <path d="M12 19V8" />
             <path d="M11.4 11.2C7.7 10.5 5.6 8.3 5.1 5.1c4 .1 6.5 2.1 7.7 5.9" />
