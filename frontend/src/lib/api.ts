@@ -40,6 +40,16 @@ export type WeatherDay = {
   symbol_code: string;
 };
 
+export type WeatherHour = {
+  time: string;
+  air_temperature: number | null;
+  relative_humidity: number | null;
+  wind_speed: number | null;
+  wind_from_direction: number | null;
+  precipitation_amount: number | null;
+  symbol_code: string;
+};
+
 export type WeatherForecast = {
   location: {
     address: string;
@@ -55,6 +65,7 @@ export type WeatherForecast = {
       wind_speed: number | null;
       symbol_code: string;
     } | null;
+    hours: WeatherHour[];
     days: WeatherDay[];
   };
 };

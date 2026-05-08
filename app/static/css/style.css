@@ -1085,6 +1085,11 @@ select {
     gap: 10px;
 }
 
+.customer-message-archive-list {
+    display: grid;
+    gap: 10px;
+}
+
 .customer-message-item {
     display: grid;
     gap: 9px;
@@ -1101,10 +1106,27 @@ select {
         rgba(255, 255, 255, 0.9);
 }
 
+.customer-message-item.is-archived {
+    border-color: rgba(96, 112, 102, 0.18);
+    background: rgba(255, 255, 255, 0.72);
+}
+
 .customer-message-item p {
     margin: 0;
     color: var(--muted);
     line-height: 1.45;
+}
+
+.customer-message-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    justify-content: space-between;
+    color: var(--muted);
+}
+
+.customer-message-meta-row strong {
+    color: var(--text);
 }
 
 .customer-message-actions {

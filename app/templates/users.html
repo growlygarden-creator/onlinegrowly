@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Growly Brukere</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260506-users-storage-1">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v=20260508-messages-archive-1">
 </head>
 <body>
     <main class="dashboard-shell">
@@ -139,16 +139,35 @@
                 </aside>
             </div>
         </section>
+
+        <section class="panel settings-card customer-archive-panel">
+            <div class="section-heading-row customer-manager-head">
+                <div>
+                    <h2 class="settings-subtitle">Meldingsarkiv</h2>
+                    <p class="helper-text">Arkiverte tilbakemeldinger fra alle kunder samles her. Hver melding viser hvem som sendte den inn.</p>
+                </div>
+                <div class="customer-head-actions">
+                    <span id="archive-status" class="status-pill">Arkiv klart</span>
+                    <button id="refresh-archive-button" class="button subtle-button" type="button">Oppdater arkiv</button>
+                </div>
+            </div>
+            <div id="message-archive-list" class="customer-message-archive-list">
+                <p class="helper-text">Laster arkiv...</p>
+            </div>
+        </section>
     </main>
 
     <script>
         const userList = document.getElementById("user-list");
         const userDetail = document.getElementById("user-detail");
         const userStatus = document.getElementById("user-status");
+        const archiveStatus = document.getElementById("archive-status");
         const refreshUsersButton = document.getElementById("refresh-users-button");
+        const refreshArchiveButton = document.getElementById("refresh-archive-button");
         const userSearch = document.getElementById("user-search");
         const userSort = document.getElementById("user-sort");
         const visibleUsersCount = document.getElementById("visible-users-count");
+        const messageArchiveList = document.getElementById("message-archive-list");
         const currentUsername = "{{ current_username }}";
 
         const stats = {
@@ -181,13 +200,16 @@
             target_has_hub: "Ny eier har allerede hub.",
             target_hub_has_samples: "Ny eier har allerede hub med sensordata. Velg erstatt hvis dette er riktig.",
             message_not_found: "Meldingen finnes ikke.",
-            invalid_status: "Ugyldig meldingsstatus."
+            invalid_status: "Ugyldig meldingsstatus.",
+            message_delete_failed: "Kunne ikke slette meldingen."
         };
 
         let users = [];
         let selectedUsername = "";
         let activeFilter = "all";
         let messageCache = {};
+        let archivedMessages = [];
+        let archiveLoaded = false;
 
         function humanError(error) {
             return errorMessages[error] || error || "Ukjent feil";
@@ -225,6 +247,11 @@
         function setUserStatus(text, mode = "") {
             userStatus.textContent = text;
             userStatus.dataset.mode = mode;
+        }
+
+        function setArchiveStatus(text, mode = "") {
+            archiveStatus.textContent = text;
+            archiveStatus.dataset.mode = mode;
         }
 
         function displayName(user) {
@@ -341,14 +368,15 @@
         }
 
         function renderCustomerMessages(user) {
-            const messages = messageCache[user.username];
-            if (!messages) {
+            const cachedMessages = messageCache[user.username];
+            if (!cachedMessages) {
                 return `
                     <div class="customer-message-list">
                         <p class="helper-text">Laster meldinger...</p>
                     </div>
                 `;
             }
+            const messages = cachedMessages.filter((message) => message.status !== "arkivert");
             if (!messages.length) {
                 return `
                     <div class="customer-message-list">
@@ -372,12 +400,52 @@
                                 <div class="customer-message-actions">
                                     ${message.status === "ny" ? `<button type="button" class="button subtle-button" data-message-id="${message.id}" data-message-status="lest">Marker lest</button>` : ""}
                                     ${message.status !== "arkivert" ? `<button type="button" class="button subtle-button" data-message-id="${message.id}" data-message-status="arkivert">Arkiver</button>` : ""}
+                                    <button type="button" class="button danger-button" data-message-delete="${message.id}">Slett</button>
                                 </div>
                             </article>
                         `;
                     }).join("")}
                 </div>
             `;
+        }
+
+        function messageSenderLabel(message) {
+            return (message.full_name || message.username || "Ukjent bruker").trim();
+        }
+
+        function renderArchiveMessages() {
+            if (!archiveLoaded) {
+                messageArchiveList.innerHTML = '<p class="helper-text">Laster arkiv...</p>';
+                return;
+            }
+            if (!archivedMessages.length) {
+                messageArchiveList.innerHTML = `
+                    <div class="customer-empty">
+                        <strong>Arkivet er tomt</strong>
+                        <p class="helper-text">Når en melding arkiveres fra et brukerkort, dukker den opp her.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            messageArchiveList.innerHTML = archivedMessages.map((message) => `
+                <article class="customer-message-item is-archived">
+                    <div class="customer-message-item__head">
+                        <span class="mini-pill">${messageCategoryLabel(message.category)}</span>
+                        <small>${formatDate(message.created_at)}</small>
+                    </div>
+                    <div class="customer-message-meta-row">
+                        <span>Fra <strong>${escapeHtml(messageSenderLabel(message))}</strong></span>
+                        <small>Bruker: ${escapeHtml(message.username || "ukjent bruker")}</small>
+                    </div>
+                    <strong>${escapeHtml(message.title || "Melding fra kunde")}</strong>
+                    <p>${escapeHtml(message.message || "").replaceAll("\n", "<br>")}</p>
+                    <div class="customer-message-actions">
+                        <button type="button" class="button subtle-button" data-archive-message-id="${message.id}" data-archive-message-status="lest">Flytt tilbake</button>
+                        <button type="button" class="button danger-button" data-archive-message-delete="${message.id}">Slett</button>
+                    </div>
+                </article>
+            `).join("");
         }
 
         function renderDetail() {
@@ -475,7 +543,7 @@
                     </div>
                     <label class="field">
                         <span>Flytt hub til bruker/e-post</span>
-                        <input data-hub-transfer-target type="text" placeholder="geirjohansen@me.com" ${user.hub_id ? "" : "disabled"}>
+                        <input data-hub-transfer-target type="text" placeholder="kunde@example.com" ${user.hub_id ? "" : "disabled"}>
                     </label>
                     <label class="toggle-line">
                         <input type="checkbox" data-hub-transfer-replace ${user.hub_id ? "" : "disabled"}>
@@ -528,6 +596,19 @@
             }
         }
 
+        async function loadArchiveMessages() {
+            setArchiveStatus("Oppdaterer arkiv...", "warning");
+            const response = await fetch("/api/customer-messages?status=arkivert", { cache: "no-store" });
+            const payload = await response.json();
+            if (!payload.ok) {
+                throw new Error(payload.error || "messages_load_failed");
+            }
+            archivedMessages = payload.messages || [];
+            archiveLoaded = true;
+            renderArchiveMessages();
+            setArchiveStatus(`${archivedMessages.length} arkiverte`, "online");
+        }
+
         async function updateCustomerMessageStatus(messageId, status) {
             setUserStatus("Oppdaterer melding...", "warning");
             try {
@@ -543,23 +624,57 @@
                 const message = result.message;
                 if (message?.username) {
                     const cached = messageCache[message.username] || [];
-                    const previous = cached.find((item) => item.id === message.id);
+                    const nextCached = message.status === "arkivert"
+                        ? cached.filter((item) => item.id !== message.id)
+                        : cached.some((item) => item.id === message.id)
+                            ? cached.map((item) => item.id === message.id ? message : item)
+                            : [message, ...cached];
                     messageCache = {
                         ...messageCache,
-                        [message.username]: cached.map((item) => item.id === message.id ? message : item)
+                        [message.username]: nextCached
                     };
-                    users = users.map((user) => {
-                        if (user.username !== message.username) return user;
-                        const unreadDelta = previous?.status === "ny" && message.status !== "ny" ? -1 : 0;
-                        return {
-                            ...user,
-                            unread_message_count: Math.max(0, Number(user.unread_message_count || 0) + unreadDelta)
-                        };
-                    });
-                    renderStats();
-                    renderList();
+                    if (message.status === "arkivert") {
+                        archivedMessages = [message, ...archivedMessages.filter((item) => item.id !== message.id)];
+                        archiveLoaded = true;
+                    } else {
+                        archivedMessages = archivedMessages.filter((item) => item.id !== message.id);
+                    }
+                    renderArchiveMessages();
+                    setArchiveStatus(`${archivedMessages.length} arkiverte`, "online");
+                    await loadUsers();
                 }
                 setUserStatus("Melding oppdatert", "online");
+            } catch (error) {
+                setUserStatus(`Feil: ${humanError(error.message)}`, "offline");
+            }
+        }
+
+        async function deleteCustomerMessage(messageId) {
+            if (!window.confirm("Slette denne meldingen permanent?")) {
+                return;
+            }
+
+            setUserStatus("Sletter melding...", "warning");
+            try {
+                const response = await fetch(`/api/customer-messages/${encodeURIComponent(messageId)}`, {
+                    method: "DELETE"
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "message_delete_failed");
+                }
+                const message = result.message;
+                if (message?.username && messageCache[message.username]) {
+                    messageCache = {
+                        ...messageCache,
+                        [message.username]: messageCache[message.username].filter((item) => item.id !== message.id)
+                    };
+                }
+                archivedMessages = archivedMessages.filter((item) => item.id !== message.id);
+                renderArchiveMessages();
+                await loadUsers();
+                setUserStatus("Melding slettet", "online");
+                setArchiveStatus(`${archivedMessages.length} arkiverte`, "online");
             } catch (error) {
                 setUserStatus(`Feil: ${humanError(error.message)}`, "offline");
             }
@@ -701,6 +816,9 @@
                 .then(() => setUserStatus("Oppdatert", "online"))
                 .catch((error) => setUserStatus(`Feil: ${humanError(error.message)}`, "offline"));
         });
+        refreshArchiveButton.addEventListener("click", () => {
+            loadArchiveMessages().catch((error) => setArchiveStatus(`Feil: ${humanError(error.message)}`, "offline"));
+        });
         userSearch.addEventListener("input", renderList);
         userSort.addEventListener("change", renderList);
         document.querySelectorAll("[data-user-filter]").forEach((button) => {
@@ -735,6 +853,11 @@
                 updateCustomerMessageStatus(messageStatusButton.dataset.messageId, messageStatusButton.dataset.messageStatus);
                 return;
             }
+            const messageDeleteButton = event.target.closest("[data-message-delete]");
+            if (messageDeleteButton) {
+                deleteCustomerMessage(messageDeleteButton.dataset.messageDelete);
+                return;
+            }
             const saveButton = event.target.closest("[data-detail-save]");
             if (saveButton) {
                 updateUser(saveButton.dataset.detailSave);
@@ -761,8 +884,25 @@
             }
         });
 
+        messageArchiveList.addEventListener("click", (event) => {
+            const archiveStatusButton = event.target.closest("[data-archive-message-id][data-archive-message-status]");
+            if (archiveStatusButton) {
+                updateCustomerMessageStatus(archiveStatusButton.dataset.archiveMessageId, archiveStatusButton.dataset.archiveMessageStatus);
+                return;
+            }
+            const archiveDeleteButton = event.target.closest("[data-archive-message-delete]");
+            if (archiveDeleteButton) {
+                deleteCustomerMessage(archiveDeleteButton.dataset.archiveMessageDelete);
+            }
+        });
+
         loadUsers().catch((error) => {
             setUserStatus(`Feil: ${humanError(error.message)}`, "offline");
+        });
+        loadArchiveMessages().catch((error) => {
+            archiveLoaded = true;
+            renderArchiveMessages();
+            setArchiveStatus(`Feil: ${humanError(error.message)}`, "offline");
         });
     </script>
 </body>

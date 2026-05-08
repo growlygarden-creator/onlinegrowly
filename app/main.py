@@ -1334,6 +1334,12 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE INDEX IF NOT EXISTS idx_customer_messages_status_created
+            ON customer_messages(status, created_at)
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS plant_profiles (
                 profile_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -2951,6 +2957,7 @@ def list_app_users() -> list[dict[str, Any]]:
                        SUM(CASE WHEN status = 'ny' THEN 1 ELSE 0 END) AS unread_message_count,
                        MAX(created_at) AS last_message_at
                 FROM customer_messages
+                WHERE status != 'arkivert'
                 GROUP BY username
             ) cm ON cm.username = u.username
             ORDER BY u.username COLLATE NOCASE ASC
@@ -3464,13 +3471,23 @@ def find_customer_message(message_id: int) -> dict[str, Any] | None:
     return customer_message_payload(dict(row)) if row else None
 
 
-def list_customer_messages(username: str = "", limit: int = 100) -> list[dict[str, Any]]:
+def list_customer_messages(username: str = "", limit: int = 100, status: str = "") -> list[dict[str, Any]]:
     clean_username = username.strip()
+    clean_status = str(status or "").strip().lower()
     params: list[Any] = []
-    where_clause = ""
+    where_parts: list[str] = []
     if clean_username:
-        where_clause = "WHERE lower(m.username) = lower(?)"
+        where_parts.append("lower(m.username) = lower(?)")
         params.append(clean_username)
+    if clean_status:
+        if clean_status == "active":
+            where_parts.append("m.status != 'arkivert'")
+        else:
+            if clean_status not in CUSTOMER_MESSAGE_STATUSES:
+                raise ValueError("invalid_status")
+            where_parts.append("m.status = ?")
+            params.append(clean_status)
+    where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
     params.append(max(1, min(limit, 300)))
 
     with db_connection() as connection:
@@ -3489,6 +3506,24 @@ def list_customer_messages(username: str = "", limit: int = 100) -> list[dict[st
             params,
         ).fetchall()
     return [customer_message_payload(dict(row)) for row in rows]
+
+
+def delete_customer_message(message_id: int) -> dict[str, Any]:
+    message = find_customer_message(message_id)
+    if not message:
+        raise ValueError("message_not_found")
+
+    with db_connection() as connection:
+        connection.execute(
+            """
+            DELETE FROM customer_messages
+            WHERE id = ?
+            """,
+            (message_id,),
+        )
+        connection.commit()
+
+    return message
 
 
 def update_customer_message_status(message_id: int, status: str) -> dict[str, Any]:
@@ -3736,8 +3771,9 @@ def ask_openai_growly(question: str, context: dict[str, Any], image: dict[str, s
                         "text": (
                             "Du er Growly Dyrkeassistent, en rolig norsk hageassistent for drivhus. "
                             "Svar vennlig, premium og konkret på norsk. "
-                            "Bruk 2-3 korte setninger i ett lite avsnitt, maks 55 ord totalt. "
+                            "Bruk 2 korte setninger i ett lite avsnitt, maks 45 ord totalt. "
                             "Ikke bruk Markdown, fet tekst, overskrifter, punktliste eller lange forklaringsavsnitt med mindre brukeren ber om det. "
+                            "Ved forklaringsspørsmål: start med en kort, varm åpning som 'Klart:' eller 'Ja:', men ikke bli pratete. "
                             "Forklar kort hva målingen betyr, hvorfor den måles, og ett trygt neste steg når det passer. "
                             "Svar også på generelle drivhus-, dyrke- og plantepleiespørsmål når sensordata ikke er relevant. "
                             "Bruk sensorene som ekstra kontekst, ikke som eneste grunnlag for svaret. "
@@ -3746,7 +3782,7 @@ def ask_openai_growly(question: str, context: dict[str, Any], image: dict[str, s
                             "Hvis brukeren snakker om problemer, forslag eller ønsker for selve Growly-appen, "
                             "still ett kort oppfølgingsspørsmål og hjelp dem å formulere tilbakemeldingen. "
                             "Ikke si at noe er sendt til admin; det skjer bare når brukeren bekrefter i appen. "
-                            "Hvis data mangler, si det tydelig i ett kort punkt. "
+                            "Hvis data mangler, si det tydelig i én kort setning. "
                             "Ikke gi bastante sykdomsdiagnoser; gi sannsynlige årsaker og trygge tiltak."
                         ),
                     }
@@ -5031,11 +5067,16 @@ def fetch_met_weather_forecast(lat: float, lon: float) -> dict[str, Any]:
         details = item.get("data", {}).get("instant", {}).get("details", {})
         if not isinstance(details, dict):
             continue
+        next_1h_details = item.get("data", {}).get("next_1_hours", {}).get("details", {})
+        if not isinstance(next_1h_details, dict):
+            next_1h_details = {}
         row = {
             "time": forecast_time.isoformat(),
             "air_temperature": details.get("air_temperature"),
             "relative_humidity": details.get("relative_humidity"),
             "wind_speed": details.get("wind_speed"),
+            "wind_from_direction": details.get("wind_from_direction"),
+            "precipitation_amount": next_1h_details.get("precipitation_amount"),
             "symbol_code": weather_symbol_for_timeseries(item),
         }
         upcoming.append(row)
@@ -5067,6 +5108,7 @@ def fetch_met_weather_forecast(lat: float, lon: float) -> dict[str, Any]:
     return {
         "updated_at": utc_now_iso(),
         "now": upcoming[0] if upcoming else None,
+        "hours": upcoming[:54],
         "days": days,
     }
 
@@ -6389,7 +6431,11 @@ async def get_customer_messages(request: Request):
     auth_error = require_settings_api(request)
     if auth_error:
         return auth_error
-    return {"ok": True, "messages": list_customer_messages()}
+    try:
+        messages = list_customer_messages(status=request.query_params.get("status", ""))
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "messages": messages}
 
 
 @app.get("/api/users/{username}/customer-messages")
@@ -6399,7 +6445,7 @@ async def get_user_customer_messages(request: Request, username: str):
         return auth_error
     if not find_app_user(username):
         return JSONResponse(status_code=404, content={"ok": False, "error": "user_not_found"})
-    return {"ok": True, "messages": list_customer_messages(username)}
+    return {"ok": True, "messages": list_customer_messages(username, status="active")}
 
 
 @app.patch("/api/customer-messages/{message_id}")
@@ -6411,6 +6457,18 @@ async def edit_customer_message(request: Request, message_id: int, payload: dict
         message = update_customer_message_status(message_id, str(payload.get("status") or ""))
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "message": message}
+
+
+@app.delete("/api/customer-messages/{message_id}")
+async def remove_customer_message(request: Request, message_id: int):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        message = delete_customer_message(message_id)
+    except ValueError as exc:
+        return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
     return {"ok": True, "message": message}
 
 

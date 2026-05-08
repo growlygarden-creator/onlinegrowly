@@ -228,7 +228,7 @@ export function SettingsPage({ session, setSession }: SettingsPageProps) {
   }
 
   const displayName = session?.user?.full_name || session?.username || "Growly Garden";
-  const displayEmail = session?.user?.email || "geirij@example.com";
+  const displayEmail = session?.user?.email || "kunde@example.com";
   const hubName = session?.hub?.hub_name || "Ingen hub paret ennå";
   const hubLocation = session?.hub?.location_label || "";
   const hubId = session?.hub?.hub_id || "Venter på paring";

@@ -14,6 +14,7 @@ type AssistantMessage = {
   text: string;
   isError?: boolean;
   imageName?: string;
+  imageDataUrl?: string;
 };
 type FeedbackDraft = {
   category: CustomerMessageCategory;
@@ -27,18 +28,18 @@ type FeedbackDraft = {
 };
 
 const assistantPrompts: AssistantPrompt[] = [
-  { label: "Hva bør jeg gjøre nå?", question: "Hva bør jeg gjøre i drivhuset akkurat nå basert på sensorene?" },
-  { label: "Hvem trenger vann?", question: "Hvilke planter eller forhold tyder på at jeg bør vanne nå?" },
-  { label: "Tolk sensorene", question: "Tolk siste sensordata og si hva som er bra, hva jeg bør følge med på, og neste tiltak." },
+  { label: "Hva bør jeg gjøre nå?", question: "Hva bør jeg gjøre i drivhuset akkurat nå?" },
+  { label: "Hvem trenger vann?", question: "Hvilke planter bør jeg sjekke for vann i dag?" },
   { label: "Hva kan sås?", question: "Hva kan jeg så eller plante denne måneden i drivhuset?" },
   { label: "Gi tilbakemelding", question: "Jeg vil gi en tilbakemelding eller et forslag om Growly-appen." },
+  { label: "Foreslå forbedring", question: "Jeg har et forslag til forbedring av Growly-appen." },
 ];
 
 const initialAssistantMessages: AssistantMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    text: "Hei! Spør meg om vanning, sensorene, plantebilder eller neste steg. Jeg svarer kort og trygt.",
+    text: "Hei! Spør meg om dyrking, vanning, plantebilder eller neste steg. Du kan også gi tilbakemeldinger og forslag her i chatten. Når vi har formulert det sammen, kan du sende det til Growly.",
   },
 ];
 
@@ -55,7 +56,10 @@ function assistantAnswerItems(answer: string): string[] {
     .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, "").trim())
     .filter(Boolean)
     .slice(0, hasStructuredLines || lines.length > 1 ? 3 : 1)
-    .map((line) => (line.length > 260 ? `${line.slice(0, 257).trim()}...` : line));
+    .map((line) => {
+      const maxLength = hasStructuredLines || lines.length > 1 ? 180 : 420;
+      return line.length > maxLength ? `${line.slice(0, maxLength - 3).trim()}...` : line;
+    });
 }
 
 function feedbackCategory(text: string): CustomerMessageCategory {
@@ -112,7 +116,7 @@ function hasFeedbackIntent(text: string): boolean {
     "si fra",
   ];
 
-  if (/(tilbakemelding|forslag|forbedring).*(geir|admin|growly|app)/.test(lower)) return true;
+  if (/(tilbakemelding|forslag|forbedring).*(admin|growly|app)/.test(lower)) return true;
   return productWords.some((word) => lower.includes(word)) && feedbackWords.some((word) => lower.includes(word));
 }
 
@@ -206,7 +210,7 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
     }
 
     if (!feedbackDraft) {
-      const reply = "Det kan jeg samle til Geir. Hva er det som gjør dette vanskelig, og hvor i appen skjer det?";
+      const reply = "Det kan jeg samle til Growly. Hva er det som gjør dette vanskelig, og hvor i appen skjer det?";
       setFeedbackDraft({
         category: feedbackCategory(question),
         step: "detail",
@@ -256,7 +260,7 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
       ],
     };
     setFeedbackDraft(updated);
-    appendAssistantMessage("Jeg har laget et kort utkast. Trykk Send til Geir hvis dette skal videre til adminpanelet.");
+    appendAssistantMessage("Jeg har laget et kort utkast. Trykk Send til Growly hvis dette skal følges opp.");
     return true;
   }
 
@@ -276,7 +280,7 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
         selectedHubId,
       );
       setFeedbackDraft(null);
-      appendAssistantMessage("Takk, dette er sendt til Geir i adminpanelet.");
+      appendAssistantMessage("Takk, dette er sendt videre til Growly.");
     } catch {
       appendAssistantMessage("Jeg klarte ikke sende dette akkurat nå. Prøv igjen litt senere.", true);
     } finally {
@@ -295,7 +299,13 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
     setAssistantImageError("");
     setAssistantMessages((messages) => [
       ...messages,
-      { id: `user-${Date.now()}`, role: "user", text: trimmedQuestion, imageName: image?.name },
+      {
+        id: `user-${Date.now()}`,
+        role: "user",
+        text: trimmedQuestion,
+        imageName: image?.name,
+        imageDataUrl: image?.dataUrl,
+      },
     ]);
     if (!image && nextFeedbackMessage(trimmedQuestion)) {
       return;
@@ -368,7 +378,15 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
                   className={`assistant-message assistant-message--${message.role}${message.isError ? " assistant-message--error" : ""}`}
                   key={message.id}
                 >
-                  {message.imageName ? <span className="assistant-attachment-pill">Bilde: {message.imageName}</span> : null}
+                  {message.imageDataUrl ? (
+                    <img
+                      className="assistant-message-image"
+                      src={message.imageDataUrl}
+                      alt={message.imageName ? `Opplastet bilde: ${message.imageName}` : "Opplastet plantebilde"}
+                    />
+                  ) : message.imageName ? (
+                    <span className="assistant-attachment-pill">Bilde: {message.imageName}</span>
+                  ) : null}
                   {items.length > 1 ? (
                     <div className="assistant-answer-list">
                       {items.map((item) => (
@@ -409,19 +427,17 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
             </div>
           ) : null}
 
-          {feedbackDraft ? (
+          {feedbackDraft?.step === "ready" ? (
             <div className="assistant-feedback-draft" role="status">
               <div>
-                <span>{feedbackDraft.step === "ready" ? "Utkast klart" : "Tilbakemelding"}</span>
+                <span>Forslag klart</span>
                 <strong>{feedbackDraft.title}</strong>
               </div>
-              {feedbackDraft.step === "ready" ? <p>{feedbackDraft.summary}</p> : <p>Jeg stiller noen korte spørsmål før noe sendes videre.</p>}
+              <p>{feedbackDraft.summary}</p>
               <div className="assistant-feedback-actions">
-                {feedbackDraft.step === "ready" ? (
-                  <button type="button" onClick={submitFeedbackDraft} disabled={feedbackSending}>
-                    {feedbackSending ? "Sender..." : "Send til Geir"}
-                  </button>
-                ) : null}
+                <button type="button" onClick={submitFeedbackDraft} disabled={feedbackSending}>
+                  {feedbackSending ? "Sender..." : "Send til Growly"}
+                </button>
                 <button type="button" onClick={() => setFeedbackDraft(null)} disabled={feedbackSending}>
                   Ikke send
                 </button>
@@ -457,7 +473,7 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
             <input
               value={assistantQuestion}
               onChange={(event) => setAssistantQuestion(event.target.value)}
-              placeholder="Spør om planten..."
+              placeholder="Spør eller gi tilbakemelding..."
             />
             <button type="submit" disabled={assistantLoading || (!assistantQuestion.trim() && !assistantImage)}>
               Send
@@ -467,12 +483,7 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
       ) : null}
       <button className="assistant-bubble-button" type="button" onClick={() => setAssistantOpen((open) => !open)} aria-label="Åpne Growly-chat">
         <span className="assistant-bubble-mark" aria-hidden="true">
-          <span>G</span>
-          <svg viewBox="0 0 24 24">
-            <path d="M12 19V8" />
-            <path d="M11.4 11.2C7.7 10.5 5.6 8.3 5.1 5.1c4 .1 6.5 2.1 7.7 5.9" />
-            <path d="M12.7 12.1c1.1-3.9 3.7-6.2 7.9-6.6-.4 4.1-2.9 6.5-7.5 7.4" />
-          </svg>
+          <span>AI</span>
         </span>
       </button>
     </div>

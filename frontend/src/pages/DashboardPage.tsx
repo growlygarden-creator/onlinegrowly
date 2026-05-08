@@ -12,6 +12,7 @@ import {
   type HistoryPoint,
   type LatestSample,
   type WeatherForecast,
+  type WeatherHour,
 } from "../lib/api";
 import { PlantAvatar } from "../components/PlantAvatar";
 import greenhouseDay from "../assets/greenhouse-assets/greenhouse-day.png";
@@ -622,19 +623,36 @@ function weatherGlyphKind(symbolCode: string | undefined): WeatherGlyphKind {
   return "sun";
 }
 
+function weatherIconLabel(symbolCode: string | undefined): string {
+  const code = (symbolCode || "").toLowerCase();
+  if (code.includes("rain") && (code.includes("day") || code.includes("fair") || code.includes("partly"))) {
+    return "Sol og regn";
+  }
+  const kind = weatherGlyphKind(symbolCode);
+  return {
+    sun: "Sol",
+    partly: "Sol og skyer",
+    cloud: "Skyet",
+    rain: "Regn",
+    snow: "Snø",
+  }[kind];
+}
+
 function WeatherGlyph({ symbolCode, compact = false, className = "" }: { symbolCode?: string; compact?: boolean; className?: string }) {
+  const code = (symbolCode || "").toLowerCase();
   const kind = weatherGlyphKind(symbolCode);
   const isCloudy = kind === "cloud" || kind === "rain" || kind === "snow" || kind === "partly";
+  const hasSun = kind === "sun" || kind === "partly" || ((kind === "rain" || kind === "snow") && (code.includes("day") || code.includes("fair") || code.includes("partly")));
 
   return (
     <span className={`${className} weather-glyph weather-glyph--${kind}${compact ? " weather-glyph--compact" : ""}`} aria-hidden="true">
       <svg viewBox="0 0 64 64" focusable="false">
-        {kind === "sun" || kind === "partly" ? (
+        {hasSun ? (
           <g className="weather-glyph__sun">
-            <circle cx={kind === "partly" ? 25 : 32} cy={kind === "partly" ? 24 : 30} r={kind === "partly" ? 10 : 13} />
-            <path d={kind === "partly"
-              ? "M25 6v7M25 35v7M7 24h7M36 24h7M12.5 11.5l5 5M32.5 31.5l5 5M12.5 36.5l5-5M32.5 16.5l5-5"
-              : "M32 8v8M32 44v8M10 30h8M46 30h8M16.5 14.5l5.8 5.8M41.7 39.7l5.8 5.8M16.5 45.5l5.8-5.8M41.7 20.3l5.8-5.8"} />
+            <circle cx={kind === "sun" ? 32 : 25} cy={kind === "sun" ? 30 : 24} r={kind === "sun" ? 13 : 10} />
+            <path d={kind === "sun"
+              ? "M32 8v8M32 44v8M10 30h8M46 30h8M16.5 14.5l5.8 5.8M41.7 39.7l5.8 5.8M16.5 45.5l5.8-5.8M41.7 20.3l5.8-5.8"
+              : "M25 6v7M25 35v7M7 24h7M36 24h7M12.5 11.5l5 5M32.5 31.5l5 5M12.5 36.5l5-5M32.5 16.5l5-5"} />
           </g>
         ) : null}
         {isCloudy ? (
@@ -658,6 +676,226 @@ function WeatherGlyph({ symbolCode, compact = false, className = "" }: { symbolC
         ) : null}
       </svg>
     </span>
+  );
+}
+
+function formatWeatherHour(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleTimeString("nb-NO", { hour: "2-digit" });
+}
+
+function formatWeatherDay(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleDateString("nb-NO", { weekday: "short", day: "numeric" }).replace(".", "");
+}
+
+function weatherWindArrowRotation(value: number | null | undefined): number {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return 0;
+  }
+  return value + 180;
+}
+
+function weatherHourlyChart(hours: WeatherHour[]) {
+  const points = hours
+    .slice(0, 49)
+    .filter((hour) => typeof hour.air_temperature === "number")
+    .map((hour) => ({
+      ...hour,
+      air_temperature: Number(hour.air_temperature),
+      wind_speed: typeof hour.wind_speed === "number" ? Number(hour.wind_speed) : 0,
+      precipitation_amount: typeof hour.precipitation_amount === "number" ? Number(hour.precipitation_amount) : 0,
+    }));
+
+  if (points.length < 2) {
+    return null;
+  }
+
+  const left = 46;
+  const right = 748;
+  const top = 34;
+  const tempBottom = 184;
+  const rainBottom = 222;
+  const windTop = 250;
+  const windBottom = 306;
+  const temperatures = points.map((point) => point.air_temperature);
+  const minTemperature = Math.min(...temperatures);
+  const maxTemperature = Math.max(...temperatures);
+  const tempSpread = Math.max(4, maxTemperature - minTemperature);
+  const tempMin = minTemperature - tempSpread * 0.2;
+  const tempMax = maxTemperature + tempSpread * 0.22;
+  const maxRain = Math.max(1, ...points.map((point) => point.precipitation_amount));
+  const maxWind = Math.max(1, ...points.map((point) => point.wind_speed));
+  const xForIndex = (index: number) => left + (index / (points.length - 1)) * (right - left);
+  const yForTemp = (value: number) => tempBottom - ((value - tempMin) / (tempMax - tempMin || 1)) * (tempBottom - top);
+  const yForWind = (value: number) => windBottom - (value / maxWind) * (windBottom - windTop);
+  const tempCoords = points.map((point, index) => ({ x: xForIndex(index), y: yForTemp(point.air_temperature), point }));
+  const windCoords = points.map((point, index) => ({ x: xForIndex(index), y: yForWind(point.wind_speed), point }));
+  const tempLine = tempCoords.map((coord, index) => `${index === 0 ? "M" : "L"} ${coord.x.toFixed(2)} ${coord.y.toFixed(2)}`).join(" ");
+  const tempArea = `${tempLine} L ${right} ${tempBottom} L ${left} ${tempBottom} Z`;
+  const windLine = windCoords.map((coord, index) => `${index === 0 ? "M" : "L"} ${coord.x.toFixed(2)} ${coord.y.toFixed(2)}`).join(" ");
+  const yTicks = [tempMax, (tempMax + tempMin) / 2, tempMin].map((value) => ({
+    value,
+    y: yForTemp(value),
+    label: `${value.toFixed(0)}°`,
+  }));
+  const tickIndexes = points
+    .map((_, index) => index)
+    .filter((index) => index === 0 || index === points.length - 1 || index % 6 === 0);
+  const iconIndexes = points
+    .map((_, index) => index)
+    .filter((index) => index === 0 || index === points.length - 1 || index % 6 === 0);
+  const dayMarkers = points.reduce<Array<{ label: string; x: number }>>((markers, point, index) => {
+    const label = formatWeatherDay(point.time);
+    if (label && markers[markers.length - 1]?.label !== label) {
+      markers.push({ label, x: xForIndex(index) });
+    }
+    return markers;
+  }, []);
+
+  return {
+    points,
+    tempCoords,
+    windCoords,
+    tempLine,
+    tempArea,
+    windLine,
+    yTicks,
+    tickIndexes,
+    iconIndexes,
+    dayMarkers,
+    maxRain,
+    rainBottom,
+    rainTop: 194,
+    left,
+    right,
+  };
+}
+
+function WeatherHourlySheet({ weather, onClose }: { weather: WeatherForecast; onClose: () => void }) {
+  const chart = weatherHourlyChart(weather.forecast.hours ?? []);
+  const now = weather.forecast.now;
+  const updatedAt = formatUpdatedAt(weather.forecast.updated_at);
+
+  return (
+    <div className="weather-sheet" role="dialog" aria-modal="true" aria-label="Timesvis værgraf">
+      <button className="weather-sheet__backdrop" type="button" onClick={onClose} aria-label="Lukk værgraf" />
+      <section className="weather-sheet__panel soft-card">
+        <div className="weather-sheet__header">
+          <div>
+            <span>Timesvis prognose</span>
+            <h2>Været ved dyrkested</h2>
+            <p>{weather.location.address || "Lokal prognose"} · {updatedAt}</p>
+          </div>
+          <button className="weather-sheet__close" type="button" onClick={onClose} aria-label="Lukk værgraf">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="weather-sheet__summary">
+          <div>
+            <WeatherGlyph symbolCode={now?.symbol_code} />
+            <span>{weatherIconLabel(now?.symbol_code)}</span>
+          </div>
+          <strong>{metricText(now?.air_temperature, "°C", 0)}</strong>
+          <small>Fukt {metricText(now?.relative_humidity, "%", 0)} · vind {metricText(now?.wind_speed, " m/s", 1)}</small>
+        </div>
+
+        {chart ? (
+          <div className="weather-hourly-card">
+            <svg className="weather-hourly-chart" viewBox="0 0 800 326" role="img" aria-label="Graf for temperatur, nedbør og vind de neste timene">
+              <defs>
+                <linearGradient id="weather-temp-fill" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#d95f42" stopOpacity="0.24" />
+                  <stop offset="100%" stopColor="#d95f42" stopOpacity="0" />
+                </linearGradient>
+                <linearGradient id="weather-rain-fill" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#3d8be8" stopOpacity="0.9" />
+                  <stop offset="100%" stopColor="#85bdf6" stopOpacity="0.36" />
+                </linearGradient>
+              </defs>
+              {[34, 72, 110, 148, 184, 222, 250, 306].map((y) => (
+                <line key={y} x1="46" x2="748" y1={y} y2={y} className="weather-hourly-grid" />
+              ))}
+              {chart.tickIndexes.map((index) => {
+                const x = chart.tempCoords[index].x;
+                return <line key={`v-${index}`} x1={x} x2={x} y1="34" y2="306" className="weather-hourly-grid weather-hourly-grid--vertical" />;
+              })}
+              {chart.dayMarkers.map((marker) => (
+                <text key={marker.label} x={marker.x} y="22" className="weather-hourly-day">{marker.label}</text>
+              ))}
+              {chart.yTicks.map((tick) => (
+                <text key={tick.label} x="10" y={tick.y + 4} className="weather-hourly-axis">{tick.label}</text>
+              ))}
+              <path d={chart.tempArea} className="weather-hourly-temp-area" />
+              <path d={chart.tempLine} className="weather-hourly-temp-line" />
+              {chart.points.map((point, index) => {
+                const x = chart.tempCoords[index].x;
+                const amount = point.precipitation_amount;
+                const height = amount > 0 ? Math.max(3, (amount / chart.maxRain) * 28) : 0;
+                return amount > 0 ? (
+                  <rect
+                    key={`rain-${point.time}`}
+                    x={x - 4}
+                    y={chart.rainBottom - height}
+                    width="8"
+                    height={height}
+                    rx="3"
+                    className="weather-hourly-rain-bar"
+                  />
+                ) : null;
+              })}
+              <path d={chart.windLine} className="weather-hourly-wind-line" />
+              {chart.iconIndexes.map((index) => {
+                const point = chart.points[index];
+                const x = chart.tempCoords[index].x;
+                return (
+                  <foreignObject key={`icon-${point.time}`} x={x - 17} y={chart.tempCoords[index].y - 44} width="34" height="34">
+                    <WeatherGlyph symbolCode={point.symbol_code} compact />
+                  </foreignObject>
+                );
+              })}
+              {chart.tickIndexes.map((index) => {
+                const point = chart.points[index];
+                const x = chart.tempCoords[index].x;
+                return (
+                  <g key={`tick-${point.time}`}>
+                    <text x={x} y="242" className="weather-hourly-hour">{formatWeatherHour(point.time)}</text>
+                    <text
+                      x={x}
+                      y="322"
+                      className="weather-hourly-wind-arrow"
+                      style={{ transform: `rotate(${weatherWindArrowRotation(point.wind_from_direction)}deg)`, transformOrigin: `${x}px 316px` }}
+                    >
+                      ↑
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+            <div className="weather-hourly-legend">
+              <span><i className="legend-temp" /> Temperatur</span>
+              <span><i className="legend-rain" /> Nedbør</span>
+              <span><i className="legend-wind" /> Vind</span>
+              <span><i className="legend-icon" /> Værtype</span>
+            </div>
+          </div>
+        ) : (
+          <div className="weather-hourly-empty">
+            <strong>Timesgrafen mangler data akkurat nå</strong>
+            <span>Prøv å oppdatere værprognosen litt senere.</span>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -753,6 +991,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const [trendError, setTrendError] = useState("");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [dashboardPlants, setDashboardPlants] = useState<DashboardPlant[]>([]);
+  const [weatherSheetOpen, setWeatherSheetOpen] = useState(false);
 
   useEffect(() => {
     fetchLatestSample(selectedHubId).then((result) => {
@@ -765,6 +1004,12 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
       setWeather(result);
     });
   }, [selectedHubId]);
+
+  useEffect(() => {
+    if (!weather) {
+      setWeatherSheetOpen(false);
+    }
+  }, [weather]);
 
   useEffect(() => {
     let cancelled = false;
@@ -799,7 +1044,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   }, [session?.username, selectedHubId]);
 
   useEffect(() => {
-    if (!soilPanelOpen && !trendMetric && !reportMetric) {
+    if (!soilPanelOpen && !trendMetric && !reportMetric && !weatherSheetOpen) {
       return;
     }
 
@@ -808,12 +1053,13 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
         setSoilPanelOpen(false);
         setTrendMetric(null);
         setReportMetric(null);
+        setWeatherSheetOpen(false);
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [soilPanelOpen, trendMetric, reportMetric]);
+  }, [soilPanelOpen, trendMetric, reportMetric, weatherSheetOpen]);
 
   useEffect(() => {
     if (!trendMetric) {
@@ -845,7 +1091,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
     });
   }, [trendMetric, trendRange, selectedHubId]);
 
-  const firstName = session?.user?.full_name?.split(" ")[0] || session?.username || "Geirij";
+  const firstName = session?.user?.full_name?.split(" ")[0] || session?.username || "Growly";
   const status = growthStatus(sample);
   const scene = greenhouseScene(theme);
   const hubOnline = !!session?.hub?.is_active;
@@ -992,7 +1238,18 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
             </div>
 
             <div className="climate-visual-stack">
-              <div className="weather-overview-panel">
+              <div
+                className={`weather-overview-panel${weather ? " weather-overview-panel--interactive" : ""}`}
+                role={weather ? "button" : undefined}
+                tabIndex={weather ? 0 : undefined}
+                onClick={weather ? () => setWeatherSheetOpen(true) : undefined}
+                onKeyDown={weather ? (event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setWeatherSheetOpen(true);
+                  }
+                } : undefined}
+              >
                 <div className="weather-overview-main">
                   <WeatherGlyph className="weather-overview-icon" symbolCode={currentWeatherSymbol} />
                   <div>
@@ -1014,6 +1271,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                 ) : (
                   <Link className="weather-settings-link" to="/settings">Sett opp</Link>
                 )}
+                {weather ? <span className="weather-overview-action">Se timesgraf</span> : null}
               </div>
 
               {dailyWeatherReport ? (
@@ -1406,6 +1664,9 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
             </div>
           </section>
         </div>
+      ) : null}
+      {weather && weatherSheetOpen ? (
+        <WeatherHourlySheet weather={weather} onClose={() => setWeatherSheetOpen(false)} />
       ) : null}
     </main>
   );
