@@ -30,8 +30,9 @@ type FeedbackDraft = {
 const assistantPrompts: AssistantPrompt[] = [
   { label: "Hva bør jeg gjøre nå?", question: "Hva bør jeg gjøre i drivhuset akkurat nå?" },
   { label: "Hvem trenger vann?", question: "Hvilke planter bør jeg sjekke for vann i dag?" },
-  { label: "Hva kan sås?", question: "Hva kan jeg så eller plante denne måneden i drivhuset?" },
+  { label: "Diagnostiser plante", question: "Kan du hjelpe meg å diagnostisere hva som skjer med planten min?" },
   { label: "Gi tilbakemelding", question: "Jeg vil gi en tilbakemelding eller et forslag om Growly-appen." },
+  { label: "Noe fungerer ikke", question: "Noe fungerer ikke i Growly-appen, og jeg vil gi tilbakemelding." },
   { label: "Foreslå forbedring", question: "Jeg har et forslag til forbedring av Growly-appen." },
 ];
 
@@ -39,7 +40,7 @@ const initialAssistantMessages: AssistantMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    text: "Hei! Spør meg om dyrking, vanning, plantebilder eller neste steg. Du kan også gi tilbakemeldinger og forslag her i chatten. Når vi har formulert det sammen, kan du sende det til Growly.",
+    text: "Hei! Jeg er din Gartnerassistent i Growly. Spør meg om dyrking, vanning, plantebilder eller diagnostikk når noe ser galt ut. Du kan også gi tilbakemelding på forbedringer eller ting som ikke fungerer i appen, så hjelper jeg deg å formulere det før du sender det til Growly.",
   },
 ];
 
@@ -67,7 +68,7 @@ function feedbackCategory(text: string): CustomerMessageCategory {
   if (/(tips|triks|trick)/.test(lower)) return "tips";
   if (/(forslag|forbedring|onsker|ønsker|burde|savner|ide|idé)/.test(lower)) return "forslag";
   if (/(sporsmal|spørsmål|\?)/.test(lower)) return "sporsmal";
-  if (/(vanskelig|forvirr|feil|bug|problem|utfordring|funker ikke|virker ikke)/.test(lower)) return "utfordring";
+  if (/(vanskelig|forvirr|feil|bug|problem|utfordring|funker ikke|virker ikke|fungerer ikke)/.test(lower)) return "utfordring";
   return "annet";
 }
 
@@ -111,6 +112,7 @@ function hasFeedbackIntent(text: string): boolean {
     "bug",
     "problem",
     "utfordring",
+    "fungerer ikke",
     "send til",
     "gi beskjed",
     "si fra",
@@ -360,7 +362,7 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
               </svg>
             </div>
             <div>
-              <p className="section-kicker">Dyrkeassistent</p>
+              <p className="section-kicker">Gartnerassistent</p>
               <h2>Growly</h2>
             </div>
             <button className="assistant-close-button" type="button" onClick={() => setAssistantOpen(false)} aria-label="Lukk chat">
@@ -473,7 +475,7 @@ export function GrowlyAssistantDock({ selectedHubId = "" }: GrowlyAssistantDockP
             <input
               value={assistantQuestion}
               onChange={(event) => setAssistantQuestion(event.target.value)}
-              placeholder="Spør eller gi tilbakemelding..."
+              placeholder="Spør, diagnostiser eller gi tilbakemelding..."
             />
             <button type="submit" disabled={assistantLoading || (!assistantQuestion.trim() && !assistantImage)}>
               Send

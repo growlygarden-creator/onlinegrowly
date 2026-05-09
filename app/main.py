@@ -3779,15 +3779,20 @@ def ask_openai_growly(question: str, context: dict[str, Any], image: dict[str, s
                     {
                         "type": "input_text",
                         "text": (
-                            "Du er Growly Dyrkeassistent, en rolig norsk hageassistent for drivhus. "
+                            "Du er Growly Gartnerassistent, en rolig norsk hageassistent for drivhus. "
                             "Svar vennlig, premium og konkret på norsk. "
                             "Bruk 2 korte setninger i ett lite avsnitt, maks 45 ord totalt. "
                             "Ikke bruk Markdown, fet tekst, overskrifter, punktliste eller lange forklaringsavsnitt med mindre brukeren ber om det. "
                             "Ved forklaringsspørsmål: start med en kort, varm åpning som 'Klart:' eller 'Ja:', men ikke bli pratete. "
-                            "Forklar kort hva målingen betyr, hvorfor den måles, og ett trygt neste steg når det passer. "
-                            "Svar også på generelle drivhus-, dyrke- og plantepleiespørsmål når sensordata ikke er relevant. "
-                            "Bruk sensorene som ekstra kontekst, ikke som eneste grunnlag for svaret. "
-                            "Bruk konkrete sensorverdier og plantekrav når de finnes, men ikke overdriv presisjonen. "
+                            "Første svar skal bygge på brukerens beskrivelse, plantebildet, generell plantekunnskap og værdata når det er relevant. "
+                            "Ikke baser første svar på sensorer med mindre brukeren tydelig spør om sensorverdier eller sensorene er nødvendige for svaret. "
+                            "Svar på generelle drivhus-, dyrke- og plantepleiespørsmål uten å trekke inn sensorer når det ikke trengs. "
+                            "Hjelp med spørsmål og enkel diagnostikk rundt planter, vanning, klima og synlige symptomer. "
+                            "Sensorer er bare ekstra kontekst når growly_kontekst.sensorer_tilgjengelig er true og siste_maling finnes. "
+                            "Hvis sensorer_tilgjengelig er false: ikke nevn sensorer, hub, kobling, pairing eller manglende sensorverdier i det hele tatt. "
+                            "Når sensordata kan hjelpe og sensorene er tilgjengelige, spør heller ett kort oppfølgingsspørsmål enn å anta at planten er koblet til sensor. "
+                            "Bruk konkrete sensorverdier og plantekrav bare når de faktisk er relevante, men ikke overdriv presisjonen. "
+                            "Værdata er separat fra sensorer og kan brukes selv om sensorer ikke er tilgjengelige. "
                             "Hvis brukeren sender bilde, vurder synlige tegn på planten og foreslå trygg neste handling. "
                             "Hvis brukeren snakker om problemer, forslag eller ønsker for selve Growly-appen, "
                             "still ett kort oppfølgingsspørsmål og hjelp dem å formulere tilbakemeldingen. "
@@ -4877,6 +4882,25 @@ def list_user_plants(username: str, hub_id: str, include_archived: bool = False,
     return list_local_user_plants(username, hub_id, include_archived=include_archived, archived_only=archived_only)
 
 
+def clear_other_seven_in_one_plants(connection: sqlite3.Connection, username: str, hub_id: str, keep_plant_id: str, now: str) -> None:
+    connection.execute(
+        """
+        UPDATE growly_plants
+        SET has_seven_in_one = 0,
+            sync_status = 'pending',
+            sync_error = '',
+            updated_at = ?
+        WHERE owner_username = ?
+          AND hub_id = ?
+          AND plant_id != ?
+          AND archived_at IS NULL
+          AND deleted_at IS NULL
+          AND has_seven_in_one != 0
+        """,
+        (now, username, hub_id, keep_plant_id),
+    )
+
+
 def create_user_plant(username: str, hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     row = plant_mutation_row(username, hub_id, payload)
     now = utc_now_iso()
@@ -4910,6 +4934,8 @@ def create_user_plant(username: str, hub_id: str, payload: dict[str, Any]) -> di
                 now,
             ),
         )
+        if row["has_seven_in_one"]:
+            clear_other_seven_in_one_plants(connection, username, hub_id, plant_id, now)
         connection.commit()
     created = local_plant_by_id(username, hub_id, plant_id)
     if not created:
@@ -4959,6 +4985,8 @@ def update_user_plant(username: str, hub_id: str, plant_id: str, payload: dict[s
             """,
             values,
         )
+        if updates.get("has_seven_in_one"):
+            clear_other_seven_in_one_plants(connection, username, hub_id, str(existing["plant_id"]), str(updates["updated_at"]))
         connection.commit()
     updated = local_plant_by_id(username, hub_id, str(existing["plant_id"]))
     if not updated:
@@ -6140,14 +6168,16 @@ async def ai_assistant(request: Request, payload: dict[str, Any]):
         return hub_error_response(str(exc))
 
     hub_id = str(hub["hub_id"])
+    sensors_available = bool(hub.get("is_active"))
     context = {
         "dato": datetime.now(ZoneInfo("Europe/Oslo")).date().isoformat(),
         "hub": {
             "hub_id": hub_id,
             "hub_name": hub.get("hub_name"),
-            "online": bool(hub.get("is_active")),
+            "online": sensors_available,
         },
-        "siste_maling": ai_sample_context(hub_id),
+        "sensorer_tilgjengelig": sensors_available,
+        "siste_maling": ai_sample_context(hub_id) if sensors_available else None,
         "plantekartotek_utdrag": ai_plant_context(),
         "bruker_merknad": payload.get("context") if isinstance(payload.get("context"), dict) else {},
     }

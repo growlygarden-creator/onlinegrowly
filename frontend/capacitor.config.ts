@@ -5,6 +5,13 @@ const config: CapacitorConfig = {
   appName: "Growly Garden",
   webDir: "dist",
   bundledWebRuntime: false,
+  plugins: {
+    StatusBar: {
+      overlaysWebView: false,
+      style: "DARK",
+      backgroundColor: "#0f1711",
+    },
+  },
   server: {
     androidScheme: "https"
   }

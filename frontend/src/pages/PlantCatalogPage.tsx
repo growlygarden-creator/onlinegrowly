@@ -23,6 +23,18 @@ function compactRange(range: { optimal: [number, number] } | undefined, suffix: 
   return `${min.toFixed(0)}-${max.toFixed(0)}${suffix}`;
 }
 
+function compareCatalogText(a: string, b: string): number {
+  return a.localeCompare(b, "nb-NO", { sensitivity: "base" });
+}
+
+function compareCatalogItems(a: PlantCatalogItem, b: PlantCatalogItem): number {
+  return (
+    compareCatalogText(a.display_name, b.display_name) ||
+    compareCatalogText(a.subtitle || "", b.subtitle || "") ||
+    compareCatalogText(a.id, b.id)
+  );
+}
+
 export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
   const [items, setItems] = useState<PlantCatalogItem[]>(bundledPlantCatalog);
   const [query, setQuery] = useState("");
@@ -38,16 +50,8 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
   }, []);
 
   const catalogCategories = useMemo(() => {
-    const priority = ["grønnsak", "urt", "bær", "blomst", "frukt"];
     const unique = Array.from(new Set(items.filter((item) => item.kind === "base").map((item) => item.category).filter(Boolean)));
-    return unique.sort((a, b) => {
-      const aRank = priority.indexOf(a);
-      const bRank = priority.indexOf(b);
-      if (aRank !== -1 || bRank !== -1) {
-        return (aRank === -1 ? 99 : aRank) - (bRank === -1 ? 99 : bRank);
-      }
-      return a.localeCompare(b, "nb-NO");
-    });
+    return unique.sort(compareCatalogText);
   }, [items]);
 
   const filteredItems = useMemo(() => {
@@ -59,6 +63,7 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
         if (!search) return true;
         return `${item.display_name} ${item.subtitle} ${item.category} ${item.family} ${item.latin_name}`.toLowerCase().includes(search);
       })
+      .sort(compareCatalogItems)
       .slice(0, 80);
   }, [category, items, query]);
 

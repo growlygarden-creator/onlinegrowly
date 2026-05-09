@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import {
   fetchDailyWeatherReport,
@@ -15,6 +15,11 @@ import {
   type WeatherHour,
 } from "../lib/api";
 import { PlantAvatar } from "../components/PlantAvatar";
+import {
+  growlyNotificationHistory,
+  syncGrowlyNotificationHistory,
+  type GrowlyNotificationHistoryItem,
+} from "../lib/notifications";
 import greenhouseDay from "../assets/greenhouse-assets/greenhouse-day.png";
 import greenhouseEvening from "../assets/greenhouse-assets/greenhouse-evening.png";
 import humidityDot from "../assets/greenhouse-assets/humidity-dot.png";
@@ -25,7 +30,6 @@ type DashboardPageProps = {
   session: AuthSession | null;
   selectedHubId?: string;
   theme: "light" | "dark";
-  onToggleTheme: () => void;
 };
 
 type SoilMetricKey = "humidity" | "temperature" | "ph" | "conductivity" | "nitrogen" | "phosphorus" | "potassium" | "salinity" | "tds";
@@ -49,8 +53,32 @@ type HomeTask = {
   badge: string;
   tone: "good" | "watch" | "bad";
 };
+type DailyAdvice = {
+  badge: string;
+  title: string;
+  detail: string;
+  tip: string;
+};
 
 const currentMonthName = new Date().toLocaleDateString("nb-NO", { month: "long" });
+
+function formatDashboardNotificationTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Nylig";
+  }
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  const time = date.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" });
+  if (date.toDateString() === today.toDateString()) {
+    return `I dag ${time}`;
+  }
+  if (date.toDateString() === yesterday.toDateString()) {
+    return `I går ${time}`;
+  }
+  return date.toLocaleDateString("nb-NO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
 
 function isHubActive(value: unknown): boolean {
   return value === true || value === 1 || value === "1";
@@ -511,6 +539,83 @@ function buildWeeklyTasks(sample: LatestSample | null, hasWeather: boolean, plan
   return tasks.slice(0, 3);
 }
 
+function buildDailyAdvice(
+  weather: WeatherForecast | null,
+  dailyWeatherReport: DailyWeatherReport | null,
+  primaryTask: HomeTask | null,
+  plantCount: number,
+): DailyAdvice {
+  if (dailyWeatherReport) {
+    return {
+      badge: "Dagens vær",
+      title: dailyWeatherReport.title,
+      detail: dailyWeatherReport.body,
+      tip: dailyWeatherReport.tip,
+    };
+  }
+
+  const todayWeather = weather?.forecast.days?.[0];
+  const nowWeather = weather?.forecast.now;
+  if (todayWeather && typeof todayWeather.temperature_max === "number" && todayWeather.temperature_max >= 26) {
+    return {
+      badge: "Dagens tips",
+      title: "Luft før varmen topper seg",
+      detail: "Drivhuset bygger varme raskere enn ute-temperaturen viser.",
+      tip: "Åpne litt tidlig, vann helst ved jord og bruk lett skygge på småplanter.",
+    };
+  }
+  if (todayWeather && typeof todayWeather.temperature_min === "number" && todayWeather.temperature_min <= 4) {
+    return {
+      badge: "Dagens tips",
+      title: "Beskytt mot kald natt",
+      detail: "Varme planter kan stoppe opp selv om dagene er fine.",
+      tip: "Flytt små potter inn mot vegg, bruk fiberduk og vent med utplanting.",
+    };
+  }
+  if (nowWeather && typeof nowWeather.wind_speed === "number" && nowWeather.wind_speed >= 7) {
+    return {
+      badge: "Dagens tips",
+      title: "Sikre luftingen",
+      detail: "Vind kan rive i dører, luker og lette potter.",
+      tip: "Luft på lesiden, fest lette planter og sjekk at lokk og brett står stødig.",
+    };
+  }
+
+  if (primaryTask) {
+    return {
+      badge: "Dagens tips",
+      title: primaryTask.title,
+      detail: primaryTask.detail,
+      tip: primaryTask.tone === "bad" ? "Ta dette først, og sjekk plantene igjen senere i dag." : "Bruk to minutter på en rolig sjekk før du gjør større tiltak.",
+    };
+  }
+
+  const greenhouseTips = [
+    {
+      title: "Se under bladene",
+      detail: "Små skadedyr og stress vises ofte før planten ser syk ut ovenfra.",
+      tip: "Sjekk nye skudd, undersiden av bladene og jordoverflaten med godt lys.",
+    },
+    {
+      title: "Vann rolig, ikke ofte",
+      detail: "Jevn fukt er bedre enn små skvetter som bare treffer toppen.",
+      tip: "Kjenn med fingeren først, og vann langsomt til rotsonen får tid til å trekke.",
+    },
+    {
+      title: "Rydd litt luft rundt plantene",
+      detail: "God luft mellom blader senker risikoen for sopp og svakt bladverk.",
+      tip: "Fjern visne blader og la varme planter få rom rundt stammen.",
+    },
+  ];
+  const fallbackTip = greenhouseTips[new Date().getDay() % greenhouseTips.length];
+  return {
+    badge: plantCount ? "Dagens tips" : "Kom i gang",
+    title: plantCount ? fallbackTip.title : "Legg inn første plante",
+    detail: plantCount ? fallbackTip.detail : "Da kan Growly gi råd som passer plantene du faktisk dyrker.",
+    tip: plantCount ? fallbackTip.tip : "Start med én plante, så blir tips, kalender og oppfølging mer treffsikkert.",
+  };
+}
+
 function dateFromInput(value: string | null | undefined): Date | null {
   if (!value) {
     return null;
@@ -745,7 +850,7 @@ function weatherHourlyChart(hours: WeatherHour[]) {
   }
 
   const width = 980;
-  const height = 360;
+  const height = 348;
   const left = 66;
   const right = 942;
   const top = 76;
@@ -781,10 +886,18 @@ function weatherHourlyChart(hours: WeatherHour[]) {
   const iconIndexes = points
     .map((_, index) => index)
     .filter((index) => index === 0 || index === points.length - 1 || index % 6 === 0);
-  const dayMarkers = points.reduce<Array<{ label: string; x: number }>>((markers, point, index) => {
+  const dayMarkers = points.reduce<Array<{ label: string; start: number; end: number; x: number }>>((markers, point, index) => {
     const label = formatWeatherDay(point.time);
-    if (label && markers[markers.length - 1]?.label !== label) {
-      markers.push({ label, x: xForIndex(index) });
+    if (!label) {
+      return markers;
+    }
+    const x = xForIndex(index);
+    const latest = markers[markers.length - 1];
+    if (latest?.label === label) {
+      latest.end = x;
+      latest.x = (latest.start + latest.end) / 2;
+    } else {
+      markers.push({ label, start: x, end: x, x });
     }
     return markers;
   }, []);
@@ -844,7 +957,7 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
               ))}
               {chart.tickIndexes.map((index) => {
                 const x = chart.tempCoords[index].x;
-                return <line key={`v-${index}`} x1={x} x2={x} y1="34" y2="326" className="weather-hourly-grid weather-hourly-grid--vertical" />;
+                return <line key={`v-${index}`} x1={x} x2={x} y1="34" y2={chart.windBottom} className="weather-hourly-grid weather-hourly-grid--vertical" />;
               })}
               {chart.dayMarkers.map((marker) => (
                 <text key={marker.label} x={marker.x} y="24" className="weather-hourly-day">{marker.label}</text>
@@ -896,15 +1009,14 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
                 const x = chart.tempCoords[index].x;
                 return (
                   <g key={`tick-${point.time}`}>
-                    <text x={x} y="202" className="weather-hourly-hour">{formatWeatherHour(point.time)}</text>
                     <text x={x} y="270" className="weather-hourly-rain-label">
                       {point.precipitation_amount > 0 ? `${point.precipitation_amount.toFixed(1)} mm` : ""}
                     </text>
                     <text
                       x={x}
-                      y="346"
+                      y="338"
                       className="weather-hourly-wind-arrow"
-                      style={{ transform: `rotate(${weatherWindArrowRotation(point.wind_from_direction)}deg)`, transformOrigin: `${x}px 340px` }}
+                      style={{ transform: `rotate(${weatherWindArrowRotation(point.wind_from_direction)}deg)`, transformOrigin: `${x}px 332px` }}
                     >
                       ↑
                     </text>
@@ -912,6 +1024,34 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
                 );
               })}
             </svg>
+            <div
+              className="weather-hourly-time-row"
+              aria-label="Tidspunkter i grafen"
+              style={{
+                "--weather-time-left": `${(chart.left / chart.width) * 100}%`,
+                "--weather-time-right": `${((chart.width - chart.right) / chart.width) * 100}%`,
+              } as CSSProperties}
+            >
+              <div className="weather-hourly-time-key" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <circle cx="12" cy="12" r="8" />
+                  <path d="M12 7.8v4.7l3.2 1.9" />
+                </svg>
+                <span>Tid</span>
+              </div>
+              <div className="weather-hourly-time-track">
+                {chart.tickIndexes.map((index) => {
+                  const point = chart.points[index];
+                  const x = chart.tempCoords[index].x;
+                  const offset = ((x - chart.left) / (chart.right - chart.left || 1)) * 100;
+                  return (
+                    <span key={`hour-${point.time}`} style={{ left: `${offset}%` }}>
+                      {formatWeatherHour(point.time)}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
             <div className="weather-hourly-legend">
               <span><i className="legend-temp" /> Temperatur</span>
               <span><i className="legend-rain" /> Nedbør</span>
@@ -1009,7 +1149,7 @@ function scoreClimate(value: number | null | undefined, range: { optimal: [numbe
   };
 }
 
-export function DashboardPage({ session, selectedHubId = "", theme, onToggleTheme }: DashboardPageProps) {
+export function DashboardPage({ session, selectedHubId = "", theme }: DashboardPageProps) {
   const [sample, setSample] = useState<LatestSample | null>(null);
   const [weather, setWeather] = useState<WeatherForecast | null>(null);
   const [dailyWeatherReport, setDailyWeatherReport] = useState<DailyWeatherReport | null>(null);
@@ -1025,6 +1165,7 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
   const [weatherSheetOpen, setWeatherSheetOpen] = useState(false);
   const [weatherHourlyOpen, setWeatherHourlyOpen] = useState(false);
   const [sensorDetailsOpen, setSensorDetailsOpen] = useState(false);
+  const [latestNotification, setLatestNotification] = useState<GrowlyNotificationHistoryItem | null>(null);
   const weatherGraphRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -1082,6 +1223,20 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
         setDashboardPlants(normalizeDashboardPlants(plants));
       }
     });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.username, selectedHubId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLatestNotification() {
+      await syncGrowlyNotificationHistory().catch(() => undefined);
+      if (!cancelled) {
+        setLatestNotification(growlyNotificationHistory()[0] ?? null);
+      }
+    }
+    loadLatestNotification();
     return () => {
       cancelled = true;
     };
@@ -1167,10 +1322,16 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
       value: "Finn plante",
       to: "/kartotek",
     },
+    {
+      label: "Varsler",
+      value: "Siste beskjeder",
+      to: "/varsler",
+    },
   ];
   const updatedAt = formatUpdatedAt(activeSample?.recorded_at);
   const weeklyTasks = buildWeeklyTasks(activeSample, !!weather, dashboardPlants.length);
   const primaryTask = weeklyTasks[0] ?? null;
+  const dailyAdvice = buildDailyAdvice(weather, dailyWeatherReport, primaryTask, dashboardPlants.length);
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
   const activeReportValue = reportMetric ? climateValue(activeSample, reportMetric) : null;
   const soilMetrics = soilMetricConfigs.map((metric) => ({
@@ -1200,35 +1361,6 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
           <h1>Ditt drivhus <span className="leaf-mark">🌿</span></h1>
           <p>God morgen, {firstName}. Her er det viktigste akkurat nå.</p>
         </div>
-        <button
-          className="icon-button theme-toggle-button"
-          type="button"
-          aria-label={theme === "dark" ? "Bytt til lys modus" : "Bytt til mørk modus"}
-          onClick={onToggleTheme}
-        >
-          {theme === "dark" ? (
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M20 14.4A7.8 7.8 0 0 1 9.6 4a8 8 0 1 0 10.4 10.4Z"
-                fill="none"
-                stroke="currentColor"
-                strokeLinejoin="round"
-                strokeWidth="1.8"
-              />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-              <path
-                d="M12 2.5v2.3M12 19.2v2.3M21.5 12h-2.3M4.8 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9 5.3 5.3"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="1.6"
-              />
-            </svg>
-          )}
-        </button>
       </section>
 
       <section className="settings-section home-hero-section">
@@ -1346,13 +1478,31 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
             </>
           ) : null}
 
-          {primaryTask || dailyWeatherReport ? (
-            <article className="home-today-card">
-              <span>{primaryTask?.badge ?? "I dag"}</span>
-              <strong>{primaryTask?.title ?? dailyWeatherReport?.title}</strong>
-              <p>{primaryTask?.detail ?? dailyWeatherReport?.body}</p>
+          <div className="home-message-grid">
+            <article className="home-today-card home-today-card--advice">
+              <span>{dailyAdvice.badge}</span>
+              <strong>{dailyAdvice.title}</strong>
+              <p>{dailyAdvice.detail}</p>
+              <p>{dailyAdvice.tip}</p>
             </article>
-          ) : null}
+
+            <Link className="home-notification-card" to="/varsler">
+              <span className="home-notification-card__kicker">Siste varsel</span>
+              {latestNotification ? (
+                <>
+                  <strong>{latestNotification.title}</strong>
+                  <p>{latestNotification.body}</p>
+                  <small>{formatDashboardNotificationTime(latestNotification.occurredAt)}</small>
+                </>
+              ) : (
+                <>
+                  <strong>Ingen varsler ennå</strong>
+                  <p>Når Growly sender noe viktig, ligger siste beskjed her på startskjermen.</p>
+                  <small>Se varselhistorikk</small>
+                </>
+              )}
+            </Link>
+          </div>
 
           <div className="home-shortcuts" aria-label="Snarveier">
             {shortcutActions.map((action) => (
@@ -1393,8 +1543,8 @@ export function DashboardPage({ session, selectedHubId = "", theme, onToggleThem
                   <strong>{plant.nickname || profile.name}</strong>
                   <span>{stage} · {timeline.dayLabel}</span>
                   <p>{nextAction}</p>
+                  <em>{timeline.daysLeftLabel}</em>
                 </div>
-                <b>{timeline.daysLeftLabel}</b>
               </article>
             );
           }) : (

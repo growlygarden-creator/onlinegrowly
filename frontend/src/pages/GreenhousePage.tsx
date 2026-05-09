@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  fetchLatestSample,
-  fetchMetricHistory,
   fetchPlants,
   fetchPlantHistory,
   fetchPlantCatalog,
@@ -11,32 +9,24 @@ import {
   archivePlant as archivePlantApi,
   type AuthSession,
   type GrowlyPlant,
-  type HistoryPoint,
-  type LatestSample,
   type PlantCatalogItem,
 } from "../lib/api";
 import { bundledPlantCatalog } from "../data/plantCatalog";
 import { PlantAvatar } from "../components/PlantAvatar";
 import { plantCareGuide } from "../lib/plantCare";
+import {
+  listPlantCalendarEntries,
+  removePlantCalendarEntriesForPlant,
+  saveGeneratedPlantPlan,
+  type PlantCalendarEntry,
+} from "../lib/plantCalendar";
 
 type GreenhousePageProps = {
   session: AuthSession | null;
   selectedHubId?: string;
 };
 
-type SoilMetricKey =
-  | "humidity"
-  | "temperature"
-  | "ph"
-  | "conductivity"
-  | "nitrogen"
-  | "phosphorus"
-  | "potassium"
-  | "salinity"
-  | "tds";
-
 type ClimateKey = "airTemperature" | "airHumidity" | "soilHumidity" | "soilTemperature" | "ph" | "lux";
-type DetailTrendMetric = ClimateKey;
 
 type PlantProfile = {
   id: string;
@@ -50,6 +40,11 @@ type PlantProfile = {
 };
 
 type GreenhousePlant = GrowlyPlant;
+type PlantPlanPrompt = {
+  plant: GreenhousePlant;
+  catalogItem: PlantCatalogItem | null;
+  generatedCount: number;
+};
 
 const fallbackPlantProfiles: PlantProfile[] = [
   {
@@ -144,36 +139,7 @@ const fallbackPlantProfiles: PlantProfile[] = [
   },
 ];
 
-const soilMetricConfigs: Array<{ key: SoilMetricKey; label: string; unit: string; digits: number }> = [
-  { key: "humidity", label: "Jordfuktighet", unit: "%", digits: 0 },
-  { key: "temperature", label: "Jordtemperatur", unit: "°C", digits: 1 },
-  { key: "ph", label: "pH", unit: "", digits: 1 },
-  { key: "conductivity", label: "Ledningsevne", unit: "", digits: 0 },
-  { key: "nitrogen", label: "Nitrogen (N)", unit: "", digits: 0 },
-  { key: "phosphorus", label: "Fosfor (P)", unit: "", digits: 0 },
-  { key: "potassium", label: "Kalium (K)", unit: "", digits: 0 },
-  { key: "salinity", label: "Saltinnhold", unit: "", digits: 0 },
-  { key: "tds", label: "TDS", unit: "", digits: 0 },
-];
-
-const detailTrendMetrics: Array<{ key: DetailTrendMetric; label: string; unit: string; apiMetrics: string[] }> = [
-  { key: "airTemperature", label: "Lufttemp", unit: "°C", apiMetrics: ["air_temperature", "temperature"] },
-  { key: "airHumidity", label: "Luftfukt", unit: "%", apiMetrics: ["air_humidity"] },
-  { key: "soilTemperature", label: "Jordtemp", unit: "°C", apiMetrics: ["temperature", "air_temperature"] },
-  { key: "soilHumidity", label: "Jordfukt", unit: "%", apiMetrics: ["humidity"] },
-  { key: "ph", label: "pH", unit: "", apiMetrics: ["ph"] },
-  { key: "lux", label: "Lys", unit: "lx", apiMetrics: ["lux"] },
-];
-
 const starterPlantProfileIds = ["tomato", "cucumber", "basil", "pepper", "chili", "lettuce", "strawberry"];
-
-function metricText(value: number | null | undefined, suffix: string, digits = 0): string {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "-";
-  }
-
-  return `${value.toFixed(digits)}${suffix}`;
-}
 
 function todayDateInputValue(): string {
   return new Date().toISOString().slice(0, 10);
@@ -203,6 +169,25 @@ function formatMovedAt(value: string | null | undefined): string {
   }
 
   return `Flyttet inn ${date.toLocaleDateString("nb-NO", { day: "2-digit", month: "short" })}`;
+}
+
+function formatPlanDate(value: string): string {
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return "Dato ikke satt";
+  }
+  const today = new Date();
+  const tomorrow = new Date();
+  today.setHours(0, 0, 0, 0);
+  tomorrow.setHours(0, 0, 0, 0);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (date.toDateString() === today.toDateString()) {
+    return "I dag";
+  }
+  if (date.toDateString() === tomorrow.toDateString()) {
+    return "I morgen";
+  }
+  return date.toLocaleDateString("nb-NO", { day: "2-digit", month: "short" });
 }
 
 function dateInputToDate(value: string | null | undefined): Date | null {
@@ -268,74 +253,6 @@ function plantLocation(plant: GreenhousePlant): "greenhouse" | "outside" {
   return plant.location === "outside" ? "outside" : "greenhouse";
 }
 
-function sampleValue(sample: LatestSample | null, key: SoilMetricKey): number | null | undefined {
-  return sample?.[key];
-}
-
-function formatUpdatedAt(value: string | null | undefined): string {
-  if (!value) {
-    return "Venter på første måling";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "Oppdatert nylig";
-  }
-
-  return `Oppdatert ${date.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })}`;
-}
-
-function formatTrendTime(value: string): string {
-  return new Date(value).toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" });
-}
-
-function greenhouseValue(sample: LatestSample | null, key: ClimateKey): number | null | undefined {
-  if (key === "airTemperature") return sample?.air_temperature ?? sample?.temperature;
-  if (key === "airHumidity") return sample?.air_humidity;
-  if (key === "soilHumidity") return sample?.humidity;
-  if (key === "soilTemperature") return sample?.temperature;
-  if (key === "ph") return sample?.ph;
-  return sample?.lux;
-}
-
-function latestTrendPoints(sample: LatestSample | null, key: DetailTrendMetric): HistoryPoint[] {
-  const value = greenhouseValue(sample, key);
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return [];
-  }
-
-  const recordedAt = sample?.recorded_at ? new Date(sample.recorded_at) : new Date();
-  const end = Number.isNaN(recordedAt.getTime()) ? new Date() : recordedAt;
-  const start = new Date(end.getTime() - 10 * 60 * 1000);
-  return [
-    { recorded_at: start.toISOString(), value },
-    { recorded_at: end.toISOString(), value },
-  ];
-}
-
-function scoreValue(value: number | null | undefined, range: { optimal: [number, number]; caution: [number, number] }) {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return { level: "missing" as const, label: "Venter", note: "Mangler måling" };
-  }
-
-  if (value >= range.optimal[0] && value <= range.optimal[1]) {
-    return { level: "good" as const, label: "Optimal", note: "Innenfor ønsket område" };
-  }
-
-  if (value >= range.caution[0] && value <= range.caution[1]) {
-    return { level: "watch" as const, label: value < range.optimal[0] ? "Litt lavt" : "Litt høyt", note: "Følges med" };
-  }
-
-  return { level: "bad" as const, label: value < range.caution[0] ? "For lavt" : "For høyt", note: "Trenger tilsyn" };
-}
-
-function statusPriority(level: ReturnType<typeof scoreValue>["level"]): number {
-  if (level === "bad") return 3;
-  if (level === "watch") return 2;
-  if (level === "missing") return 1;
-  return 0;
-}
-
 function profileById(profileId: string): PlantProfile {
   return fallbackPlantProfiles.find((profile) => profile.id === profileId) ?? fallbackPlantProfiles[0];
 }
@@ -373,43 +290,22 @@ function profileForPlant(plant: GreenhousePlant, catalogItems: PlantCatalogItem[
   return profileById(plant.profileId);
 }
 
-function plantStatus(plant: GreenhousePlant, profile: PlantProfile, sample: LatestSample | null) {
+function plantStatus(plant: GreenhousePlant, profile: PlantProfile) {
   if (plantLocation(plant) === "outside") {
     return {
       title: "Forkultiveres",
-      note: "Ikke koblet til drivhusklima enda.",
+      note: "Følg lys, varme og rotutvikling før flytting.",
       level: "missing" as const,
       checks: [],
     };
   }
 
-  const checks = [
-    { key: "airTemperature" as const, label: "Temperatur" },
-    { key: "airHumidity" as const, label: "Luftfuktighet" },
-    { key: "lux" as const, label: "Lys" },
-    ...(plant.hasSevenInOne
-      ? [
-          { key: "soilHumidity" as const, label: "Jordfuktighet" },
-          { key: "ph" as const, label: "pH" },
-        ]
-      : []),
-  ].map((check) => ({
-    ...check,
-    value: greenhouseValue(sample, check.key),
-    result: scoreValue(greenhouseValue(sample, check.key), profile.ranges[check.key]),
-  }));
-
-  const worst = checks.reduce((current, next) =>
-    statusPriority(next.result.level) > statusPriority(current.result.level) ? next : current,
-  );
-
-  const title = worst.result.level === "good" ? "Trives" : worst.result.level === "watch" ? "Følges med" : worst.result.label;
-  const note =
-    worst.result.level === "good"
-      ? "Forholdene er gode akkurat nå."
-      : `${worst.label} er ${worst.result.label.toLowerCase()} for ${profile.name.toLowerCase()}.`;
-
-  return { title, note, level: worst.result.level, checks };
+  return {
+    title: "I drivhus",
+    note: `${profile.name} følges med planteinfo og dyrkerytme.`,
+    level: "good" as const,
+    checks: [],
+  };
 }
 
 function normalizePlant(plant: GreenhousePlant): GreenhousePlant {
@@ -432,57 +328,9 @@ function normalizePlant(plant: GreenhousePlant): GreenhousePlant {
   };
 }
 
-function detailTrendPath(points: HistoryPoint[], range: { optimal: [number, number]; caution: [number, number] }) {
-  if (!points.length) {
-    return { line: "", optimalBand: null, cautionBand: null, minValue: null, maxValue: null, startTime: "", endTime: "" };
-  }
-
-  const width = 800;
-  const top = 24;
-  const bottom = 238;
-  const minRange = Math.min(range.caution[0], ...points.map((point) => Number(point.value)));
-  const maxRange = Math.max(range.caution[1], ...points.map((point) => Number(point.value)));
-  const valueSpread = maxRange - minRange || 1;
-  const times = points.map((point) => new Date(point.recorded_at).getTime());
-  const minTime = Math.min(...times);
-  const maxTime = Math.max(...times);
-  const timeSpread = maxTime - minTime || 1;
-
-  const yFor = (value: number) => bottom - ((value - minRange) / valueSpread) * (bottom - top);
-  const band = ([low, high]: [number, number]) => ({
-    y: Math.min(yFor(low), yFor(high)),
-    height: Math.abs(yFor(high) - yFor(low)),
-  });
-
-  const coordinates = points.map((point) => ({
-    x: ((new Date(point.recorded_at).getTime() - minTime) / timeSpread) * width,
-    y: yFor(Number(point.value)),
-  }));
-  const line =
-    coordinates.length === 1
-      ? `M ${Math.max(0, coordinates[0].x - 8).toFixed(2)} ${coordinates[0].y.toFixed(2)} L ${Math.min(width, coordinates[0].x + 8).toFixed(2)} ${coordinates[0].y.toFixed(2)}`
-      : coordinates
-          .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-          .join(" ");
-
-  return {
-    line,
-    optimalBand: band(range.optimal),
-    cautionBand: band(range.caution),
-    minValue: minRange,
-    maxValue: maxRange,
-    startTime: formatTrendTime(points[0].recorded_at),
-    endTime: formatTrendTime(points[points.length - 1].recorded_at),
-  };
-}
-
 export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePageProps) {
-  const [sample, setSample] = useState<LatestSample | null>(null);
   const [catalogItems, setCatalogItems] = useState<PlantCatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
-  const [detailTrendMetric, setDetailTrendMetric] = useState<DetailTrendMetric>("airTemperature");
-  const [detailTrendPoints, setDetailTrendPoints] = useState<HistoryPoint[]>([]);
-  const [detailTrendLoading, setDetailTrendLoading] = useState(false);
   const [plants, setPlants] = useState<GreenhousePlant[]>([]);
   const [plantHistoryCount, setPlantHistoryCount] = useState(0);
   const [plantsLoading, setPlantsLoading] = useState(false);
@@ -495,15 +343,12 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const [newPlantQuery, setNewPlantQuery] = useState("");
   const [newSowedAt, setNewSowedAt] = useState(todayDateInputValue);
   const [newLocation, setNewLocation] = useState<"greenhouse" | "outside">("outside");
-  const [newHasSevenInOne, setNewHasSevenInOne] = useState(false);
   const [addPlantFeedback, setAddPlantFeedback] = useState("");
   const [addingPlant, setAddingPlant] = useState(false);
-
-  useEffect(() => {
-    fetchLatestSample(selectedHubId).then((result) => {
-      setSample(result);
-    });
-  }, [selectedHubId]);
+  const [plantPlanPrompt, setPlantPlanPrompt] = useState<PlantPlanPrompt | null>(null);
+  const [plantPlanNote, setPlantPlanNote] = useState("");
+  const [plantCalendarEntries, setPlantCalendarEntries] = useState<PlantCalendarEntry[]>([]);
+  const [sensorActionBusy, setSensorActionBusy] = useState(false);
 
   useEffect(() => {
     setCatalogLoading(true);
@@ -530,6 +375,17 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   }, [session?.username, selectedHubId]);
 
   useEffect(() => {
+    function refreshEntries() {
+      setPlantCalendarEntries(listPlantCalendarEntries(selectedHubId));
+    }
+    refreshEntries();
+    window.addEventListener("focus", refreshEntries);
+    return () => {
+      window.removeEventListener("focus", refreshEntries);
+    };
+  }, [selectedHubId]);
+
+  useEffect(() => {
     let cancelled = false;
     fetchPlantHistory(selectedHubId).then((items) => {
       if (!cancelled) {
@@ -541,82 +397,26 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     };
   }, [session?.username, selectedHubId]);
 
-  useEffect(() => {
-    if (!selectedPlantId) {
-      setDetailTrendPoints([]);
-      setDetailTrendLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    const metric = detailTrendMetrics.find((item) => item.key === detailTrendMetric) ?? detailTrendMetrics[0];
-
-    setDetailTrendLoading(true);
-
-    async function loadDetailTrend() {
-      for (const apiMetric of metric.apiMetrics) {
-        const recent = await fetchMetricHistory({
-          metric: apiMetric,
-          span: "hours",
-          limit: 500,
-          hubId: selectedHubId,
-        });
-
-        if (cancelled) {
-          return;
-        }
-
-        if (recent?.points.length) {
-          setDetailTrendPoints(recent.points);
-          setDetailTrendLoading(false);
-          return;
-        }
-
-        const longer = await fetchMetricHistory({
-          metric: apiMetric,
-          span: "days",
-          limit: 500,
-          hubId: selectedHubId,
-        });
-
-        if (cancelled) {
-          return;
-        }
-
-        if (longer?.points.length) {
-          setDetailTrendPoints(longer.points);
-          setDetailTrendLoading(false);
-          return;
-        }
-      }
-
-      setDetailTrendPoints([]);
-      setDetailTrendLoading(false);
-    }
-
-    void loadDetailTrend();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedPlantId, detailTrendMetric, selectedHubId]);
-
   const selectedPlant = plants.find((plant) => plant.instanceId === selectedPlantId) ?? null;
+  const hasPairedHub = Boolean(session?.hub?.hub_id || selectedHubId);
+  const sevenInOnePlant = plants.find((plant) => plant.hasSevenInOne) ?? null;
   const searchableCatalogItems = catalogItems.length ? catalogItems : bundledPlantCatalog;
   const selectedCatalogDetail = selectedPlant ? catalogItemForPlant(selectedPlant, searchableCatalogItems) : null;
   const selectedProfile = selectedPlant ? profileForPlant(selectedPlant, searchableCatalogItems) : null;
   const selectedCareGuide = selectedCatalogDetail ? plantCareGuide(selectedCatalogDetail) : null;
+  const selectedPlantPlanEntries = selectedPlant
+    ? plantCalendarEntries
+        .filter((entry) => entry.plantId === selectedPlant.instanceId)
+        .sort((first, second) => first.date.localeCompare(second.date))
+    : [];
+  const todayPlanDate = todayDateInputValue();
+  const selectedUpcomingPlanEntries = selectedPlantPlanEntries.filter((entry) => entry.date >= todayPlanDate);
+  const selectedVisiblePlanEntries = (selectedUpcomingPlanEntries.length ? selectedUpcomingPlanEntries : selectedPlantPlanEntries).slice(0, 5);
   const plantSummaries = plants.map((plant) => {
     const profile = profileForPlant(plant, searchableCatalogItems);
     const catalogItem = catalogItemForPlant(plant, searchableCatalogItems);
-    return { plant, profile, catalogItem, status: plantStatus(plant, profile, sample) };
+    return { plant, profile, catalogItem, status: plantStatus(plant, profile) };
   });
-  const activeTrendMetric = detailTrendMetrics.find((metric) => metric.key === detailTrendMetric) ?? detailTrendMetrics[0];
-  const activeTrendRange = selectedProfile?.ranges[detailTrendMetric];
-  const fallbackTrendPoints = latestTrendPoints(sample, detailTrendMetric);
-  const displayTrendPoints = detailTrendPoints.length ? detailTrendPoints : fallbackTrendPoints;
-  const trendUsesLatestOnly = !detailTrendPoints.length && fallbackTrendPoints.length > 0;
-  const activeTrendChart = activeTrendRange ? detailTrendPath(displayTrendPoints, activeTrendRange) : null;
   const baseCatalogItems = searchableCatalogItems.filter((item) => item.kind === "base");
   const starterBaseItems = starterPlantProfileIds
     .map((profileId) => baseCatalogItems.find((item) => item.profile_id === profileId))
@@ -645,34 +445,6 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const selectedVariantItem = selectedVariantId ? variantOptions.find((item) => item.variant_id === selectedVariantId) ?? null : null;
   const selectedCultivarItem = selectedCultivarId ? cultivarOptions.find((item) => item.cultivar_id === selectedCultivarId) ?? null : null;
   const selectedCatalogItem = selectedCultivarItem ?? selectedVariantItem ?? selectedBaseItem;
-
-  const soilMetrics = soilMetricConfigs.map((metric) => ({
-    ...metric,
-    value: metricText(sampleValue(sample, metric.key), metric.unit, metric.digits),
-  }));
-  const sensorUpdatedAt = formatUpdatedAt(sample?.recorded_at);
-  const climateMetrics = [
-    {
-      label: "Lufttemperatur",
-      value: metricText(sample?.air_temperature ?? sample?.temperature, "°C", 0),
-      note: "BME280",
-    },
-    {
-      label: "Luftfuktighet",
-      value: metricText(sample?.air_humidity, "%", 0),
-      note: "BME280",
-    },
-    {
-      label: "Lufttrykk",
-      value: metricText(sample?.air_pressure, " hPa", 0),
-      note: "Atmosfærisk trykk",
-    },
-    {
-      label: "Lys",
-      value: metricText(sample?.lux, " lx", 0),
-      note: "BH1750",
-    },
-  ];
 
   function openAddPlantSheet() {
     setAddPlantFeedback("");
@@ -709,7 +481,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
         sowedAt: newSowedAt,
         location: newLocation,
         movedToGreenhouseAt: newLocation === "greenhouse" ? todayDateInputValue() : null,
-        hasSevenInOne: newLocation === "greenhouse" ? newHasSevenInOne : false,
+        hasSevenInOne: false,
         wateringEnabled: false,
       }, selectedHubId);
 
@@ -719,31 +491,36 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
       }
 
       const normalizedPlant = normalizePlant(nextPlant);
+      const promptCatalogItem = selectedCatalogItem;
       setPlants((current) => [normalizedPlant, ...current]);
-      setSelectedPlantId(normalizedPlant.instanceId);
+      setSelectedPlantId(null);
       setAddOpen(false);
+      setPlantPlanPrompt({ plant: normalizedPlant, catalogItem: promptCatalogItem, generatedCount: 0 });
+      setPlantPlanNote("");
       setNewPlantQuery("");
       setSelectedBaseId(null);
       setSelectedVariantId(null);
       setSelectedCultivarId(null);
       setNewSowedAt(todayDateInputValue());
       setNewLocation("outside");
-      setNewHasSevenInOne(false);
       setAddPlantFeedback("");
     } finally {
       setAddingPlant(false);
     }
   }
 
-  async function toggleSevenInOne(instanceId: string) {
-    const plant = plants.find((item) => item.instanceId === instanceId);
-    if (!plant) {
+  function dismissPlantPlanPrompt() {
+    setPlantPlanPrompt(null);
+    setPlantPlanNote("");
+  }
+
+  function generatePlantPlan() {
+    if (!plantPlanPrompt) {
       return;
     }
-    const updated = await updatePlant(instanceId, { hasSevenInOne: !plant.hasSevenInOne }, selectedHubId);
-    setPlants((current) =>
-      current.map((item) => (item.instanceId === instanceId ? normalizePlant(updated ?? { ...item, hasSevenInOne: !item.hasSevenInOne }) : item)),
-    );
+    const entries = saveGeneratedPlantPlan(plantPlanPrompt.plant, plantPlanPrompt.catalogItem, selectedHubId, plantPlanNote);
+    setPlantCalendarEntries(listPlantCalendarEntries(selectedHubId));
+    setPlantPlanPrompt({ ...plantPlanPrompt, generatedCount: entries.length });
   }
 
   async function movePlantToGreenhouse(instanceId: string) {
@@ -758,6 +535,40 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     );
   }
 
+  async function setSevenInOneForPlant(plant: GreenhousePlant, nextEnabled: boolean) {
+    if (!hasPairedHub || sensorActionBusy) {
+      return;
+    }
+
+    const currentSensorPlant = sevenInOnePlant;
+    if (nextEnabled && currentSensorPlant && currentSensorPlant.instanceId !== plant.instanceId && plants.length > 1) {
+      const confirmed = window.confirm(
+        `7-i-1-sensoren er koblet til ${currentSensorPlant.nickname}. Flytte den til ${plant.nickname}?`,
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setSensorActionBusy(true);
+    try {
+      const updated = await updatePlant(plant.instanceId, { hasSevenInOne: nextEnabled }, selectedHubId);
+      if (!updated) {
+        return;
+      }
+      setPlants((current) =>
+        current.map((item) => {
+          if (item.instanceId === plant.instanceId) {
+            return normalizePlant({ ...item, ...updated, hasSevenInOne: nextEnabled, has_seven_in_one: nextEnabled });
+          }
+          return nextEnabled ? { ...item, hasSevenInOne: false, has_seven_in_one: false } : item;
+        }),
+      );
+    } finally {
+      setSensorActionBusy(false);
+    }
+  }
+
   async function archivePlant() {
     const plant = plants.find((item) => item.instanceId === finishPlantId);
     if (!plant) {
@@ -766,6 +577,8 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     }
 
     await archivePlantApi(plant.instanceId, selectedHubId);
+    removePlantCalendarEntriesForPlant(selectedHubId, plant.instanceId);
+    setPlantCalendarEntries(listPlantCalendarEntries(selectedHubId));
 
     setPlants((current) => current.filter((item) => item.instanceId !== plant.instanceId));
     setPlantHistoryCount((current) => current + 1);
@@ -777,10 +590,10 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     <main className="page-shell app-page greenhouse-page">
       <section className="screen-header">
         <div>
-          <h1>Drivhus <span className="leaf-mark">🌿</span></h1>
-          <p>Alt som står inne i drivhuset, med klima vurdert per plante.</p>
+          <h1>Mine planter <span className="leaf-mark">🌿</span></h1>
+          <p>Plantene dine, sådatoer og neste steg gjennom sesongen.</p>
         </div>
-        <button className="icon-button" type="button" aria-label="Legg til plante" onClick={openAddPlantSheet}>
+        <button className="icon-button greenhouse-add-button" type="button" aria-label="Legg til plante" onClick={openAddPlantSheet}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
           </svg>
@@ -816,7 +629,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                       <span>{timeline.dayLabel}</span>
                       <span>{timeline.phase}</span>
                       <span>{timeline.harvestLabel}</span>
-                      <span>{plant.hasSevenInOne ? "7-i-1" : "Klima"}</span>
+                      <span>{plant.hasSevenInOne ? "7-i-1" : "I drivhus"}</span>
                     </div>
                   ) : (
                     <div className="plant-mini-metrics plant-mini-metrics--nursery">
@@ -844,22 +657,6 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
               <button className="empty-state-card__primary" type="button" onClick={openAddPlantSheet}>Søk i kartoteket</button>
             </article>
           )}
-        </div>
-      </section>
-
-      <section className="settings-section">
-        <div className="section-heading-row">
-          <p className="section-kicker">Sensorer</p>
-          <span className="greenhouse-meta-row">{sensorUpdatedAt}</span>
-        </div>
-        <div className="greenhouse-climate-grid">
-          {climateMetrics.map((metric) => (
-            <article className="greenhouse-climate-tile" key={metric.label}>
-              <span>{metric.label}</span>
-              <strong>{metric.value}</strong>
-              <small>{metric.note}</small>
-            </article>
-          ))}
         </div>
       </section>
 
@@ -899,32 +696,6 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
               </button>
             </div>
 
-            {plantLocation(selectedPlant) === "greenhouse" ? (
-              <div className="plant-condition-list">
-                {plantStatus(selectedPlant, selectedProfile, sample).checks.map((check) => (
-                  <article className="plant-condition-row" key={check.key}>
-                    <div>
-                      <span>{check.label}</span>
-                      <strong>
-                        {metricText(
-                          check.value,
-                          check.key === "airHumidity" || check.key === "soilHumidity"
-                            ? "%"
-                            : check.key === "ph"
-                              ? ""
-                              : check.key === "lux"
-                                ? " lx"
-                                : "°C",
-                          check.key === "ph" ? 1 : 0,
-                        )}
-                      </strong>
-                    </div>
-                    <span className={`condition-badge condition-badge--${check.result.level}`}>{check.result.label}</span>
-                  </article>
-                ))}
-              </div>
-            ) : null}
-
             <article className="plant-info-card">
               <p className="section-kicker">Planteinfo</p>
               <strong>{selectedCatalogDetail?.display_name ?? selectedProfile.name}</strong>
@@ -961,110 +732,72 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
               </article>
             ) : null}
 
-            {plantLocation(selectedPlant) === "greenhouse" ? (
-            <article className="plant-zone-card">
-              <div className="plant-zone-card__header">
+            <article className="plant-info-card plant-calendar-card">
+              <div className="plant-calendar-card__head">
                 <div>
-                  <p className="section-kicker">Sonesjekk</p>
-                  <h3>{activeTrendMetric.label}</h3>
-                </div>
-                {activeTrendRange ? (
-                  <span className="zone-range-pill">
-                    Optimal {activeTrendRange.optimal[0]}-{activeTrendRange.optimal[1]} {activeTrendMetric.unit}
+                  <p className="section-kicker">Planteplan</p>
+                  <strong>{selectedPlantPlanEntries.length ? `${selectedPlantPlanEntries.length} punkter i kalenderen` : "Ingen plan laget ennå"}</strong>
+                  <span>
+                    {selectedPlantPlanEntries.length
+                      ? "Planen følger denne planten og ryddes bort når prosjektet avsluttes."
+                      : "Lag en smart plan med vanning, rydding og oppfølging for denne planten."}
                   </span>
-                ) : null}
+                </div>
+                <Link to="/kalender">Kalender</Link>
               </div>
-
-              <div className="zone-metric-tabs">
-                {detailTrendMetrics.map((metric) => (
-                  <button
-                    className={metric.key === detailTrendMetric ? "active" : ""}
-                    type="button"
-                    key={metric.key}
-                    onClick={() => setDetailTrendMetric(metric.key)}
-                  >
-                    {metric.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="plant-zone-chart">
-                {activeTrendChart?.line ? (
-                  <>
-                    <div className="plant-zone-chart__y-axis" aria-hidden="true">
-                      <span>{metricText(activeTrendChart.maxValue, activeTrendMetric.unit ? ` ${activeTrendMetric.unit}` : "", activeTrendMetric.key === "ph" ? 1 : 0)}</span>
-                      <span>{metricText(activeTrendRange?.optimal[1], activeTrendMetric.unit ? ` ${activeTrendMetric.unit}` : "", activeTrendMetric.key === "ph" ? 1 : 0)}</span>
-                      <span>{metricText(activeTrendRange?.optimal[0], activeTrendMetric.unit ? ` ${activeTrendMetric.unit}` : "", activeTrendMetric.key === "ph" ? 1 : 0)}</span>
-                      <span>{metricText(activeTrendChart.minValue, activeTrendMetric.unit ? ` ${activeTrendMetric.unit}` : "", activeTrendMetric.key === "ph" ? 1 : 0)}</span>
-                    </div>
-                    <svg viewBox="0 0 800 260" preserveAspectRatio="none" aria-label={`${activeTrendMetric.label} trend`}>
-                      {activeTrendChart.cautionBand ? (
-                        <rect className="plant-zone-chart__caution" x="0" y={activeTrendChart.cautionBand.y} width="800" height={activeTrendChart.cautionBand.height} />
-                      ) : null}
-                      {activeTrendChart.optimalBand ? (
-                        <rect className="plant-zone-chart__optimal" x="0" y={activeTrendChart.optimalBand.y} width="800" height={activeTrendChart.optimalBand.height} />
-                      ) : null}
-                      <path className="plant-zone-chart__grid" d="M0 64 H800 M0 130 H800 M0 196 H800" />
-                      <path className="plant-zone-chart__line" d={activeTrendChart.line} />
-                    </svg>
-                    <div className="plant-zone-chart__x-axis" aria-hidden="true">
-                      <span>{activeTrendChart.startTime}</span>
-                      <span>{activeTrendChart.endTime}</span>
-                    </div>
-                    {trendUsesLatestOnly ? (
-                      <div className="plant-zone-chart__notice">Viser siste måling til huben har bygget historikk.</div>
-                    ) : null}
-                  </>
-                ) : (
-                  <div className="plant-zone-empty">
-                    <strong>{detailTrendLoading ? "Henter historikk" : "Ingen historikk ennå"}</strong>
-                    <span>Grafen vises når huben har lagret målinger for valgt verdi.</span>
-                  </div>
-                )}
-              </div>
+              {selectedVisiblePlanEntries.length ? (
+                <div className="plant-calendar-list">
+                  {selectedVisiblePlanEntries.map((entry) => (
+                    <span className={`plant-calendar-item plant-calendar-item--${entry.category}`} key={entry.id}>
+                      <small>{formatPlanDate(entry.date)}</small>
+                      <strong>{entry.title}</strong>
+                      <em>{entry.note}</em>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <button
+                  className="secondary-action plant-calendar-create"
+                  type="button"
+                  onClick={() => {
+                    setPlantPlanPrompt({ plant: selectedPlant, catalogItem: selectedCatalogDetail, generatedCount: 0 });
+                    setPlantPlanNote("");
+                  }}
+                >
+                  Lag smart planteplan
+                </button>
+              )}
             </article>
-            ) : null}
-
-            {plantLocation(selectedPlant) === "greenhouse" ? (
-            <div className="plant-detail-actions">
-              <button className="toggle-row" type="button" onClick={() => toggleSevenInOne(selectedPlant.instanceId)}>
-                <span>
-                  <strong>7-i-1 jord sensor</strong>
-                  <small>{selectedPlant.hasSevenInOne ? "Jordverdier vises for denne planten" : "Bruk kun felles drivhusklima"}</small>
-                </span>
-                <span className={`ios-switch${selectedPlant.hasSevenInOne ? " is-on" : ""}`} aria-hidden="true" />
-              </button>
-            </div>
-            ) : null}
-
-            {plantLocation(selectedPlant) === "greenhouse" && selectedPlant.hasSevenInOne ? (
-              <div className="soil-value-grid greenhouse-soil-grid">
-                {soilMetrics.map((metric) => (
-                  <article className="soil-value-card" key={metric.label}>
-                    <span>{metric.label}</span>
-                    <strong>{metric.value}</strong>
-                  </article>
-                ))}
-              </div>
-            ) : null}
-
-            {plantLocation(selectedPlant) === "greenhouse" ? (
-            <button className="toggle-row toggle-row--disabled" type="button" disabled>
-              <span>
-                <strong>Automatisk vanning</strong>
-                <small>Ikke integrert enda. Senere kan planten vanne etter jordfuktighet med sperre mot overvanning.</small>
-              </span>
-              <span className="ios-switch" aria-hidden="true" />
-            </button>
-            ) : null}
 
             {plantLocation(selectedPlant) !== "greenhouse" ? (
               <article className="plant-info-card plant-nursery-card">
                 <p className="section-kicker">Forkultivering</p>
                 <strong>Ikke koblet til hub enda</strong>
-                <span>Sensorverdier fra drivhuset vises først når planten flyttes inn. Foreløpig følger vi sådato, planteinfo og såguide.</span>
+                <span>Foreløpig følger vi sådato, planteinfo og såguide.</span>
                 <button className="primary-action" type="button" onClick={() => movePlantToGreenhouse(selectedPlant.instanceId)}>
                   Flytt til drivhus
+                </button>
+              </article>
+            ) : null}
+
+            {plantLocation(selectedPlant) === "greenhouse" && hasPairedHub ? (
+              <article className="plant-info-card plant-sensor-card">
+                <p className="section-kicker">Sensor</p>
+                <strong>{selectedPlant.hasSevenInOne ? "7-i-1 er koblet hit" : "7-i-1-sensor"}</strong>
+                <span>
+                  {selectedPlant.hasSevenInOne
+                    ? "Jordfuktighet, temperatur, pH og næring følger denne planten."
+                    : sevenInOnePlant
+                      ? `Sensoren måler ${sevenInOnePlant.nickname}.`
+                      : "Ingen plante bruker 7-i-1-sensoren nå."}
+                </span>
+                <button
+                  className="secondary-action"
+                  type="button"
+                  onClick={() => setSevenInOneForPlant(selectedPlant, !selectedPlant.hasSevenInOne)}
+                  disabled={sensorActionBusy}
+                >
+                  {selectedPlant.hasSevenInOne ? "Koble fra 7-i-1" : "Bruk 7-i-1 her"}
                 </button>
               </article>
             ) : null}
@@ -1262,10 +995,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                 <button
                   className={newLocation === "outside" ? "is-selected" : ""}
                   type="button"
-                  onClick={() => {
-                    setNewLocation("outside");
-                    setNewHasSevenInOne(false);
-                  }}
+                  onClick={() => setNewLocation("outside")}
                 >
                   Utenfor drivhus
                 </button>
@@ -1279,26 +1009,96 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
               </div>
               <span className="placement-helper">
                 {newLocation === "greenhouse"
-                  ? "Kortet kobles til hubens klima og sensorvurdering."
+                  ? "Kortet merkes som en plante i drivhuset."
                   : "Kortet viser sådata og planteguide til den flyttes inn."}
               </span>
             </div>
-
-            {newLocation === "greenhouse" ? (
-              <button className="toggle-row" type="button" onClick={() => setNewHasSevenInOne((value) => !value)}>
-                <span>
-                  <strong>Har 7-i-1 sensor</strong>
-                  <small>Vis jordverdier direkte på planten.</small>
-                </span>
-                <span className={`ios-switch${newHasSevenInOne ? " is-on" : ""}`} aria-hidden="true" />
-              </button>
-            ) : null}
 
             {addPlantFeedback ? <p className="plant-submit-feedback" role="status">{addPlantFeedback}</p> : null}
 
             <button className="primary-action add-plant-panel__submit" type="button" onClick={addPlant} disabled={!selectedCatalogItem || addingPlant}>
               {addingPlant ? "Legger til..." : "Legg til plante"}
             </button>
+          </section>
+        </div>
+      ) : null}
+
+      {plantPlanPrompt ? (
+        <div className="greenhouse-sheet" role="dialog" aria-modal="true" aria-labelledby="plant-plan-title">
+          <button className="greenhouse-sheet__backdrop" type="button" aria-label="Lukk planteplan" onClick={dismissPlantPlanPrompt} />
+          <section className="greenhouse-sheet__panel soft-card greenhouse-sheet__panel--compact plant-plan-panel">
+            <div className="greenhouse-sheet__header">
+              <div>
+                <p className="section-kicker">Smart kalender</p>
+                <h2 id="plant-plan-title">{plantPlanPrompt.generatedCount ? "Planteplanen er klar" : "Lag plan for planten?"}</h2>
+                <span>
+                  {plantPlanPrompt.generatedCount
+                    ? `${plantPlanPrompt.generatedCount} punkter er lagt i kalenderen for ${plantPlanPrompt.plant.nickname}.`
+                    : `Growly kan lage en ryddig oppfølgingsplan for ${plantPlanPrompt.plant.nickname}.`}
+                </span>
+              </div>
+              <button className="soil-modal__close" type="button" aria-label="Lukk" onClick={dismissPlantPlanPrompt}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+                </svg>
+              </button>
+            </div>
+
+            <article className="plant-plan-preview">
+              <PlantAvatar
+                tone={plantPlanPrompt.catalogItem?.tone ?? profileForPlant(plantPlanPrompt.plant, searchableCatalogItems).tone}
+                plantId={plantPlanPrompt.plant.profileId}
+                name={plantPlanPrompt.plant.nickname}
+                family={plantPlanPrompt.catalogItem?.family}
+              />
+              <div>
+                <strong>{plantPlanPrompt.plant.nickname}</strong>
+                <span>{plantPlanPrompt.catalogItem?.subtitle || plantPlanPrompt.catalogItem?.family || "Personlig dyrkeplan"}</span>
+              </div>
+            </article>
+
+            {plantPlanPrompt.generatedCount ? (
+              <>
+                <div className="plant-plan-success">
+                  <strong>Dette ble lagt inn</strong>
+                  <span>Vanning, rydding rundt planten, bladkontroll, støtte/næring og en ukessjekk.</span>
+                </div>
+                <div className="plant-plan-actions">
+                  <Link className="primary-action" to="/kalender" onClick={dismissPlantPlanPrompt}>
+                    Åpne kalender
+                  </Link>
+                  <button className="secondary-action" type="button" onClick={dismissPlantPlanPrompt}>
+                    Ferdig
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="plant-plan-benefits">
+                  <span>Husk vann</span>
+                  <span>Rydd rundt planten</span>
+                  <span>Sjekk blad og skudd</span>
+                  <span>Plantetilpasset oppfølging</span>
+                </div>
+                <label className="plant-plan-note">
+                  <span>Notat til kalenderen, valgfritt</span>
+                  <textarea
+                    value={plantPlanNote}
+                    onChange={(event) => setPlantPlanNote(event.target.value)}
+                    placeholder="F.eks. står i stor potte ved venstre dør, må sjekkes etter varme dager."
+                    rows={4}
+                  />
+                </label>
+                <div className="plant-plan-actions">
+                  <button className="secondary-action" type="button" onClick={dismissPlantPlanPrompt}>
+                    Nei, senere
+                  </button>
+                  <button className="primary-action" type="button" onClick={generatePlantPlan}>
+                    Ja, lag smart plan
+                  </button>
+                </div>
+              </>
+            )}
           </section>
         </div>
       ) : null}

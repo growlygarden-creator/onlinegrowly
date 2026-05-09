@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Growly Garden</string>
+	<string>Growly Garden</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -22,6 +22,12 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Growly bruker posisjonen din til å hente lokal værprognose og gi dyrkeråd for drivhuset.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Growly bruker kameraet når du vil legge ved et plantebilde til gartnerassistenten.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Growly bruker bildebiblioteket når du vil velge et plantebilde til gartnerassistenten.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

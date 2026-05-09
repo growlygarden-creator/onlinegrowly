@@ -1,11 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import type { AuthSession, PlantCatalogItem } from "../lib/api";
+import { fetchPlants, type AuthSession, type GrowlyPlant, type PlantCatalogItem } from "../lib/api";
 import { PlantAvatar } from "../components/PlantAvatar";
 import { bundledPlantCatalog } from "../data/plantCatalog";
+import {
+  addPlantCalendarNote,
+  listPlantCalendarEntries,
+  type PlantCalendarEntry,
+} from "../lib/plantCalendar";
 
 type CalendarPageProps = {
   session: AuthSession | null;
+  selectedHubId?: string;
 };
 
 type PlannerCrop = {
@@ -32,6 +38,12 @@ type PlannerAction = {
 type CalendarEvent = PlannerAction & {
   day: number;
   marker: "sow" | "move" | "watch";
+};
+type CalendarPlantOption = {
+  plantId: string;
+  plantName: string;
+  plantProfileId: string;
+  catalogItemId?: string;
 };
 
 const mayPlannerActions: PlannerAction[] = [
@@ -335,26 +347,141 @@ function calendarEvents(today: number): CalendarEvent[] {
   return events.filter((event) => event.day <= 31);
 }
 
-function markerForDay(day: number, events: CalendarEvent[]): "sow" | "move" | "watch" | null {
-  return events.find((event) => event.day === day)?.marker ?? null;
+function plantEntryDate(entry: PlantCalendarEntry): Date | null {
+  const date = new Date(`${entry.date}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-export function CalendarPage({ session }: CalendarPageProps) {
+function plantEntryMarker(entry: PlantCalendarEntry): "sow" | "move" | "watch" {
+  if (entry.category === "move" || entry.category === "support") {
+    return "move";
+  }
+  if (entry.category === "water" || entry.category === "harvest") {
+    return "sow";
+  }
+  return "watch";
+}
+
+function plantEntriesForMonth(entries: PlantCalendarEntry[], now: Date): PlantCalendarEntry[] {
+  return entries.filter((entry) => {
+    const date = plantEntryDate(entry);
+    return date?.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  });
+}
+
+function markerForDay(day: number, events: CalendarEvent[], plantEntries: PlantCalendarEntry[], now: Date): "sow" | "move" | "watch" | null {
+  const staticMarker = events.find((event) => event.day === day)?.marker;
+  if (staticMarker) {
+    return staticMarker;
+  }
+  const plantEntry = plantEntries.find((entry) => {
+    const date = plantEntryDate(entry);
+    return date?.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === day;
+  });
+  return plantEntry ? plantEntryMarker(plantEntry) : null;
+}
+
+function normalizePlantOption(plant: GrowlyPlant): CalendarPlantOption {
+  const profileId = plant.profileId || plant.profile_id || "plant";
+  return {
+    plantId: plant.instanceId || plant.plant_id || `${profileId}-${Date.now()}`,
+    plantName: plant.nickname || plant.display_name || profileId,
+    plantProfileId: profileId,
+    catalogItemId: plant.catalogItemId || plant.catalog_item_id || profileId,
+  };
+}
+
+export function CalendarPage({ session, selectedHubId = "" }: CalendarPageProps) {
   const now = new Date();
   const today = now.getDate();
   const [selectedDay, setSelectedDay] = useState(today);
+  const [plantEntries, setPlantEntries] = useState<PlantCalendarEntry[]>([]);
+  const [plantOptions, setPlantOptions] = useState<CalendarPlantOption[]>([]);
+  const [plantsLoading, setPlantsLoading] = useState(false);
+  const [noteSheetOpen, setNoteSheetOpen] = useState(false);
+  const [noteCategory, setNoteCategory] = useState("general");
+  const [noteDraft, setNoteDraft] = useState("");
   const name = session?.user?.full_name || session?.username || "bruker";
+  const activeHubId = selectedHubId || session?.hub?.hub_id || "";
   const groupedActions = actionGroups();
   const calendarDays = monthGridDays();
   const events = calendarEvents(today);
   const selectedEvents = events.filter((event) => event.day === selectedDay);
   const selectedDate = new Date(now.getFullYear(), now.getMonth(), selectedDay);
   const selectedDateQuery = dateParam(selectedDate);
+  const monthPlantEntries = plantEntriesForMonth(plantEntries, now);
+  const selectedPlantEntries = monthPlantEntries.filter((entry) => entry.date === selectedDateQuery);
+  const selectedPrimaryPlantEntry = selectedPlantEntries[0] ?? null;
   const selectedPrimaryAction = selectedEvents[0] ?? null;
   const currentPlannerCrops = plannerCrops
     .map((crop) => ({ crop, months: futureCropMonths(crop) }))
     .filter((entry) => entry.months.length)
     .slice(0, 3);
+
+  useEffect(() => {
+    function refreshEntries() {
+      setPlantEntries(listPlantCalendarEntries(activeHubId));
+    }
+    refreshEntries();
+    window.addEventListener("focus", refreshEntries);
+    return () => {
+      window.removeEventListener("focus", refreshEntries);
+    };
+  }, [activeHubId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPlantsLoading(true);
+    fetchPlants(activeHubId).then((plants) => {
+      if (cancelled) {
+        return;
+      }
+      const options = plants.map(normalizePlantOption);
+      setPlantOptions(options);
+      setPlantsLoading(false);
+      setNoteCategory((current) => {
+        if (current === "general" || options.some((plant) => plant.plantId === current)) {
+          return current;
+        }
+        return "general";
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeHubId, session?.username]);
+
+  function handleSaveNote() {
+    const selectedPlant = plantOptions.find((plant) => plant.plantId === noteCategory);
+    const target = selectedPlant ?? {
+      plantId: "general",
+      plantName: "Generelt",
+      plantProfileId: "leafy",
+      catalogItemId: "general",
+    };
+    const entry = addPlantCalendarNote({
+      hubId: activeHubId,
+      plantId: target.plantId,
+      plantName: target.plantName,
+      plantProfileId: target.plantProfileId,
+      catalogItemId: target.catalogItemId,
+      date: selectedDateQuery,
+      note: noteDraft,
+    });
+    if (!entry) {
+      return;
+    }
+    setPlantEntries((current) => [...current, entry].sort((first, second) => first.date.localeCompare(second.date)));
+    setNoteDraft("");
+    setNoteCategory("general");
+    setNoteSheetOpen(false);
+  }
+
+  function openNoteSheet() {
+    setNoteCategory("general");
+    setNoteDraft("");
+    setNoteSheetOpen(true);
+  }
 
   return (
     <main className="page-shell app-page planner-page">
@@ -370,7 +497,7 @@ export function CalendarPage({ session }: CalendarPageProps) {
         <div className="calendar-overview__head">
           <div>
             <p className="section-kicker">Dyrkeplan · {currentMonthLabel()}</p>
-            <h2>{events.length} planlagte datoer</h2>
+            <h2>{events.length + monthPlantEntries.length} planlagte datoer</h2>
           </div>
           <span>I dag {today}</span>
         </div>
@@ -379,7 +506,7 @@ export function CalendarPage({ session }: CalendarPageProps) {
             <strong key={day}>{day}</strong>
           ))}
           {calendarDays.map((day, index) => {
-            const marker = day ? markerForDay(day, events) : null;
+            const marker = day ? markerForDay(day, events, monthPlantEntries, now) : null;
             const isPastDay = !!day && day < today;
             return (
               <button
@@ -400,36 +527,64 @@ export function CalendarPage({ session }: CalendarPageProps) {
 
       <section className="today-focus-card soft-card">
         <p className="section-kicker">{selectedDay === today ? "Dagens fokus" : `${selectedDay}. ${currentMonthLabel()}`}</p>
-        <h2>{selectedPrimaryAction ? selectedPrimaryAction.action : "Legg en planteplan på denne datoen"}</h2>
+        <h2>
+          {selectedPrimaryPlantEntry
+            ? selectedPrimaryPlantEntry.title
+            : selectedPrimaryAction
+              ? selectedPrimaryAction.action
+              : "Legg en planteplan på denne datoen"}
+        </h2>
         <p>
-          {selectedPrimaryAction
-            ? selectedPrimaryAction.note
+          {selectedPrimaryPlantEntry
+            ? `${selectedPrimaryPlantEntry.plantName}: ${selectedPrimaryPlantEntry.note}`
+            : selectedPrimaryAction
+              ? selectedPrimaryAction.note
             : "Velg en plante fra kartoteket og bruk datoen som sådato, utplanting eller påminnelse."}
         </p>
         <div className="calendar-detail-actions">
           <Link className="button planner-cta" to="/drivhus">Se mine planter</Link>
           <Link className="button button--secondary planner-cta" to={`/kartotek?dato=${selectedDateQuery}`}>Legg til på dato</Link>
+          <button className="button button--secondary planner-cta" type="button" onClick={openNoteSheet}>Notat</button>
         </div>
       </section>
 
       <section className="settings-section">
         <p className="section-kicker">Valgt dato</p>
         <div className="calendar-event-list">
-          {selectedEvents.length ? selectedEvents.map((event) => {
-            const match = catalogMatch(event.plantId);
-            return (
-              <article className={`calendar-event-card calendar-event-card--${event.marker} soft-card`} key={`${event.id}-${event.day}`}>
-                <PlantAvatar tone={match?.tone ?? "leafy"} plantId={event.plantId} name={event.title} family={match?.family ?? event.group} />
-                <div>
-                  <span>{event.group}</span>
-                  <strong>{event.title}</strong>
-                  <p>{event.action}</p>
-                  <small>{event.note}</small>
-                </div>
-                <Link to="/drivhus">Åpne</Link>
-              </article>
-            );
-          }) : (
+          {selectedPlantEntries.length || selectedEvents.length ? (
+            <>
+              {selectedPlantEntries.map((entry) => {
+                const match = catalogMatch(entry.plantProfileId);
+                return (
+                  <article className={`calendar-event-card calendar-event-card--${plantEntryMarker(entry)} soft-card`} key={entry.id}>
+                    <PlantAvatar tone={match?.tone ?? "leafy"} plantId={entry.plantProfileId} name={entry.plantName} family={entry.source === "note" ? "Notat" : "Planteplan"} />
+                    <div>
+                      <span>{entry.source === "note" ? "Notat" : "Planteplan"}</span>
+                      <strong>{entry.plantName}</strong>
+                      <p>{entry.title}</p>
+                      <small>{entry.note}</small>
+                    </div>
+                    <Link to="/drivhus">Åpne</Link>
+                  </article>
+                );
+              })}
+              {selectedEvents.map((event) => {
+                const match = catalogMatch(event.plantId);
+                return (
+                  <article className={`calendar-event-card calendar-event-card--${event.marker} soft-card`} key={`${event.id}-${event.day}`}>
+                    <PlantAvatar tone={match?.tone ?? "leafy"} plantId={event.plantId} name={event.title} family={match?.family ?? event.group} />
+                    <div>
+                      <span>{event.group}</span>
+                      <strong>{event.title}</strong>
+                      <p>{event.action}</p>
+                      <small>{event.note}</small>
+                    </div>
+                    <Link to="/drivhus">Åpne</Link>
+                  </article>
+                );
+              })}
+            </>
+          ) : (
             <article className="calendar-event-card calendar-event-card--empty soft-card">
               <div className="calendar-event-card__date">
                 <strong>{selectedDay}</strong>
@@ -441,10 +596,78 @@ export function CalendarPage({ session }: CalendarPageProps) {
                 <p>Legg til en plante, så kan Growly koble datoen til såing, utplanting eller oppfølging.</p>
               </div>
               <Link to={`/kartotek?dato=${selectedDateQuery}`}>Legg til</Link>
+              <button type="button" onClick={openNoteSheet}>Notat</button>
             </article>
           )}
         </div>
       </section>
+
+      {noteSheetOpen ? (
+        <div className="greenhouse-sheet" role="dialog" aria-modal="true" aria-labelledby="calendar-note-title">
+          <button className="greenhouse-sheet__backdrop" type="button" aria-label="Lukk notat" onClick={() => setNoteSheetOpen(false)} />
+          <section className="greenhouse-sheet__panel soft-card greenhouse-sheet__panel--compact calendar-note-sheet">
+            <div className="greenhouse-sheet__header">
+              <div>
+                <span>{selectedDay}. {currentMonthLabel()}</span>
+                <h2 id="calendar-note-title">Nytt notat</h2>
+              </div>
+              <button className="icon-button" type="button" aria-label="Lukk" onClick={() => setNoteSheetOpen(false)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="calendar-note-picker">
+              <p className="section-kicker">Kategori</p>
+              <div className="calendar-note-options">
+                <button
+                  className={noteCategory === "general" ? "is-selected" : ""}
+                  type="button"
+                  onClick={() => setNoteCategory("general")}
+                >
+                  <strong>Generelt</strong>
+                  <span>Notat uten plantekobling</span>
+                </button>
+                {plantOptions.map((plant) => {
+                  const match = catalogMatch(plant.plantProfileId);
+                  return (
+                    <button
+                      className={noteCategory === plant.plantId ? "is-selected" : ""}
+                      type="button"
+                      key={plant.plantId}
+                      onClick={() => setNoteCategory(plant.plantId)}
+                    >
+                      <PlantAvatar tone={match?.tone ?? "leafy"} plantId={plant.plantProfileId} name={plant.plantName} family={match?.family ?? "Plante"} />
+                      <span>
+                        <strong>{plant.plantName}</strong>
+                        <small>{match?.family ?? "Mine planter"}</small>
+                      </span>
+                    </button>
+                  );
+                })}
+                {!plantOptions.length && !plantsLoading ? (
+                  <Link className="calendar-note-empty-option" to="/drivhus">Legg til en plante først</Link>
+                ) : null}
+              </div>
+            </div>
+
+            <label className="calendar-note-field">
+              <span>Notat</span>
+              <textarea
+                value={noteDraft}
+                onChange={(event) => setNoteDraft(event.target.value)}
+                placeholder="F.eks. vannet ekstra, sådd ny rad, eller sjekk igjen i morgen."
+                rows={5}
+                autoFocus
+              />
+            </label>
+            <button className="primary-action" type="button" onClick={handleSaveNote} disabled={!noteDraft.trim()}>
+              Lagre notat
+            </button>
+          </section>
+        </div>
+      ) : null}
 
       <section className="settings-section">
         <p className="section-kicker">Kan gjøres nå</p>

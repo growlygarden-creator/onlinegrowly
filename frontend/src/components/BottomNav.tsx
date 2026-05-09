@@ -37,8 +37,7 @@ const tabs: Tab[] = [
     ),
   },
   {
-    label: "Mine planter",
-    shortLabel: "Planter",
+    label: "Planter",
     to: "/drivhus",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -71,8 +70,7 @@ const tabs: Tab[] = [
     ),
   },
   {
-    label: "Innstillinger",
-    shortLabel: "Mer",
+    label: "Innst.",
     to: "/settings",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
