@@ -123,6 +123,13 @@ SUPABASE_CORE_TABLES = (
     "growly_hub_members",
     "growly_pairing_tokens",
 )
+
+
+def app_language(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    return "en" if raw.startswith("en") else "no"
+
+
 DEFAULT_APP_SETTINGS: dict[str, Any] = {
     "sensor_url": DEFAULT_SENSOR_URL,
     "sample_time_soil_ms": 60000,
@@ -321,7 +328,215 @@ def plant_icon(name: str, plant_id: str) -> str:
     return "🌱"
 
 
-def seed_guide_for_profile(profile_id: str, category: str, family: str) -> dict[str, str]:
+CATALOG_CATEGORY_EN = {
+    "grønnsak": "vegetable",
+    "urt": "herb",
+    "bær": "berries",
+    "frukt": "fruit",
+    "blomst": "flower",
+}
+
+CATALOG_FAMILY_EN = {
+    "varmeelskende fruktgrønnsak": "warm-loving fruiting vegetable",
+    "varmeelskende chili": "warm-loving chili",
+    "varmeelskende urt": "warm-loving herb",
+    "bladurt": "leaf herb",
+    "bladurt kortlivd": "short-lived leaf herb",
+    "ettårig urt": "annual herb",
+    "flerårig urt": "perennial herb",
+    "kjølig bladgrønt": "cool-season leafy green",
+    "kålvekst kjølig": "cool-season brassica",
+    "rotgrønnsak": "root vegetable",
+    "kjølig rotgrønnsak": "cool-season root vegetable",
+    "stilk/knoll": "stem or bulb crop",
+    "middelhavsurt": "Mediterranean herb",
+    "bær flerårig": "perennial berry",
+    "bær busk": "berry bush",
+    "klatrende frukt": "climbing fruit",
+    "middelhavsfrukt": "Mediterranean fruit",
+    "potteblomst": "potted flower",
+    "klatreblomst": "climbing flower",
+    "løkvekst": "allium crop",
+    "belgvekst": "legume",
+    "belgvekst kjølig": "cool-season legume",
+    "belgvekst varm": "warm-season legume",
+    "varmeelskende korn": "warm-loving grain crop",
+    "blomst/urt": "flowering herb",
+}
+
+CATALOG_VARIANT_TYPE_EN = {
+    "små frukter, klaser": "small fruits, clusters",
+    "store frukter": "large fruits",
+    "avling/sause": "crop/sauce",
+    "middels store frukter": "medium-sized fruits",
+    "store søte frukter": "large sweet fruits",
+    "sterke frukter": "hot fruits",
+    "lange frukter": "long fruits",
+    "kompakte hoder": "compact heads",
+    "løse blader": "loose leaves",
+    "avlange hoder": "elongated heads",
+    "klassisk storbladet": "classic large-leaf",
+    "aromatisk, tynnere blader": "aromatic, thinner leaves",
+    "kraftig vekst": "vigorous growth",
+    "buskform": "bush form",
+    "lav og tett vekst": "low and compact growth",
+    "en hovedavling": "one main crop",
+    "bærer gjennom sesongen": "bears through the season",
+}
+
+CATALOG_TEXT_EN = {
+    "Jevnt fuktig jord, ikke la tørke helt ut.": "Evenly moist soil; do not let it dry out completely.",
+    "Jevnt fuktig jord, ikke la potter tørke helt ut.": "Evenly moist soil; do not let pots dry out completely.",
+    "Jevnt lett fuktig jord, ikke la potten tørke helt ut.": "Keep soil lightly and evenly moist; do not let the pot dry out completely.",
+    "Jevnt lett fuktig jord, ikke la den tørke helt ut.": "Keep soil lightly and evenly moist; do not let it dry out completely.",
+    "Moderat jevn fukt, ikke vannmettet jord.": "Moderate, even moisture; avoid waterlogged soil.",
+    "Moderat fukt, la jorden tørke lett mellom vanning.": "Moderate moisture; let the soil dry slightly between waterings.",
+    "Moderat jevn fukt, spesielt i blomstring og belging.": "Moderate, even moisture, especially during flowering and pod set.",
+    "Moderat vanning, unngå både uttørking og klissvåt jord.": "Moderate watering; avoid both drying out and soggy soil.",
+    "Sparsom vanning, la jorden tørke godt opp mellom hver gang.": "Water sparingly and let the soil dry well between waterings.",
+    "Varm og lyselskende drivhusplante som ikke tåler kulde eller langvarig hete.": "A warm, light-loving greenhouse plant that does not tolerate cold or prolonged heat.",
+    "Urt som liker moderat varme, god lysmengde og jevnt fuktig jord.": "An herb that likes moderate warmth, good light and evenly moist soil.",
+    "Kjølig til middels varm bladgrønnsak som liker jevn fukt og stabilt klima.": "A cool to moderately warm leafy vegetable that likes even moisture and stable conditions.",
+    "Kjølig til middels varm rotvekst som liker dyp, løs jord og jevn fukt.": "A cool to moderately warm root crop that likes deep, loose soil and even moisture.",
+    "Middelhavsurt som liker varm, solrik og tørr plassering med veldrenert jord.": "A Mediterranean herb that likes a warm, sunny, dry position with well-drained soil.",
+    "Bærvekst som liker kjølig til moderat varme, mye lys og jevn jordfukt.": "A berry crop that likes cool to moderate warmth, plenty of light and even soil moisture.",
+    "Kjølig til mild løkvekst som liker veldrenert jord og moderat fukt.": "A cool to mild allium crop that likes well-drained soil and moderate moisture.",
+    "Belgvekst som trives i kjølig til moderat temperatur og jevnt fuktig jord.": "A legume that thrives in cool to moderate temperatures and evenly moist soil.",
+    "Sommerblomst for drivhus og potter, liker sol, moderat temperatur og god lufting.": "A summer flower for greenhouses and pots; likes sun, moderate temperatures and good ventilation.",
+    "Kompakte planter med mange små frukter; tåler ofte litt høyere varme men er følsom for ujevn vanning (sprekk).": "Compact plants with many small fruits; often tolerate slightly higher heat but are sensitive to uneven watering and cracking.",
+    "Store frukter krever jevn fukt og god lufting for å unngå sprekk og gråmugg.": "Large fruits need even moisture and good ventilation to avoid cracking and grey mould.",
+    "Ofte dyrket for saus; tåler varme, men krever jevn vanning for å unngå sprekking.": "Often grown for sauce; tolerates warmth but needs even watering to avoid cracking.",
+    "Standard tomatprofil; følger baseverdiene uten særlige avvik.": "Standard tomato profile; follows the base values without notable adjustments.",
+    "Store frukter, noe mer følsom for ujevn fukt og høy luftfukt enn små paprika.": "Large fruits, somewhat more sensitive to uneven moisture and high humidity than small peppers.",
+    "Tåler ofte litt høyere varme og litt tørrere jord, men er følsom for høy luftfukt og stillestående luft.": "Often tolerates slightly higher heat and slightly drier soil, but is sensitive to high humidity and stagnant air.",
+    "Klassisk drivhusagurk med høyt vann- og fuktbehov.": "Classic greenhouse cucumber with high water and humidity needs.",
+    "Kompakte planter, tåler litt høyere varme og lys, men krever fortsatt høy jordfukt.": "Compact plants that tolerate slightly higher heat and light, but still need high soil moisture.",
+    "Trives best kjølig; går lett i stokk ved høy varme og tørke.": "Thrives best cool; bolts easily in high heat and drought.",
+    "Tåler ofte litt mer varme og høsting over tid enn hodesalat.": "Often tolerates a little more heat and repeated harvesting than head lettuce.",
+    "Tåler ofte litt mer varme og lys enn hodesalat, men liker fortsatt jevn fukt.": "Often tolerates a little more heat and light than head lettuce, but still likes even moisture.",
+    "Trenger varme, lys og jevn fukt; svært kuldefølsom.": "Needs warmth, light and even moisture; very sensitive to cold.",
+    "Tåler ofte litt tørrere jord og mer lys enn storbladet basilikum.": "Often tolerates slightly drier soil and more light than large-leaf basil.",
+    "Kraftigvoksende mynte; tåler mye klipping, men ikke uttørking.": "Vigorous mint; tolerates frequent cutting but not drying out.",
+    "Tåler mye varme og tørke, men reagerer raskt på for våt jord.": "Tolerates plenty of heat and drought, but reacts quickly to soil that is too wet.",
+    "God i potter; krever svært god drenering og mye lys.": "Good in pots; requires excellent drainage and plenty of light.",
+    "Klassiske sorter med én hovedavling; foretrekker kjøligere klima.": "Classic varieties with one main crop; prefer cooler conditions.",
+    "Bærer lenge; tåler ofte mer varme og lys, men krever jevn fukt for fin bærkvalitet.": "Bears for a long period; often tolerates more heat and light, but needs even moisture for good berry quality.",
+    "Søt oransje cherrytomat; liker høy varme og jevn fukt, svært sprekk-sensitiv.": "Sweet orange cherry tomato; likes high warmth and even moisture, very crack-sensitive.",
+    "Klassisk drivhustomat; forholdsvis robust for norske forhold.": "Classic greenhouse tomato; fairly robust for Nordic conditions.",
+    "Plommetomat for saus; trenger jevn fukt for å unngå sprekking.": "Plum tomato for sauce; needs even moisture to avoid cracking.",
+    "Italiensk saus-tomat; liker varme og god drenering, jevn vanning.": "Italian sauce tomato; likes warmth, good drainage and even watering.",
+    "Klassisk blokkpaprika for drivhus; trenger varm jord og jevn fukt.": "Classic bell pepper for greenhouses; needs warm soil and even moisture.",
+    "Kompakt sterk chili; trives varmt og lyst, tåler litt tørrere jord.": "Compact hot chili; thrives warm and bright, tolerates slightly drier soil.",
+    "Varmekrevende chili; krever mye lys og jevn temperatur.": "Heat-demanding chili; needs plenty of light and steady temperature.",
+    "Robust salatagurk; egnet til hobbydrivhus.": "Robust slicing cucumber; suitable for hobby greenhouses.",
+    "Miniagurk som gir jevn avling i varmt drivhus.": "Mini cucumber that gives steady yields in a warm greenhouse.",
+    "Liten, kompakt romansalat; egnet til potter og kasser.": "Small, compact romaine lettuce; suitable for pots and boxes.",
+    "Krusete rød plukksalat; tåler en del varme, men går i stokk ved langvarig tørke.": "Curly red leaf lettuce; tolerates some heat, but bolts during prolonged drought.",
+    "Standard storbladet basilikum for potter og drivhus.": "Standard large-leaf basil for pots and greenhouses.",
+    "Mørk dekorativ basilikum med samme klimakrav som Genovese.": "Dark decorative basil with the same climate needs as Genovese.",
+    "Sterk mynte til te; liker fuktig jord og mye lys.": "Strong mint for tea; likes moist soil and plenty of light.",
+    "Vanlig tidlig sort; ganske fast frukt, følsom for gråmugg ved høy fukt.": "Common early variety; fairly firm fruit, sensitive to grey mould in high humidity.",
+    "Remonterende sort for lang sesong i drivhus og potter.": "Everbearing variety for a long season in greenhouses and pots.",
+}
+
+SEED_GUIDE_TEXT_EN = {
+    "Så inne i mars-april.": "Sow indoors in March-April.",
+    "Forkultiveres inne lyst og varmt.": "Start indoors in a bright, warm place.",
+    "Pottes om når planten har 2-4 varige blad.": "Repot when the plant has 2-4 true leaves.",
+    "Plantes i drivhus fra mai når nettene er stabile.": "Plant in the greenhouse from May when nights are stable.",
+    "Høstes vanligvis juli-september.": "Usually harvested July-September.",
+    "Så inne i februar-mars.": "Sow indoors in February-March.",
+    "Startes inne tidlig, varmt og lyst.": "Start indoors early, warm and bright.",
+    "Pottes om når røttene fyller småpotten.": "Repot when the roots fill the small pot.",
+    "Settes i drivhus fra mai-juni.": "Move to the greenhouse from May-June.",
+    "Høstes fra juli og utover.": "Harvest from July onward.",
+    "Så inne i januar-mars.": "Sow indoors in January-March.",
+    "Startes inne tidlig med varme og mye lys.": "Start indoors early with warmth and plenty of light.",
+    "Pottes om gradvis for sterk rotvekst.": "Repot gradually for strong root growth.",
+    "Settes i drivhus når temperaturen holder seg stabil.": "Move to the greenhouse when the temperature stays stable.",
+    "Høstes fra sensommeren og utover.": "Harvest from late summer onward.",
+    "Så inne i april-mai.": "Sow indoors in April-May.",
+    "Forkultiveres kort inne, helst varmt.": "Start briefly indoors, preferably warm.",
+    "Pottes forsiktig om uten å forstyrre røttene for mye.": "Repot carefully without disturbing the roots too much.",
+    "Plantes i drivhus fra mai-juni.": "Plant in the greenhouse from May-June.",
+    "Høstes ofte fra juni/juli.": "Often harvested from June/July.",
+    "Så inne i mars-mai.": "Sow indoors in March-May.",
+    "Startes inne varmt, lyst og uten trekk.": "Start indoors warm, bright and away from drafts.",
+    "Prikles eller pottes om når plantene kan håndteres.": "Prick out or repot when the plants can be handled.",
+    "Trives best i drivhus eller varm vinduskarm.": "Thrives best in a greenhouse or warm windowsill.",
+    "Toppes og høstes jevnlig gjennom sesongen.": "Pinch and harvest regularly through the season.",
+    "Så inne eller direkte fra mars-august.": "Sow indoors or direct from March-August.",
+    "Kan forkultiveres i pluggbrett for tidligere avling.": "Can be started in plug trays for an earlier crop.",
+    "Pottes/plantes om når småplantene er håndterbare.": "Repot or plant on when seedlings are easy to handle.",
+    "Settes ut/drivhus når jorda er kjølig og fuktig.": "Move outdoors or into the greenhouse when the soil is cool and moist.",
+    "Høstes fortløpende etter størrelse.": "Harvest continuously by size.",
+    "Plantes vanligvis som småplanter vår eller sensommer.": "Usually planted as young plants in spring or late summer.",
+    "Kan stå i potter/kasser i drivhus.": "Can grow in pots or boxes in the greenhouse.",
+    "Pottes om ved tett rotklump eller før ny sesong.": "Repot when root-bound or before a new season.",
+    "Settes ut eller i drivhus når faren for hard frost er over.": "Move outdoors or into the greenhouse when hard frost risk has passed.",
+    "Bærer vanligvis fra juni, remonterende sorter lengre.": "Usually bears from June; everbearing varieties crop longer.",
+    "Forkultiveres inne med varme og godt lys.": "Start indoors with warmth and good light.",
+    "Pottes om når røttene fyller potten.": "Repot when the roots fill the pot.",
+    "Flyttes til drivhus fra mai-juni.": "Move to the greenhouse from May-June.",
+    "Høstes når frukt eller blader er modne.": "Harvest when fruit or leaves are mature.",
+    "Så direkte fra april-juni.": "Sow direct from April-June.",
+    "Forkultivering er sjelden nødvendig.": "Starting indoors is rarely necessary.",
+    "Unngå mye ompotting, røtter liker ro.": "Avoid repeated repotting; roots prefer to be left undisturbed.",
+    "Dyrkes direkte i dyp og løs jord.": "Grow direct in deep, loose soil.",
+    "Høstes når røttene har ønsket størrelse.": "Harvest when roots reach the desired size.",
+    "Så inne eller direkte fra mars-juli.": "Sow indoors or direct from March-July.",
+    "Kan forkultiveres for jevnere start.": "Can be started indoors for a more even start.",
+    "Pottes/plantes om når småplantene er robuste.": "Repot or plant on when seedlings are sturdy.",
+    "Trives best i kjølig til mildt drivhusklima.": "Thrives best in cool to mild greenhouse conditions.",
+    "Høstes fortløpende eller når hodet er utviklet.": "Harvest continuously or when the head has developed.",
+    "Så inne fra mars-mai.": "Sow indoors from March-May.",
+    "Startes lyst og jevnt fuktig.": "Start bright and evenly moist.",
+    "Pottes om når planten har god rotklump.": "Repot when the plant has a good root ball.",
+    "Kan stå i drivhus, potte eller varm krok.": "Can grow in a greenhouse, pot or warm corner.",
+    "Høstes jevnlig ved å klippe skudd/topper.": "Harvest regularly by cutting shoots or tips.",
+    "Start inne vår eller plant som småplante etter behov.": "Start indoors in spring or plant as a young plant as needed.",
+    "Gi lys, moderat varme og jevn fukt.": "Give light, moderate warmth and even moisture.",
+    "Settes i drivhus/krukke når veksten er i gang.": "Move to greenhouse or container when growth is active.",
+    "Følg blomstring/fruktsetting gjennom sesongen.": "Follow flowering and fruit set through the season.",
+    "Såtid avhenger av sort og dyrkingsmål.": "Sowing time depends on variety and growing goal.",
+    "Start lyst, jevnt fuktig og uten temperatursjokk.": "Start bright, evenly moist and without temperature shocks.",
+    "Flyttes videre når planten er robust.": "Move on when the plant is sturdy.",
+    "Følg utviklingen gjennom sesongen.": "Follow development through the season.",
+}
+
+
+def catalog_category(value: Any, language: str) -> str:
+    text = str(value or "").strip()
+    return CATALOG_CATEGORY_EN.get(text.lower(), text) if language == "en" else text
+
+
+def catalog_family(value: Any, language: str) -> str:
+    text = str(value or "").strip()
+    return CATALOG_FAMILY_EN.get(text.lower(), text) if language == "en" else text
+
+
+def catalog_variant_type(value: Any, language: str) -> str:
+    text = str(value or "").strip()
+    return CATALOG_VARIANT_TYPE_EN.get(text.lower(), text) if language == "en" else text
+
+
+def catalog_text(value: Any, language: str, fallback: str = "") -> str:
+    text = str(value or "").strip()
+    if language != "en":
+        return text
+    if not text:
+        return fallback
+    return CATALOG_TEXT_EN.get(text, fallback or "Use the listed climate range and keep care steady for this plant.")
+
+
+def localized_seed_guide(guide: dict[str, str], language: str) -> dict[str, str]:
+    if language != "en":
+        return guide
+    return {key: SEED_GUIDE_TEXT_EN.get(value, value) for key, value in guide.items()}
+
+
+def seed_guide_for_profile(profile_id: str, category: str, family: str, language: str = "no") -> dict[str, str]:
+    language = app_language(language)
     profile_id = (profile_id or "").lower()
     category = (category or "").lower()
     family = (family or "").lower()
@@ -377,54 +592,54 @@ def seed_guide_for_profile(profile_id: str, category: str, family: str) -> dict[
         },
     }
     if profile_id in guides:
-        return guides[profile_id]
+        return localized_seed_guide(guides[profile_id], language)
     if "varmeelskende" in family:
-        return {
+        return localized_seed_guide({
             "sow": "Så inne i mars-april.",
             "start": "Forkultiveres inne med varme og godt lys.",
             "repot": "Pottes om når røttene fyller potten.",
             "plant_out": "Flyttes til drivhus fra mai-juni.",
             "harvest": "Høstes når frukt eller blader er modne.",
-        }
+        }, language)
     if "rot" in family or "knoll" in family:
-        return {
+        return localized_seed_guide({
             "sow": "Så direkte fra april-juni.",
             "start": "Forkultivering er sjelden nødvendig.",
             "repot": "Unngå mye ompotting, røtter liker ro.",
             "plant_out": "Dyrkes direkte i dyp og løs jord.",
             "harvest": "Høstes når røttene har ønsket størrelse.",
-        }
+        }, language)
     if "blad" in family or "kål" in family or category == "grønnsak":
-        return {
+        return localized_seed_guide({
             "sow": "Så inne eller direkte fra mars-juli.",
             "start": "Kan forkultiveres for jevnere start.",
             "repot": "Pottes/plantes om når småplantene er robuste.",
             "plant_out": "Trives best i kjølig til mildt drivhusklima.",
             "harvest": "Høstes fortløpende eller når hodet er utviklet.",
-        }
+        }, language)
     if category == "urt":
-        return {
+        return localized_seed_guide({
             "sow": "Så inne fra mars-mai.",
             "start": "Startes lyst og jevnt fuktig.",
             "repot": "Pottes om når planten har god rotklump.",
             "plant_out": "Kan stå i drivhus, potte eller varm krok.",
             "harvest": "Høstes jevnlig ved å klippe skudd/topper.",
-        }
+        }, language)
     if category in {"blomst", "bær", "frukt"}:
-        return {
+        return localized_seed_guide({
             "sow": "Start inne vår eller plant som småplante etter behov.",
             "start": "Gi lys, moderat varme og jevn fukt.",
             "repot": "Pottes om når røttene fyller potten.",
             "plant_out": "Settes i drivhus/krukke når veksten er i gang.",
             "harvest": "Følg blomstring/fruktsetting gjennom sesongen.",
-        }
-    return {
+        }, language)
+    return localized_seed_guide({
         "sow": "Såtid avhenger av sort og dyrkingsmål.",
         "start": "Start lyst, jevnt fuktig og uten temperatursjokk.",
         "repot": "Pottes om når røttene fyller potten.",
         "plant_out": "Flyttes videre når planten er robust.",
         "harvest": "Følg utviklingen gjennom sesongen.",
-    }
+    }, language)
 
 
 def profile_ranges_from_csv(row: dict[str, str]) -> dict[str, dict[str, list[float]]]:
@@ -790,6 +1005,8 @@ def mark_email_verified(token: str) -> dict[str, Any] | None:
             (now, user["username"]),
         )
         connection.commit()
+    if not bool(user.get("is_admin")):
+        create_hub_for_user(str(user["username"]))
     return find_app_user(str(user["username"]))
 
 
@@ -2087,7 +2304,8 @@ def list_plant_profiles(query: str = "") -> list[dict[str, Any]]:
     return profiles
 
 
-def list_plant_catalog(query: str = "") -> list[dict[str, Any]]:
+def list_plant_catalog(query: str = "", language: str = "no") -> list[dict[str, Any]]:
+    language = app_language(language)
     query_text = query.strip().lower()
     with db_connection() as connection:
         profile_rows = connection.execute(
@@ -2140,23 +2358,37 @@ def list_plant_catalog(query: str = "") -> list[dict[str, Any]]:
         return query_text in haystack
 
     for profile in profiles.values():
+        profile_name = str(profile.get("name") or "")
+        profile_display_name = str(profile.get("english_name") or profile_name) if language == "en" else profile_name
+        profile_family = catalog_family(profile.get("family"), language)
+        profile_category = catalog_category(profile.get("category"), language)
+        profile_note = catalog_text(
+            profile.get("climate_note") or profile.get("watering_short") or "",
+            language,
+            "Use the listed climate range and keep watering steady for this plant.",
+        )
+        profile_watering = catalog_text(
+            profile.get("watering_short") or "",
+            language,
+            "Keep soil moisture steady and adjust after the pot feels lightly dry.",
+        )
         item = {
             "id": profile["profile_id"],
             "kind": "base",
             "profile_id": profile["profile_id"],
             "variant_id": None,
             "cultivar_id": None,
-            "name": profile["name"],
-            "display_name": profile["name"],
-            "subtitle": profile["family"],
-            "family": profile["family"],
+            "name": profile_display_name,
+            "display_name": profile_display_name,
+            "subtitle": profile_family,
+            "family": profile_family,
             "icon": profile["icon"],
             "tone": profile["tone"],
             "ranges": profile["ranges"],
-            "notes": profile.get("climate_note") or profile.get("watering_short") or "",
-            "watering": profile.get("watering_short") or "",
-            "seed_guide": seed_guide_for_profile(str(profile["profile_id"]), str(profile.get("category") or ""), str(profile.get("family") or "")),
-            "category": profile.get("category") or "",
+            "notes": profile_note,
+            "watering": profile_watering,
+            "seed_guide": seed_guide_for_profile(str(profile["profile_id"]), str(profile.get("category") or ""), str(profile.get("family") or ""), language),
+            "category": profile_category,
             "latin_name": profile.get("latin_name") or "",
         }
         if matches(item):
@@ -2166,23 +2398,30 @@ def list_plant_catalog(query: str = "") -> list[dict[str, Any]]:
         base = profiles.get(str(variant["base_plant_id"]))
         if not base:
             continue
+        base_name = str(base.get("name") or "")
+        base_display_name = str(base.get("english_name") or base_name) if language == "en" else base_name
+        variant_name = str(variant.get("engelsk_navn") or variant.get("norsk_navn") or "") if language == "en" else str(variant.get("norsk_navn") or "")
+        variant_type = catalog_variant_type(variant.get("variant_type"), language)
+        family = catalog_family(base.get("family"), language)
+        category = catalog_category(base.get("category"), language)
+        base_note = catalog_text(base.get("climate_note") or base.get("watering_short") or "", language)
         item = {
             "id": variant["variant_id"],
             "kind": "variant",
             "profile_id": base["profile_id"],
             "variant_id": variant["variant_id"],
             "cultivar_id": None,
-            "name": variant["norsk_navn"],
-            "display_name": variant["norsk_navn"],
-            "subtitle": f"{base['name']} · {variant['variant_type']}",
-            "family": base["family"],
+            "name": variant_name,
+            "display_name": variant_name,
+            "subtitle": f"{base_display_name} · {variant_type}",
+            "family": family,
             "icon": base["icon"],
             "tone": base["tone"],
             "ranges": adjusted_ranges(base["ranges"], variant),
-            "notes": variant.get("notes") or "",
-            "watering": base.get("watering_short") or "",
-            "seed_guide": seed_guide_for_profile(str(base["profile_id"]), str(base.get("category") or ""), str(base.get("family") or "")),
-            "category": base.get("category") or "",
+            "notes": catalog_text(variant.get("notes") or "", language, base_note),
+            "watering": catalog_text(base.get("watering_short") or "", language, "Keep soil moisture steady and adjust after the pot feels lightly dry."),
+            "seed_guide": seed_guide_for_profile(str(base["profile_id"]), str(base.get("category") or ""), str(base.get("family") or ""), language),
+            "category": category,
             "latin_name": base.get("latin_name") or "",
         }
         if matches(item):
@@ -2194,23 +2433,33 @@ def list_plant_catalog(query: str = "") -> list[dict[str, Any]]:
         variant = variants.get(str(cultivar_item["variant_id"]))
         if not base:
             continue
+        base_name = str(base.get("name") or "")
+        base_display_name = str(base.get("english_name") or base_name) if language == "en" else base_name
+        cultivar_name = str(cultivar_item.get("engelsk_navn") or cultivar_item.get("norsk_navn") or "") if language == "en" else str(cultivar_item.get("norsk_navn") or "")
+        variant_name = ""
+        if variant:
+            variant_name = str(variant.get("engelsk_navn") or variant.get("norsk_navn") or "") if language == "en" else str(variant.get("norsk_navn") or "")
+        family = catalog_family(base.get("family"), language)
+        category = catalog_category(base.get("category"), language)
+        base_note = catalog_text(base.get("climate_note") or base.get("watering_short") or "", language)
+        variant_note = catalog_text(variant.get("notes") if variant else "", language, base_note)
         item = {
             "id": cultivar_item["cultivar_id"],
             "kind": "cultivar",
             "profile_id": base["profile_id"],
             "variant_id": cultivar_item["variant_id"],
             "cultivar_id": cultivar_item["cultivar_id"],
-            "name": cultivar_item["norsk_navn"],
-            "display_name": cultivar_item["norsk_navn"],
-            "subtitle": f"{base['name']} · {variant['norsk_navn'] if variant else cultivar_item['cultivar_name']}",
-            "family": base["family"],
+            "name": cultivar_name,
+            "display_name": cultivar_name,
+            "subtitle": f"{base_display_name} · {variant_name if variant_name else cultivar_item['cultivar_name']}",
+            "family": family,
             "icon": base["icon"],
             "tone": base["tone"],
             "ranges": adjusted_ranges(base["ranges"], variant),
-            "notes": cultivar_item.get("notes") or (variant.get("notes") if variant else ""),
-            "watering": base.get("watering_short") or "",
-            "seed_guide": seed_guide_for_profile(str(base["profile_id"]), str(base.get("category") or ""), str(base.get("family") or "")),
-            "category": base.get("category") or "",
+            "notes": catalog_text(cultivar_item.get("notes") or "", language, variant_note),
+            "watering": catalog_text(base.get("watering_short") or "", language, "Keep soil moisture steady and adjust after the pot feels lightly dry."),
+            "seed_guide": seed_guide_for_profile(str(base["profile_id"]), str(base.get("category") or ""), str(base.get("family") or ""), language),
+            "category": category,
             "latin_name": base.get("latin_name") or "",
         }
         if matches(item):
@@ -3673,9 +3922,9 @@ def ai_sample_context(hub_id: str) -> dict[str, Any] | None:
     return latest_sample(hub_id)
 
 
-def ai_plant_context(limit: int = 10) -> list[dict[str, Any]]:
+def ai_plant_context(limit: int = 10, language: str = "no") -> list[dict[str, Any]]:
     plants: list[dict[str, Any]] = []
-    for item in list_plant_catalog("")[:limit]:
+    for item in list_plant_catalog("", language)[:limit]:
         plants.append(
             {
                 "name": item.get("display_name") or item.get("name"),
@@ -3750,18 +3999,63 @@ def clean_ai_image_payload(image: Any) -> dict[str, str] | None:
     return {"data_url": data_url, "name": name}
 
 
-def ask_openai_growly(question: str, context: dict[str, Any], image: dict[str, str] | None = None) -> str:
+def ask_openai_growly(question: str, context: dict[str, Any], image: dict[str, str] | None = None, language: str = "no") -> str:
     if not OPENAI_API_KEY:
         raise ValueError("openai_key_missing")
+
+    language = app_language(language)
+    system_prompt = (
+        "You are Growly Gardening Assistant, a calm greenhouse assistant. "
+        "Answer warmly, premium and concretely in English. "
+        "Use 2 short sentences in one small paragraph, maximum 45 words total. "
+        "Do not use Markdown, bold text, headings, bullet lists or long explanatory paragraphs unless the user asks for it. "
+        "For explanation questions: start with a short, warm opening such as 'Sure:' or 'Yes:', but do not become chatty. "
+        "Your first answer should build on the user's description, the plant image, general plant knowledge and weather data when relevant. "
+        "Do not base the first answer on sensors unless the user clearly asks about sensor values or sensors are necessary for the answer. "
+        "Answer general greenhouse, growing and plant-care questions without bringing in sensors when they are not needed. "
+        "Help with questions and simple diagnostics around plants, watering, climate and visible symptoms. "
+        "Sensors are only extra context when growly_context.sensors_available is true and latest_measurement exists. "
+        "If sensors_available is false: do not mention sensors, hub, connection, pairing or missing sensor values at all. "
+        "When sensor data can help and sensors are available, ask one short follow-up question rather than assuming the plant is connected to a sensor. "
+        "Use concrete sensor values and plant requirements only when they are actually relevant, but do not overstate precision. "
+        "Weather data is separate from sensors and can be used even if sensors are unavailable. "
+        "If the user sends an image, assess visible signs on the plant and suggest a safe next action. "
+        "If the user talks about problems, suggestions or wishes for the Growly app itself, ask one short follow-up question and help them formulate feedback. "
+        "Do not say anything has been sent to admin; that only happens when the user confirms in the app. "
+        "If data is missing, say so clearly in one short sentence. "
+        "Do not give firm disease diagnoses; give likely causes and safe actions."
+    ) if language == "en" else (
+        "Du er Growly Gartnerassistent, en rolig norsk hageassistent for drivhus. "
+        "Svar vennlig, premium og konkret på norsk. "
+        "Bruk 2 korte setninger i ett lite avsnitt, maks 45 ord totalt. "
+        "Ikke bruk Markdown, fet tekst, overskrifter, punktliste eller lange forklaringsavsnitt med mindre brukeren ber om det. "
+        "Ved forklaringsspørsmål: start med en kort, varm åpning som 'Klart:' eller 'Ja:', men ikke bli pratete. "
+        "Første svar skal bygge på brukerens beskrivelse, plantebildet, generell plantekunnskap og værdata når det er relevant. "
+        "Ikke baser første svar på sensorer med mindre brukeren tydelig spør om sensorverdier eller sensorene er nødvendige for svaret. "
+        "Svar på generelle drivhus-, dyrke- og plantepleiespørsmål uten å trekke inn sensorer når det ikke trengs. "
+        "Hjelp med spørsmål og enkel diagnostikk rundt planter, vanning, klima og synlige symptomer. "
+        "Sensorer er bare ekstra kontekst når growly_kontekst.sensorer_tilgjengelig er true og siste_maling finnes. "
+        "Hvis sensorer_tilgjengelig er false: ikke nevn sensorer, hub, kobling, pairing eller manglende sensorverdier i det hele tatt. "
+        "Når sensordata kan hjelpe og sensorene er tilgjengelige, spør heller ett kort oppfølgingsspørsmål enn å anta at planten er koblet til sensor. "
+        "Bruk konkrete sensorverdier og plantekrav bare når de faktisk er relevante, men ikke overdriv presisjonen. "
+        "Værdata er separat fra sensorer og kan brukes selv om sensorer ikke er tilgjengelige. "
+        "Hvis brukeren sender bilde, vurder synlige tegn på planten og foreslå trygg neste handling. "
+        "Hvis brukeren snakker om problemer, forslag eller ønsker for selve Growly-appen, "
+        "still ett kort oppfølgingsspørsmål og hjelp dem å formulere tilbakemeldingen. "
+        "Ikke si at noe er sendt til admin; det skjer bare når brukeren bekrefter i appen. "
+        "Hvis data mangler, si det tydelig i én kort setning. "
+        "Ikke gi bastante sykdomsdiagnoser; gi sannsynlige årsaker og trygge tiltak."
+    )
 
     user_content: list[dict[str, Any]] = [
         {
             "type": "input_text",
             "text": json.dumps(
                 {
-                    "sporsmal": question,
-                    "growly_kontekst": context,
-                    "bilde": image["name"] if image else None,
+                    "language": "English" if language == "en" else "Norwegian",
+                    "question": question,
+                    "growly_context": context,
+                    "image": image["name"] if image else None,
                 },
                 ensure_ascii=False,
             ),
@@ -3778,28 +4072,7 @@ def ask_openai_growly(question: str, context: dict[str, Any], image: dict[str, s
                 "content": [
                     {
                         "type": "input_text",
-                        "text": (
-                            "Du er Growly Gartnerassistent, en rolig norsk hageassistent for drivhus. "
-                            "Svar vennlig, premium og konkret på norsk. "
-                            "Bruk 2 korte setninger i ett lite avsnitt, maks 45 ord totalt. "
-                            "Ikke bruk Markdown, fet tekst, overskrifter, punktliste eller lange forklaringsavsnitt med mindre brukeren ber om det. "
-                            "Ved forklaringsspørsmål: start med en kort, varm åpning som 'Klart:' eller 'Ja:', men ikke bli pratete. "
-                            "Første svar skal bygge på brukerens beskrivelse, plantebildet, generell plantekunnskap og værdata når det er relevant. "
-                            "Ikke baser første svar på sensorer med mindre brukeren tydelig spør om sensorverdier eller sensorene er nødvendige for svaret. "
-                            "Svar på generelle drivhus-, dyrke- og plantepleiespørsmål uten å trekke inn sensorer når det ikke trengs. "
-                            "Hjelp med spørsmål og enkel diagnostikk rundt planter, vanning, klima og synlige symptomer. "
-                            "Sensorer er bare ekstra kontekst når growly_kontekst.sensorer_tilgjengelig er true og siste_maling finnes. "
-                            "Hvis sensorer_tilgjengelig er false: ikke nevn sensorer, hub, kobling, pairing eller manglende sensorverdier i det hele tatt. "
-                            "Når sensordata kan hjelpe og sensorene er tilgjengelige, spør heller ett kort oppfølgingsspørsmål enn å anta at planten er koblet til sensor. "
-                            "Bruk konkrete sensorverdier og plantekrav bare når de faktisk er relevante, men ikke overdriv presisjonen. "
-                            "Værdata er separat fra sensorer og kan brukes selv om sensorer ikke er tilgjengelige. "
-                            "Hvis brukeren sender bilde, vurder synlige tegn på planten og foreslå trygg neste handling. "
-                            "Hvis brukeren snakker om problemer, forslag eller ønsker for selve Growly-appen, "
-                            "still ett kort oppfølgingsspørsmål og hjelp dem å formulere tilbakemeldingen. "
-                            "Ikke si at noe er sendt til admin; det skjer bare når brukeren bekrefter i appen. "
-                            "Hvis data mangler, si det tydelig i én kort setning. "
-                            "Ikke gi bastante sykdomsdiagnoser; gi sannsynlige årsaker og trygge tiltak."
-                        ),
+                        "text": system_prompt,
                     }
                 ],
             },
@@ -5170,16 +5443,58 @@ def weather_label_nb(symbol_code: str | None) -> str:
     return "skiftende vær"
 
 
-def daily_weather_report_fallback(forecast: dict[str, Any]) -> dict[str, Any]:
+def weather_label_en(symbol_code: str | None) -> str:
+    code = (symbol_code or "").lower()
+    if "thunder" in code:
+        return "thunderstorms"
+    if "rain" in code or "sleet" in code:
+        return "rain"
+    if "snow" in code:
+        return "snow"
+    if "fog" in code:
+        return "fog"
+    if "cloud" in code:
+        return "cloudy weather"
+    if "partly" in code or "fair" in code:
+        return "partly cloudy weather"
+    if "clear" in code:
+        return "sun"
+    return "changeable weather"
+
+
+def daily_weather_report_fallback(forecast: dict[str, Any], language: str = "no") -> dict[str, Any]:
+    language = app_language(language)
     now = forecast.get("now") if isinstance(forecast.get("now"), dict) else {}
     days = forecast.get("days") if isinstance(forecast.get("days"), list) else []
     today = days[0] if days and isinstance(days[0], dict) else {}
     symbol = str(now.get("symbol_code") or today.get("symbol_code") or "")
-    condition = weather_label_nb(symbol)
+    condition = weather_label_en(symbol) if language == "en" else weather_label_nb(symbol)
     temperature = now.get("air_temperature")
     humidity = now.get("relative_humidity")
     wind = now.get("wind_speed")
     max_temp = today.get("temperature_max")
+
+    if language == "en":
+        temp_text = f"{float(temperature):.0f}°C" if isinstance(temperature, (int, float)) else "mild temperatures"
+        humidity_text = f" with humidity around {float(humidity):.0f}%" if isinstance(humidity, (int, float)) else ""
+        wind_text = f" Wind {float(wind):.1f} m/s." if isinstance(wind, (int, float)) else ""
+
+        if isinstance(max_temp, (int, float)) and max_temp >= 20:
+            tip = "Ventilate early and add a little shade around midday."
+        elif "rain" in symbol.lower():
+            tip = "Hold back outdoor watering, but check pots under cover."
+        elif isinstance(wind, (int, float)) and wind >= 7:
+            tip = "Secure light pots and ventilate carefully if the wind picks up."
+        elif "clear" in symbol.lower() or "fair" in symbol.lower():
+            tip = "Strong sun can heat the greenhouse quickly. Open before it gets too warm."
+        else:
+            tip = "Check soil moisture before watering, especially in small pots."
+
+        return {
+            "title": "Today's Growing Weather",
+            "body": f"Today calls for {condition}, {temp_text}{humidity_text}.{wind_text}".replace("..", "."),
+            "tip": tip,
+        }
 
     temp_text = f"{float(temperature):.0f}°C" if isinstance(temperature, (int, float)) else "mild temperatur"
     humidity_text = f" og fukt rundt {float(humidity):.0f} %" if isinstance(humidity, (int, float)) else ""
@@ -5203,9 +5518,26 @@ def daily_weather_report_fallback(forecast: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def ask_openai_weather_report(forecast: dict[str, Any], hub: dict[str, Any], sample: dict[str, Any] | None, plants: list[dict[str, Any]]) -> dict[str, Any]:
+def ask_openai_weather_report(forecast: dict[str, Any], hub: dict[str, Any], sample: dict[str, Any] | None, plants: list[dict[str, Any]], language: str = "no") -> dict[str, Any]:
     if not OPENAI_API_KEY:
         raise ValueError("openai_key_missing")
+
+    language = app_language(language)
+    system_prompt = (
+        "You are Growly's daily greenhouse report. "
+        "Write in English, warm and premium, but very short. "
+        "Use the weather as the main basis and sensor/plant data only as bonus context. "
+        "Return only valid JSON with the fields title, body and tip. "
+        "title max 4 words. body max 22 words. tip max 18 words. "
+        "No markdown, no bullet list, no extra text."
+    ) if language == "en" else (
+        "Du er Growly sin daglige drivhusrapport. "
+        "Skriv på norsk, varmt og premium, men svært kort. "
+        "Bruk været som hovedgrunnlag og sensordata/plantedata kun som bonus. "
+        "Returner kun gyldig JSON med feltene title, body og tip. "
+        "title maks 4 ord. body maks 22 ord. tip maks 18 ord. "
+        "Ingen markdown, ingen punktliste, ingen ekstra tekst."
+    )
 
     request_payload = {
         "model": OPENAI_MODEL,
@@ -5215,14 +5547,7 @@ def ask_openai_weather_report(forecast: dict[str, Any], hub: dict[str, Any], sam
                 "content": [
                     {
                         "type": "input_text",
-                        "text": (
-                            "Du er Growly sin daglige drivhusrapport. "
-                            "Skriv på norsk, varmt og premium, men svært kort. "
-                            "Bruk været som hovedgrunnlag og sensordata/plantedata kun som bonus. "
-                            "Returner kun gyldig JSON med feltene title, body og tip. "
-                            "title maks 4 ord. body maks 22 ord. tip maks 18 ord. "
-                            "Ingen markdown, ingen punktliste, ingen ekstra tekst."
-                        ),
+                        "text": system_prompt,
                     }
                 ],
             },
@@ -5233,6 +5558,7 @@ def ask_openai_weather_report(forecast: dict[str, Any], hub: dict[str, Any], sam
                         "type": "input_text",
                         "text": json.dumps(
                             {
+                                "language": "English" if language == "en" else "Norwegian",
                                 "dato": datetime.now(APP_TIMEZONE).date().isoformat(),
                                 "hub": {
                                     "hub_id": hub.get("hub_id"),
@@ -5269,7 +5595,7 @@ def ask_openai_weather_report(forecast: dict[str, Any], hub: dict[str, Any], sam
     if not parsed:
         raise ValueError("empty_ai_response")
     return {
-        "title": str(parsed.get("title") or "Dagens dyrkevær").strip()[:80],
+        "title": str(parsed.get("title") or ("Today's growing weather" if language == "en" else "Dagens dyrkevær")).strip()[:80],
         "body": str(parsed.get("body") or "").strip()[:240],
         "tip": str(parsed.get("tip") or "").strip()[:220],
     }
@@ -5396,9 +5722,7 @@ def resolve_request_hub(request: Request) -> dict[str, Any]:
                 raise ValueError("hub_not_assigned")
             return requested_hub
         accessible_hub = primary_hub_for_user(username)
-        if not accessible_hub:
-            raise ValueError("hub_not_assigned")
-        return accessible_hub
+        return accessible_hub or create_hub_for_user(username)
 
     accessible_hub = primary_hub_for_user(username)
     if accessible_hub:
@@ -5432,11 +5756,11 @@ def template_auth_context(request: Request) -> dict[str, Any]:
 def session_auth_payload(request: Request) -> dict[str, Any]:
     username = current_username(request)
     user = find_app_user(username) if username else None
-    user_hubs = list_hubs_for_user(username) if username and not is_admin_authenticated(request) else []
     try:
         hub = resolve_request_hub(request) if is_viewer_authenticated(request) else None
     except ValueError:
         hub = None
+    user_hubs = list_hubs_for_user(username) if username and not is_admin_authenticated(request) else []
     return {
         "authenticated": is_viewer_authenticated(request),
         "username": username,
@@ -5593,7 +5917,7 @@ async def register_submit(
             normalized_username,
             password,
             is_admin=False,
-            assign_hub=False,
+            assign_hub=True,
             full_name=normalized_full_name,
             phone=normalized_phone,
             email=normalized_email,
@@ -5763,7 +6087,7 @@ async def auth_register(request: Request, payload: dict[str, Any]):
             username,
             password,
             is_admin=False,
-            assign_hub=False,
+            assign_hub=True,
             full_name=full_name,
             phone=phone,
             email=email,
@@ -6148,6 +6472,7 @@ async def ai_assistant(request: Request, payload: dict[str, Any]):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
+    language = app_language(payload.get("language"))
     question = str(payload.get("question") or "").strip()
     if len(question) > 900:
         return JSONResponse(status_code=400, content={"ok": False, "error": "question_too_long"})
@@ -6160,7 +6485,7 @@ async def ai_assistant(request: Request, payload: dict[str, Any]):
     if not question and not image:
         return JSONResponse(status_code=400, content={"ok": False, "error": "missing_question"})
     if not question and image:
-        question = "Se på plantebildet og gi korte, trygge råd."
+        question = "Look at the plant photo and give short, safe advice." if language == "en" else "Se på plantebildet og gi korte, trygge råd."
 
     try:
         hub = resolve_request_hub(request)
@@ -6169,21 +6494,25 @@ async def ai_assistant(request: Request, payload: dict[str, Any]):
 
     hub_id = str(hub["hub_id"])
     sensors_available = bool(hub.get("is_active"))
+    latest_sample = ai_sample_context(hub_id) if sensors_available else None
     context = {
+        "language": "English" if language == "en" else "Norwegian",
         "dato": datetime.now(ZoneInfo("Europe/Oslo")).date().isoformat(),
         "hub": {
             "hub_id": hub_id,
             "hub_name": hub.get("hub_name"),
             "online": sensors_available,
         },
+        "sensors_available": sensors_available,
         "sensorer_tilgjengelig": sensors_available,
-        "siste_maling": ai_sample_context(hub_id) if sensors_available else None,
-        "plantekartotek_utdrag": ai_plant_context(),
+        "latest_measurement": latest_sample,
+        "siste_maling": latest_sample,
+        "plantekartotek_utdrag": ai_plant_context(language=language),
         "bruker_merknad": payload.get("context") if isinstance(payload.get("context"), dict) else {},
     }
 
     try:
-        answer = ask_openai_growly(question, context, image)
+        answer = ask_openai_growly(question, context, image, language)
     except HTTPError as exc:
         return JSONResponse(status_code=502, content={"ok": False, "error": f"openai_http_{exc.code}"})
     except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
@@ -6224,11 +6553,11 @@ async def plant_profiles(request: Request, q: str = ""):
 
 
 @app.get("/api/plant-catalog")
-async def plant_catalog(request: Request, q: str = ""):
+async def plant_catalog(request: Request, q: str = "", lang: str = "no"):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
-    return {"ok": True, "items": list_plant_catalog(q)}
+    return {"ok": True, "items": list_plant_catalog(q, app_language(lang))}
 
 
 @app.get("/api/plants")
@@ -6401,10 +6730,11 @@ async def weather_forecast(request: Request):
 
 
 @app.get("/api/weather/daily-report")
-async def weather_daily_report(request: Request):
+async def weather_daily_report(request: Request, lang: str = "no"):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
+    language = app_language(lang)
     try:
         hub = resolve_request_hub(request)
     except ValueError as exc:
@@ -6423,7 +6753,7 @@ async def weather_daily_report(request: Request):
         return JSONResponse(status_code=502, content={"ok": False, "error": str(exc) or "weather_unavailable"})
 
     today_key = datetime.now(APP_TIMEZONE).date().isoformat()
-    cache_key = f"{settings['hub_id']}:{today_key}"
+    cache_key = f"{settings['hub_id']}:{today_key}:{language}"
     cached = WEATHER_REPORT_CACHE.get(cache_key)
     if cached:
         return {"ok": True, **cached}
@@ -6441,11 +6771,12 @@ async def weather_daily_report(request: Request):
             {**hub, **settings},
             sample if isinstance(sample, dict) else None,
             plants,
+            language,
         )
         if not report.get("body") or not report.get("tip"):
             raise ValueError("empty_ai_response")
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, ValueError):
-        report = daily_weather_report_fallback(forecast)
+        report = daily_weather_report_fallback(forecast, language)
         source = "local_fallback"
 
     payload = {
