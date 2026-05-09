@@ -2706,6 +2706,9 @@ def complete_pairing_token(
 def create_hub_for_user(username: str) -> dict[str, Any]:
     existing_hub = find_hub_by_owner(username)
     if existing_hub:
+        with db_connection() as connection:
+            ensure_hub_member(connection, str(existing_hub["hub_id"]), username, "owner")
+            connection.commit()
         return existing_hub
 
     now = utc_now_iso()
@@ -5719,7 +5722,8 @@ def resolve_request_hub(request: Request) -> dict[str, Any]:
         if requested_hub_id:
             requested_hub = find_hub_for_user(username, requested_hub_id)
             if not requested_hub:
-                raise ValueError("hub_not_assigned")
+                accessible_hub = primary_hub_for_user(username)
+                return accessible_hub or create_hub_for_user(username)
             return requested_hub
         accessible_hub = primary_hub_for_user(username)
         return accessible_hub or create_hub_for_user(username)
