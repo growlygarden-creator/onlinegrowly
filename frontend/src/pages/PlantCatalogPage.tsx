@@ -3,13 +3,15 @@ import { fetchPlantCatalog, type AuthSession, type PlantCatalogItem } from "../l
 import { bundledPlantCatalog } from "../data/plantCatalog";
 import { PlantAvatar } from "../components/PlantAvatar";
 import { plantCareGuide } from "../lib/plantCare";
+import { useI18n } from "../lib/i18n";
+import { localizePlantCatalogItems } from "../lib/plantCatalogLocalization";
 
 type PlantCatalogPageProps = {
   session: AuthSession | null;
 };
 
-function kindLabel(kind: PlantCatalogItem["kind"]): string {
-  if (kind === "cultivar") return "Sort";
+function kindLabel(kind: PlantCatalogItem["kind"], language: "no" | "en"): string {
+  if (kind === "cultivar") return language === "en" ? "Cultivar" : "Sort";
   if (kind === "variant") return "Variant";
   return "Base";
 }
@@ -23,36 +25,49 @@ function compactRange(range: { optimal: [number, number] } | undefined, suffix: 
   return `${min.toFixed(0)}-${max.toFixed(0)}${suffix}`;
 }
 
-function compareCatalogText(a: string, b: string): number {
-  return a.localeCompare(b, "nb-NO", { sensitivity: "base" });
+function catalogLocale(language: "no" | "en"): string {
+  return language === "en" ? "en-US" : "nb-NO";
 }
 
-function compareCatalogItems(a: PlantCatalogItem, b: PlantCatalogItem): number {
+function compareCatalogText(a: string, b: string, language: "no" | "en"): number {
+  return a.localeCompare(b, catalogLocale(language), { sensitivity: "base" });
+}
+
+function compareCatalogItems(a: PlantCatalogItem, b: PlantCatalogItem, language: "no" | "en"): number {
   return (
-    compareCatalogText(a.display_name, b.display_name) ||
-    compareCatalogText(a.subtitle || "", b.subtitle || "") ||
-    compareCatalogText(a.id, b.id)
+    compareCatalogText(a.display_name, b.display_name, language) ||
+    compareCatalogText(a.subtitle || "", b.subtitle || "", language) ||
+    compareCatalogText(a.id, b.id, language)
   );
 }
 
 export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
-  const [items, setItems] = useState<PlantCatalogItem[]>(bundledPlantCatalog);
+  const { language } = useI18n();
+  const [items, setItems] = useState<PlantCatalogItem[]>(() => localizePlantCatalogItems(bundledPlantCatalog, language));
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchPlantCatalog().then((result) => {
+    setItems(localizePlantCatalogItems(bundledPlantCatalog, language));
+    fetchPlantCatalog("", language).then((result) => {
       if (result.length) {
         setItems(result);
       }
     });
-  }, []);
+  }, [language]);
 
   const catalogCategories = useMemo(() => {
     const unique = Array.from(new Set(items.filter((item) => item.kind === "base").map((item) => item.category).filter(Boolean)));
-    return unique.sort(compareCatalogText);
-  }, [items]);
+    return unique.sort((a, b) => compareCatalogText(a, b, language));
+  }, [items, language]);
+
+  useEffect(() => {
+    if (category !== "all" && !catalogCategories.includes(category)) {
+      setCategory("all");
+      setSelectedId(null);
+    }
+  }, [catalogCategories, category]);
 
   const filteredItems = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -63,12 +78,12 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
         if (!search) return true;
         return `${item.display_name} ${item.subtitle} ${item.category} ${item.family} ${item.latin_name}`.toLowerCase().includes(search);
       })
-      .sort(compareCatalogItems)
+      .sort((a, b) => compareCatalogItems(a, b, language))
       .slice(0, 80);
-  }, [category, items, query]);
+  }, [category, items, language, query]);
 
   const selectedItem = selectedId ? items.find((item) => item.id === selectedId) ?? null : null;
-  const selectedCareGuide = selectedItem ? plantCareGuide(selectedItem) : null;
+  const selectedCareGuide = selectedItem ? plantCareGuide(selectedItem, language) : null;
 
   return (
     <main className="page-shell app-page catalog-page">
@@ -137,7 +152,7 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
           <div className="catalog-detail__head">
             <PlantAvatar tone={selectedItem.tone} plantId={selectedItem.profile_id} name={selectedItem.display_name} family={selectedItem.family} />
             <div>
-              <p className="section-kicker">{kindLabel(selectedItem.kind)} · {selectedItem.category}</p>
+              <p className="section-kicker">{kindLabel(selectedItem.kind, language)} · {selectedItem.category}</p>
               <h2>{selectedItem.display_name}</h2>
               <span>{selectedItem.latin_name}</span>
             </div>

@@ -3707,6 +3707,34 @@ b {
   padding: 16px;
 }
 
+.notification-time-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.notification-safe-window {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(39, 112, 70, 0.14);
+  border-radius: 16px;
+  background: rgba(237, 245, 235, 0.78);
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.notification-time-panel .secondary-action {
+  min-height: 46px;
+  border-radius: 18px;
+  font-weight: 560;
+}
+
+.theme-dark .notification-safe-window {
+  border-color: rgba(235, 250, 229, 0.16);
+  background: rgba(235, 250, 229, 0.08);
+}
+
 .notification-action-row {
   display: flex;
   align-items: center;
@@ -5122,6 +5150,8 @@ b {
   color: var(--accent-strong);
   font-size: 0.72rem;
   font-weight: 400;
+  line-height: 1;
+  text-align: center;
   white-space: nowrap;
 }
 

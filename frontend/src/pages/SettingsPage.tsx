@@ -13,7 +13,13 @@ import {
   type PairingInfo,
   type WeatherAddressMatch,
 } from "../lib/api";
-import type { GrowlyNotificationStatus } from "../lib/notifications";
+import {
+  growlyNotificationPreferences,
+  saveGrowlyNotificationPreferences,
+  type GrowlyNotificationPreferences,
+  type GrowlyNotificationStatus,
+} from "../lib/notifications";
+import { useI18n, type LanguageMode } from "../lib/i18n";
 
 type SettingsPageProps = {
   session: AuthSession | null;
@@ -28,12 +34,6 @@ type SettingsPageProps = {
 };
 
 type ThemeMode = "light" | "dark" | "auto";
-
-const themeModeOptions: Array<{ value: ThemeMode; label: string }> = [
-  { value: "light", label: "Dag" },
-  { value: "dark", label: "Natt" },
-  { value: "auto", label: "Auto" },
-];
 
 function initialsFromName(name: string): string {
   return name
@@ -52,8 +52,8 @@ function plantInstanceId(plant: GrowlyPlant): string {
   return plant.instanceId || plant.plant_id || "";
 }
 
-function plantDisplayName(plant: GrowlyPlant): string {
-  return plant.nickname || plant.display_name || plant.profileId || plant.profile_id || "Plante";
+function plantDisplayName(plant: GrowlyPlant, fallback: string): string {
+  return plant.nickname || plant.display_name || plant.profileId || plant.profile_id || fallback;
 }
 
 function plantUsesSevenInOne(plant: GrowlyPlant): boolean {
@@ -71,6 +71,7 @@ export function SettingsPage({
   onRefreshNotifications,
   onDisableNotifications,
 }: SettingsPageProps) {
+  const { language, languageMode, setLanguageMode, t } = useI18n();
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
@@ -88,9 +89,21 @@ export function SettingsPage({
   const [profileEmail, setProfileEmail] = useState(session?.user?.email || "");
   const [profilePassword, setProfilePassword] = useState("");
   const [notificationBusy, setNotificationBusy] = useState(false);
+  const [notificationPreferences, setNotificationPreferences] = useState<GrowlyNotificationPreferences>(growlyNotificationPreferences);
   const [sensorPlants, setSensorPlants] = useState<GrowlyPlant[]>([]);
   const [sensorPlantsLoading, setSensorPlantsLoading] = useState(false);
   const [sensorAssigning, setSensorAssigning] = useState(false);
+
+  const themeModeOptions: Array<{ value: ThemeMode; label: string }> = [
+    { value: "light", label: t("settings.themeLight") },
+    { value: "dark", label: t("settings.themeDark") },
+    { value: "auto", label: t("settings.auto") },
+  ];
+  const languageModeOptions: Array<{ value: LanguageMode; label: string }> = [
+    { value: "auto", label: t("settings.auto") },
+    { value: "no", label: t("settings.languageNorwegian") },
+    { value: "en", label: t("settings.languageEnglish") },
+  ];
 
   const activeHubId = session?.hub?.hub_id || "";
   const hasPairedHub = Boolean(activeHubId);
@@ -143,7 +156,7 @@ export function SettingsPage({
 
   async function handleAssignSevenInOne(nextPlantId: string) {
     if (!hasPairedHub) {
-      setStatus("Par en hub før du kobler 7-i-1-sensoren til en plante.");
+      setStatus(t("settings.status.pairHubBeforeSensor"));
       return;
     }
     if (sensorAssigning) {
@@ -153,7 +166,7 @@ export function SettingsPage({
     const currentPlant = sensorAssignedPlant;
     const nextPlant = nextPlantId ? sensorPlants.find((plant) => plantInstanceId(plant) === nextPlantId) ?? null : null;
     if (nextPlantId && !nextPlant) {
-      setStatus("Fant ikke planten på denne huben.");
+      setStatus(t("settings.status.plantNotFound"));
       return;
     }
     if ((currentPlant ? plantInstanceId(currentPlant) : "") === nextPlantId) {
@@ -161,7 +174,10 @@ export function SettingsPage({
     }
     if (currentPlant && nextPlant && sensorPlants.length > 1) {
       const confirmed = window.confirm(
-        `7-i-1-sensoren er koblet til ${plantDisplayName(currentPlant)}. Flytte den til ${plantDisplayName(nextPlant)}?`,
+        t("settings.status.confirmMoveSensor", {
+          current: plantDisplayName(currentPlant, t("settings.defaultPlant")),
+          next: plantDisplayName(nextPlant, t("settings.defaultPlant")),
+        }),
       );
       if (!confirmed) {
         return;
@@ -169,12 +185,12 @@ export function SettingsPage({
     }
 
     setSensorAssigning(true);
-    setStatus(nextPlant ? "Flytter 7-i-1-sensor..." : "Fjerner 7-i-1-kobling...");
+    setStatus(nextPlant ? t("settings.status.movingSensor") : t("settings.status.removingSensor"));
     try {
       if (nextPlant) {
         const updated = await updatePlant(nextPlantId, { hasSevenInOne: true }, activeHubId);
         if (!updated) {
-          setStatus("Kunne ikke lagre sensorvalg akkurat nå.");
+          setStatus(t("settings.status.sensorSaveFailed"));
           return;
         }
         setSensorPlants((current) =>
@@ -188,7 +204,7 @@ export function SettingsPage({
             };
           }),
         );
-        setStatus(`7-i-1-sensoren måler ${plantDisplayName(updated)}.`);
+        setStatus(t("settings.status.sensorMeasures", { plant: plantDisplayName(updated, t("settings.defaultPlant")) }));
         return;
       }
 
@@ -196,7 +212,7 @@ export function SettingsPage({
         const currentPlantId = plantInstanceId(currentPlant);
         const updated = await updatePlant(currentPlantId, { hasSevenInOne: false }, activeHubId);
         if (!updated) {
-          setStatus("Kunne ikke fjerne sensorvalg akkurat nå.");
+          setStatus(t("settings.status.sensorRemoveFailed"));
           return;
         }
         setSensorPlants((current) =>
@@ -207,7 +223,7 @@ export function SettingsPage({
           ),
         );
       }
-      setStatus("7-i-1-sensoren er ikke koblet til en plante.");
+      setStatus(t("settings.status.sensorUnassigned"));
     } finally {
       setSensorAssigning(false);
     }
@@ -215,7 +231,7 @@ export function SettingsPage({
 
   async function handleLogout() {
     setBusy(true);
-    setStatus("Logger ut...");
+    setStatus(t("settings.status.loggingOut"));
     try {
       await logout();
       setSession(null);
@@ -226,19 +242,19 @@ export function SettingsPage({
   }
 
   async function handleCreatePairing() {
-    setStatus("Lager pairing-kode...");
+    setStatus(t("settings.status.creatingPairing"));
     const result = await createPairing();
     if (!result) {
-      setStatus("Kunne ikke lage kode akkurat nå.");
+      setStatus(t("settings.status.pairingFailed"));
       return;
     }
 
     setPairing(result);
-    setStatus("Pairing-koden er klar.");
+    setStatus(t("settings.status.pairingReady"));
   }
 
   async function handleSaveWeatherLocation() {
-    setStatus("Lagrer dyrkested...");
+    setStatus(t("settings.status.savingGrowingLocation"));
     const settings = await saveHubSettings({
       location_label: weatherAddress,
       weather_address: weatherAddress,
@@ -246,7 +262,7 @@ export function SettingsPage({
       weather_longitude: weatherLongitude,
     });
     if (!settings) {
-      setStatus("Kunne ikke lagre dyrkested akkurat nå.");
+      setStatus(t("settings.status.growingLocationFailed"));
       return;
     }
     if (session) {
@@ -259,7 +275,7 @@ export function SettingsPage({
         hubs: updatedHubs.length ? updatedHubs : session.hubs,
       });
     }
-    setStatus("Dyrkested er lagret.");
+    setStatus(t("settings.status.growingLocationSaved"));
     if (notificationStatus === "granted") {
       await onRefreshNotifications();
     }
@@ -268,13 +284,13 @@ export function SettingsPage({
   async function handleToggleHubActive(nextActive: boolean, event?: React.MouseEvent<HTMLButtonElement>) {
     event?.stopPropagation();
     if (!session?.hub) {
-      setStatus("Ingen hub er paret ennå.");
+      setStatus(t("settings.status.noHubPaired"));
       return;
     }
-    setStatus(nextActive ? "Aktiverer hub..." : "Deaktiverer hub...");
+    setStatus(nextActive ? t("settings.status.activatingHub") : t("settings.status.deactivatingHub"));
     const settings = await saveHubSettings({ is_active: nextActive });
     if (!settings) {
-      setStatus("Kunne ikke lagre hub-status akkurat nå.");
+      setStatus(t("settings.status.hubSaveFailed"));
       return;
     }
     const updatedHubs = (session.hubs ?? []).map((hub) => (
@@ -285,11 +301,11 @@ export function SettingsPage({
       hub: session.hub?.hub_id === settings.hub_id ? { ...session.hub, ...settings } : session.hub,
       hubs: updatedHubs.length ? updatedHubs : session.hubs,
     });
-    setStatus(nextActive ? "Hub er aktiv." : "Hub er slått av. Growly bruker vær og manuelle data.");
+    setStatus(nextActive ? t("settings.status.hubActive") : t("settings.status.hubInactive"));
   }
 
   async function handleSaveProfile() {
-    setStatus("Lagrer konto...");
+    setStatus(t("settings.status.savingAccount"));
     const updatedSession = await updateProfile({
       full_name: profileFullName,
       phone: profilePhone,
@@ -297,29 +313,29 @@ export function SettingsPage({
       password: profilePassword,
     });
     if (!updatedSession) {
-      setStatus("Kunne ikke lagre konto. Sjekk feltene og prøv igjen.");
+      setStatus(t("settings.status.accountFailed"));
       return;
     }
 
     let nextSession = updatedSession;
     setSession(nextSession);
     setProfilePassword("");
-    setStatus("Kontoen er oppdatert.");
+    setStatus(t("settings.status.accountSaved"));
   }
 
   async function handleEnableNotifications() {
     setNotificationBusy(true);
-    setStatus("Klargjør varsler...");
+    setStatus(t("settings.status.preparingNotifications"));
     try {
       const result = await onEnableNotifications();
       if (result === "granted") {
-        setStatus("Varsler er aktivert for vanning, kalender, vær og plantesjekk.");
+        setStatus(t("settings.status.notificationsEnabled"));
       } else if (result === "denied") {
-        setStatus("Varsler er avslått i iOS. Åpne Innstillinger på telefonen for å tillate Growly-varsler.");
+        setStatus(t("settings.status.notificationsDenied"));
       } else if (result === "unsupported") {
-        setStatus("Varsler virker først i iOS-appen, ikke i nettleseren.");
+        setStatus(t("settings.status.notificationsUnsupported"));
       } else {
-        setStatus("Varsler ble ikke aktivert ennå.");
+        setStatus(t("settings.status.notificationsNotEnabled"));
       }
     } finally {
       setNotificationBusy(false);
@@ -328,27 +344,51 @@ export function SettingsPage({
 
   async function handleDisableNotifications() {
     setNotificationBusy(true);
-    setStatus("Slår av Growly-varsler...");
+    setStatus(t("settings.status.disablingNotifications"));
     try {
       await onDisableNotifications();
-      setStatus("Growly-varsler er slått av.");
+      setStatus(t("settings.status.notificationsDisabled"));
     } finally {
       setNotificationBusy(false);
     }
   }
 
+  async function handleSaveNotificationPreferences() {
+    const savedPreferences = saveGrowlyNotificationPreferences(notificationPreferences);
+    setNotificationPreferences(savedPreferences);
+    setNotificationBusy(true);
+    setStatus(t("settings.status.savingNotificationTimes"));
+    try {
+      if (notificationStatus === "granted") {
+        await onRefreshNotifications();
+        setStatus(t("settings.status.notificationTimesSavedUpdated"));
+        return;
+      }
+      setStatus(t("settings.status.notificationTimesSaved"));
+    } finally {
+      setNotificationBusy(false);
+    }
+  }
+
+  function updateNotificationPreference(key: keyof GrowlyNotificationPreferences, value: string | boolean) {
+    setNotificationPreferences((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
   async function handleSearchAddress() {
     const query = weatherAddress.trim();
     if (query.length < 3) {
-      setStatus("Skriv inn adresse eller sted først.");
+      setStatus(t("settings.status.enterAddress"));
       return;
     }
     setAddressLookupBusy(true);
-    setStatus("Søker etter dyrkested...");
+    setStatus(t("settings.status.searchingAddress"));
     const matches = await searchWeatherAddress(query);
     setAddressMatches(matches);
     setAddressLookupBusy(false);
-    setStatus(matches.length ? "Velg riktig adresse under." : "Fant ingen treff. Prøv gate, nummer og kommune.");
+    setStatus(matches.length ? t("settings.status.chooseAddress") : t("settings.status.noAddressMatches"));
   }
 
   function handleSelectAddress(match: WeatherAddressMatch) {
@@ -356,32 +396,32 @@ export function SettingsPage({
     setWeatherLatitude(match.latitude.toString());
     setWeatherLongitude(match.longitude.toString());
     setAddressMatches([]);
-    setStatus("Adresse funnet. Husk å lagre dyrkested.");
+    setStatus(t("settings.status.addressFound"));
   }
 
   function handleUseDeviceLocation() {
     if (!navigator.geolocation) {
-      setStatus("Nettleseren støtter ikke posisjonshenting.");
+      setStatus(t("settings.status.geolocationUnsupported"));
       return;
     }
 
     setLocationLookupBusy(true);
-    setStatus("Henter posisjon...");
+    setStatus(t("settings.status.fetchingPosition"));
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setWeatherLatitude(position.coords.latitude.toFixed(6));
         setWeatherLongitude(position.coords.longitude.toFixed(6));
         setAddressMatches([]);
         setLocationLookupBusy(false);
-        setStatus("Posisjon hentet. Husk å lagre dyrkested.");
+        setStatus(t("settings.status.positionFetched"));
       },
       (error) => {
         setLocationLookupBusy(false);
         if (error.code === error.PERMISSION_DENIED) {
-          setStatus("Posisjon ble ikke tillatt. Gi tilgang i nettleseren eller skriv inn adresse.");
+          setStatus(t("settings.status.positionDenied"));
           return;
         }
-        setStatus("Kunne ikke hente posisjon akkurat nå. Prøv adressefeltet i stedet.");
+        setStatus(t("settings.status.positionFailed"));
       },
       {
         enableHighAccuracy: true,
@@ -391,36 +431,42 @@ export function SettingsPage({
     );
   }
 
-  const displayName = session?.user?.full_name || session?.username || "Growly Garden";
-  const displayEmail = session?.user?.email || "kunde@example.com";
+  const displayName = session?.user?.full_name || session?.username || t("settings.growlyGarden");
+  const displayEmail = session?.user?.email || t("settings.defaultEmail");
   const hubLocation = session?.hub?.location_label || "";
-  const hubId = activeHubId || "Venter på paring";
+  const hubId = activeHubId || t("settings.pendingPairing");
   const hubCount = session?.hubs?.length ?? (session?.hub ? 1 : 0);
   const hubActive = isHubActive(session?.hub?.is_active);
   const weatherConfigured = !!weatherLatitude && !!weatherLongitude;
   const themeSummary =
     themeMode === "auto"
-      ? `Auto følger mobilen (${theme === "dark" ? "nattmodus" : "dagmodus"} nå).`
+      ? t("settings.themeAutoSummary", { mode: theme === "dark" ? t("settings.nightMode") : t("settings.dayMode") })
       : themeMode === "dark"
-        ? "Growly står fast i nattmodus."
-        : "Growly står fast i dagmodus.";
+        ? t("settings.themeDarkSummary")
+        : t("settings.themeLightSummary");
+  const languageSummary =
+    languageMode === "auto"
+      ? t("settings.languageSummaryAuto", { language: language === "no" ? t("settings.languageNorwegian") : t("settings.languageEnglish") })
+      : languageMode === "no"
+        ? t("settings.languageSummaryNo")
+        : t("settings.languageSummaryEn");
   const notificationSummary =
     notificationStatus === "granted"
-      ? "Aktivert for vanning, kalender, vær og plantesjekk."
+      ? t("settings.notificationSummary.granted")
       : notificationStatus === "denied"
-        ? "Avslått i iOS-innstillingene."
+        ? t("settings.notificationSummary.denied")
         : notificationStatus === "unsupported"
-          ? "Tilgjengelig i iOS-appen."
-          : "Ikke aktivert ennå.";
+          ? t("settings.notificationSummary.unsupported")
+          : t("settings.notificationSummary.off");
 
   return (
     <main className="page-shell app-page">
       <section className="screen-header">
         <div>
-          <h1>Innstillinger <span className="leaf-mark">🌿</span></h1>
-          <p>Konto, drivhus og tilkoblinger</p>
+          <h1>{t("settings.title")} <span className="leaf-mark">🌿</span></h1>
+          <p>{t("settings.subtitle")}</p>
         </div>
-        <button className="icon-button" type="button" aria-label="Aktiver varsler" onClick={handleEnableNotifications} disabled={notificationBusy}>
+        <button className="icon-button" type="button" aria-label={t("settings.enableNotificationsAria")} onClick={handleEnableNotifications} disabled={notificationBusy}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
               fill="none"
@@ -435,7 +481,7 @@ export function SettingsPage({
       </section>
 
       <section className="settings-section">
-        <p className="section-kicker">Konto</p>
+        <p className="section-kicker">{t("settings.account")}</p>
         <article className="soft-card settings-card premium-section-card">
           <button className="settings-row settings-row-button" type="button" onClick={() => setAccountPanelOpen((open) => !open)}>
             <div className="avatar-badge">{initialsFromName(displayName) || "GG"}</div>
@@ -450,21 +496,21 @@ export function SettingsPage({
               <div className="settings-divider" />
               <div className="settings-field-grid">
                 <label className="settings-field">
-                  <span>Fullt navn</span>
+                  <span>{t("settings.fullName")}</span>
                   <input value={profileFullName} onChange={(event) => setProfileFullName(event.target.value)} autoComplete="name" />
                 </label>
                 <label className="settings-field">
-                  <span>Telefon</span>
+                  <span>{t("settings.phone")}</span>
                   <input value={profilePhone} onChange={(event) => setProfilePhone(event.target.value)} autoComplete="tel" />
                 </label>
               </div>
               <div className="settings-field-grid">
                 <label className="settings-field">
-                  <span>E-post</span>
+                  <span>{t("settings.email")}</span>
                   <input value={profileEmail} onChange={(event) => setProfileEmail(event.target.value)} autoComplete="email" />
                 </label>
                 <label className="settings-field">
-                  <span>Adresse</span>
+                  <span>{t("settings.address")}</span>
                   <input
                     value={weatherAddress}
                     onChange={(event) => {
@@ -477,30 +523,30 @@ export function SettingsPage({
                 </label>
               </div>
               <label className="settings-field">
-                <span>Nytt passord</span>
+                <span>{t("settings.newPassword")}</span>
                 <input
                   type="password"
                   value={profilePassword}
                   onChange={(event) => setProfilePassword(event.target.value)}
-                  placeholder="La stå tomt hvis uendret"
+                  placeholder={t("settings.passwordUnchanged")}
                   autoComplete="new-password"
                 />
               </label>
               <button className="primary-action" type="button" onClick={handleSaveProfile}>
-                Lagre konto
+                {t("settings.saveAccount")}
               </button>
             </div>
           ) : null}
           <div className="settings-divider" />
           <button className="danger-link" type="button" onClick={handleLogout} disabled={busy}>
             <span className="danger-link__icon">↪</span>
-            {busy ? "Logger ut" : "Logg ut"}
+            {busy ? t("settings.loggingOut") : t("settings.logout")}
           </button>
         </article>
       </section>
 
       <section className="settings-section">
-        <p className="section-kicker">Drivhus</p>
+        <p className="section-kicker">{t("settings.greenhouse")}</p>
         <article className="soft-card settings-card premium-section-card">
           <button className="settings-row settings-row-button" type="button" onClick={() => setHubPanelOpen((open) => !open)}>
             <div className="icon-badge icon-badge--mint">
@@ -518,11 +564,11 @@ export function SettingsPage({
             <div className="settings-row__content">
               <span className="online-line">
                 <span className={`online-dot${hubActive ? "" : " online-dot--muted"}`} aria-hidden="true" />
-                {session?.hub ? (hubActive ? "Hub på" : "Hub av") : "Ikke paret"}
+                {session?.hub ? (hubActive ? t("settings.hubOn") : t("settings.hubOff")) : t("settings.notPaired")}
               </span>
-              {hubLocation ? <small>Lokasjon: {hubLocation}</small> : null}
-              <small>Hub-ID: {hubId}</small>
-              <small>{hubCount} {hubCount === 1 ? "hub" : "hubber"} på kontoen</small>
+              {hubLocation ? <small>{t("settings.location", { location: hubLocation })}</small> : null}
+              <small>{t("settings.hubId", { hubId })}</small>
+              <small>{t("settings.hubCount", { count: hubCount, label: hubCount === 1 ? t("settings.hubSingular") : t("settings.hubPlural") })}</small>
             </div>
             <span className={`chevron${hubPanelOpen ? " chevron--open" : ""}`}>›</span>
           </button>
@@ -532,8 +578,8 @@ export function SettingsPage({
               <div className="settings-divider" />
               <div className="hub-toggle-row">
                 <div>
-                  <strong>Hub</strong>
-                  <span>{hubActive ? "Sensorer og hub-data er aktivert." : "Growly bruker vær og manuelle data uten hub."}</span>
+                  <strong>{t("settings.hub")}</strong>
+                  <span>{hubActive ? t("settings.hubActiveBody") : t("settings.hubInactiveBody")}</span>
                 </div>
                 <button
                   className={`hub-switch${hubActive ? " is-on" : ""}`}
@@ -550,17 +596,17 @@ export function SettingsPage({
               <div className="settings-divider" />
               <div className="sensor-settings-panel">
                 <div className="settings-row__content">
-                  <strong>Sensor</strong>
+                  <strong>{t("settings.sensor")}</strong>
                   <span>
                     {hasPairedHub
                       ? sensorAssignedPlant
-                        ? `7-i-1 måler ${plantDisplayName(sensorAssignedPlant)}.`
-                        : "Velg hvilken plante 7-i-1-sensoren måler."
-                      : "Par hub før sensor kan kobles til plante."}
+                        ? t("settings.sensorAssigned", { plant: plantDisplayName(sensorAssignedPlant, t("settings.defaultPlant")) })
+                        : t("settings.sensorChoose")
+                      : t("settings.sensorPairHub")}
                   </span>
                 </div>
                 <label className="settings-field sensor-select-field">
-                  <span>7-i-1-sensor</span>
+                  <span>{t("settings.sevenInOneSensor")}</span>
                   <select
                     value={sensorAssignedPlantId}
                     onChange={(event) => handleAssignSevenInOne(event.target.value)}
@@ -568,16 +614,16 @@ export function SettingsPage({
                   >
                     <option value="">
                       {sensorPlantsLoading
-                        ? "Henter planter..."
+                        ? t("settings.fetchingPlants")
                         : sensorPlants.length
-                          ? "Ikke koblet til plante"
-                          : "Ingen planter på huben"}
+                          ? t("settings.sensorUnassigned")
+                          : t("settings.noPlantsOnHub")}
                     </option>
                     {sensorPlants.map((plant) => {
                       const instanceId = plantInstanceId(plant);
                       return (
                         <option key={instanceId} value={instanceId}>
-                          {plantDisplayName(plant)}
+                          {plantDisplayName(plant, t("settings.defaultPlant"))}
                         </option>
                       );
                     })}
@@ -588,16 +634,16 @@ export function SettingsPage({
               <div className="settings-divider" />
               <div className="pairing-panel pairing-panel--compact">
                 <div>
-                  <h2>Koble til hub</h2>
-                  <p>Generer en kode når en Growly Hub skal kobles til denne kontoen.</p>
+                  <h2>{t("settings.connectHub")}</h2>
+                  <p>{t("settings.connectHubBody")}</p>
                 </div>
                 <button className="secondary-action" type="button" onClick={handleCreatePairing}>
-                  Generer pairing-kode
+                  {t("settings.generatePairingCode")}
                 </button>
                 <div className="pairing-footer">
                   <div>
-                    <strong>{pairing ? pairing.token : "Ingen aktiv kode"}</strong>
-                    <span>{pairing ? `Gyldig til ${pairing.expires_at}` : "Koden vises her når den er klar."}</span>
+                    <strong>{pairing ? pairing.token : t("settings.noActiveCode")}</strong>
+                    <span>{pairing ? t("settings.validUntil", { date: pairing.expires_at }) : t("settings.codeReadyHint")}</span>
                   </div>
                   <span className={`pairing-state${pairing ? " is-ready" : ""}`} aria-hidden="true" />
                 </div>
@@ -608,7 +654,7 @@ export function SettingsPage({
       </section>
 
       <section className="settings-section">
-        <p className="section-kicker">Dyrkested og vær</p>
+        <p className="section-kicker">{t("settings.weatherSection")}</p>
         <article className="soft-card settings-card premium-section-card">
           <button className="settings-row settings-row-button" type="button" onClick={() => setWeatherPanelOpen((open) => !open)}>
             <div className="icon-badge icon-badge--mint">
@@ -624,9 +670,9 @@ export function SettingsPage({
               </svg>
             </div>
             <div className="settings-row__content">
-              <strong>{weatherConfigured ? "Værprognose aktiv" : "Sett dyrkested"}</strong>
-              <span>{weatherConfigured ? "Lokalt vær brukes til dyrkeråd." : "Bruk telefonens posisjon eller skriv inn adresse."}</span>
-              <small>{weatherConfigured ? "Dyrkested er satt" : "Ikke satt opp"}</small>
+              <strong>{weatherConfigured ? t("settings.weatherActive") : t("settings.setGrowingLocation")}</strong>
+              <span>{weatherConfigured ? t("settings.weatherActiveBody") : t("settings.weatherInactiveBody")}</span>
+              <small>{weatherConfigured ? t("settings.locationConfigured") : t("settings.locationNotConfigured")}</small>
             </div>
             <span className={`chevron${weatherPanelOpen ? " chevron--open" : ""}`}>›</span>
           </button>
@@ -635,11 +681,11 @@ export function SettingsPage({
             <div className="weather-settings-panel">
               <div className="settings-divider" />
               <div className="settings-row__content">
-                <strong>Dyrkested for vær</strong>
-                <span>Growly lagrer posisjonen på huben og bruker den til lokal værprognose.</span>
+                <strong>{t("settings.weatherLocation")}</strong>
+                <span>{t("settings.weatherLocationBody")}</span>
               </div>
               <label className="settings-field">
-                <span>Adresse eller sted</span>
+                <span>{t("settings.addressOrPlace")}</span>
                 <input
                   value={weatherAddress}
                   onChange={(event) => {
@@ -651,10 +697,10 @@ export function SettingsPage({
               </label>
               <div className="settings-field-grid">
                 <button className="secondary-action" type="button" onClick={handleSearchAddress} disabled={addressLookupBusy}>
-                  {addressLookupBusy ? "Søker..." : "Finn adresse"}
+                  {addressLookupBusy ? t("settings.searching") : t("settings.findAddress")}
                 </button>
                 <button className="secondary-action" type="button" onClick={handleUseDeviceLocation} disabled={locationLookupBusy}>
-                  {locationLookupBusy ? "Henter..." : "Bruk min posisjon"}
+                  {locationLookupBusy ? t("settings.fetching") : t("settings.useMyLocation")}
                 </button>
               </div>
               {addressMatches.length ? (
@@ -674,15 +720,15 @@ export function SettingsPage({
               ) : null}
               {weatherLatitude && weatherLongitude ? (
                 <div className="location-confirmation">
-                  <strong>Dyrkested funnet</strong>
-                  <span>{weatherAddress || "Posisjon valgt"}</span>
+                  <strong>{t("settings.locationFound")}</strong>
+                  <span>{weatherAddress || t("settings.positionSelected")}</span>
                 </div>
               ) : null}
               <details className="advanced-location">
-                <summary>Avansert plassering</summary>
+                <summary>{t("settings.advancedLocation")}</summary>
                 <div className="settings-field-grid">
                   <label className="settings-field">
-                    <span>Breddegrad</span>
+                    <span>{t("settings.latitude")}</span>
                     <input
                       value={weatherLatitude}
                       onChange={(event) => setWeatherLatitude(event.target.value)}
@@ -691,7 +737,7 @@ export function SettingsPage({
                     />
                   </label>
                   <label className="settings-field">
-                    <span>Lengdegrad</span>
+                    <span>{t("settings.longitude")}</span>
                     <input
                       value={weatherLongitude}
                       onChange={(event) => setWeatherLongitude(event.target.value)}
@@ -702,7 +748,7 @@ export function SettingsPage({
                 </div>
               </details>
               <button className="primary-action" type="button" onClick={handleSaveWeatherLocation}>
-                Lagre dyrkested
+                {t("settings.saveGrowingLocation")}
               </button>
             </div>
           ) : null}
@@ -712,7 +758,7 @@ export function SettingsPage({
       {status ? <p className="helper-text helper-text--settings">{status}</p> : null}
 
       <section className="settings-section settings-section--compact">
-        <p className="section-kicker">Varsler</p>
+        <p className="section-kicker">{t("settings.notifications")}</p>
         <article className="soft-card settings-card premium-section-card notifications-settings-card">
           <div className="settings-row">
             <div className="icon-badge icon-badge--mint theme-icon-badge">
@@ -728,26 +774,77 @@ export function SettingsPage({
               </svg>
             </div>
             <div className="settings-row__content">
-              <strong>Push-varsler</strong>
+              <strong>{t("settings.pushNotifications")}</strong>
               <span>{notificationSummary}</span>
-              <small>Siste varsel vises på dashbordet.</small>
+              <small>{t("settings.lastNotificationHint")}</small>
             </div>
           </div>
           <div className="notification-action-row">
             <button className="secondary-action" type="button" onClick={handleEnableNotifications} disabled={notificationBusy}>
-              {notificationStatus === "granted" ? "Oppdater varsler" : "Aktiver varsler"}
+              {notificationStatus === "granted" ? t("settings.updateNotifications") : t("settings.activateNotifications")}
             </button>
             {notificationStatus === "granted" ? (
               <button className="text-action" type="button" onClick={handleDisableNotifications} disabled={notificationBusy}>
-                Slå av
+                {t("settings.disable")}
               </button>
             ) : null}
+          </div>
+          <div className="settings-divider" />
+          <div className="notification-time-panel">
+            <div className="settings-row__content">
+              <strong>{t("settings.notificationTime")}</strong>
+              <span>{t("settings.notificationTimeBody")}</span>
+            </div>
+            <div className="settings-field-grid">
+              <label className="settings-field">
+                <span>{t("settings.earliest")}</span>
+                <input
+                  type="time"
+                  min="10:00"
+                  value={notificationPreferences.earliestTime}
+                  onChange={(event) => updateNotificationPreference("earliestTime", event.target.value)}
+                />
+              </label>
+              <label className="settings-field">
+                <span>{t("settings.watering")}</span>
+                <input
+                  type="time"
+                  min="10:00"
+                  value={notificationPreferences.wateringTime}
+                  onChange={(event) => updateNotificationPreference("wateringTime", event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="settings-field-grid">
+              <label className="settings-field">
+                <span>{t("settings.calendar")}</span>
+                <input
+                  type="time"
+                  min="10:00"
+                  value={notificationPreferences.calendarTime}
+                  onChange={(event) => updateNotificationPreference("calendarTime", event.target.value)}
+                />
+              </label>
+              <label className="settings-field">
+                <span>{t("settings.plantCheck")}</span>
+                <input
+                  type="time"
+                  min="10:00"
+                  value={notificationPreferences.plantCheckTime}
+                  onChange={(event) => updateNotificationPreference("plantCheckTime", event.target.value)}
+                />
+              </label>
+            </div>
+            <p className="notification-safe-window">{t("settings.notificationSafeWindow")}</p>
+            <button className="secondary-action" type="button" onClick={handleSaveNotificationPreferences} disabled={notificationBusy}>
+              {t("settings.saveTimes")}
+            </button>
           </div>
         </article>
       </section>
 
       <section className="settings-section settings-section--compact">
-        <p className="section-kicker">Tema</p>
+        <p className="section-kicker">{t("settings.theme")}</p>
         <article className="soft-card settings-card premium-section-card theme-settings-card">
           <div className="settings-row theme-settings-row">
             <div className="icon-badge icon-badge--mint theme-icon-badge">
@@ -775,11 +872,11 @@ export function SettingsPage({
               )}
             </div>
             <div className="settings-row__content">
-              <strong>Utseende</strong>
+              <strong>{t("settings.appearance")}</strong>
               <span>{themeSummary}</span>
             </div>
           </div>
-          <div className="theme-mode-toggle" role="radiogroup" aria-label="Velg tema">
+          <div className="theme-mode-toggle" role="radiogroup" aria-label={t("settings.chooseTheme")}>
             {themeModeOptions.map((option) => (
               <button
                 key={option.value}
@@ -796,10 +893,48 @@ export function SettingsPage({
         </article>
       </section>
 
+      <section className="settings-section settings-section--compact">
+        <p className="section-kicker">{t("settings.language")}</p>
+        <article className="soft-card settings-card premium-section-card theme-settings-card">
+          <div className="settings-row theme-settings-row">
+            <div className="icon-badge icon-badge--mint theme-icon-badge">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M4.5 5.5h8M8.5 5.5v13M5.5 18.5h6M14 8.5h5.5M16.8 8.5c-.2 3.7-1.7 6.8-4.6 9.2M14.6 12.3c1.2 2.1 2.9 3.9 5.1 5.4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.7"
+                />
+              </svg>
+            </div>
+            <div className="settings-row__content">
+              <strong>{t("settings.languageTitle")}</strong>
+              <span>{languageSummary}</span>
+            </div>
+          </div>
+          <div className="theme-mode-toggle" role="radiogroup" aria-label={t("settings.chooseLanguage")}>
+            {languageModeOptions.map((option) => (
+              <button
+                key={option.value}
+                className={languageMode === option.value ? "is-selected" : ""}
+                type="button"
+                role="radio"
+                aria-checked={languageMode === option.value}
+                onClick={() => setLanguageMode(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </article>
+      </section>
+
       <section className="settings-section">
-        <p className="section-kicker">Om appen</p>
+        <p className="section-kicker">{t("settings.about")}</p>
         <article className="soft-card version-card premium-section-card">
-          <span>Versjon</span>
+          <span>{t("settings.version")}</span>
           <div className="version-card__value">
             <strong>1.0.0</strong>
             <span className="chevron">›</span>

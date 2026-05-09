@@ -1,11 +1,16 @@
 import { Capacitor } from "@capacitor/core";
 import { LocalNotifications, type DeliveredNotificationSchema, type LocalNotificationSchema } from "@capacitor/local-notifications";
 import { fetchPlants, fetchWeatherForecast, type GrowlyPlant, type WeatherForecast } from "./api";
+import { currentAppLanguage, translate, type AppLanguage } from "./i18n";
 
 const NOTIFICATION_ENABLED_KEY = "growly.notifications.enabled";
 const NOTIFICATION_HISTORY_KEY = "growly.notifications.history";
 const NOTIFICATION_SCHEDULE_KEY = "growly.notifications.scheduled";
+const NOTIFICATION_PREFERENCES_KEY = "growly.notifications.preferences";
 const NOTIFICATION_HISTORY_LIMIT = 80;
+const MIN_NOTIFICATION_TIME = "10:00";
+const MIN_NOTIFICATION_DELAY_MINUTES = 60;
+const SUNSET_BUFFER_MINUTES = 15;
 const MANAGED_NOTIFICATION_IDS = [
   11001,
   12001,
@@ -39,31 +44,224 @@ export type GrowlyScheduledNotification = {
   repeats: boolean;
   every?: string;
 };
+export type GrowlyNotificationPreferences = {
+  earliestTime: string;
+  wateringTime: string;
+  plantCheckTime: string;
+  calendarTime: string;
+  avoidAfterSunset: boolean;
+};
+
+const DEFAULT_NOTIFICATION_PREFERENCES: GrowlyNotificationPreferences = {
+  earliestTime: MIN_NOTIFICATION_TIME,
+  wateringTime: "10:00",
+  plantCheckTime: "16:00",
+  calendarTime: "10:30",
+  avoidAfterSunset: true,
+};
 
 function isNotificationSupported(): boolean {
   return Capacitor.isNativePlatform();
 }
 
-function nextTime(hour: number, minute: number, minimumDelayMinutes = 15): Date {
+function parseTimeParts(value: string): { hour: number; minute: number } | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+  return { hour, minute };
+}
+
+function minutesFromTime(value: string): number {
+  const parts = parseTimeParts(value);
+  return parts ? parts.hour * 60 + parts.minute : 0;
+}
+
+function timeFromMinutes(minutes: number): string {
+  const safeMinutes = Math.min(23 * 60 + 59, Math.max(0, Math.round(minutes)));
+  const hour = Math.floor(safeMinutes / 60);
+  const minute = safeMinutes % 60;
+  return `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
+}
+
+function normalizeTime(value: unknown, fallback: string): string {
+  return typeof value === "string" && parseTimeParts(value) ? value : fallback;
+}
+
+function clampToEarliestTime(value: string, earliestTime: string): string {
+  return timeFromMinutes(Math.max(minutesFromTime(value), minutesFromTime(earliestTime), minutesFromTime(MIN_NOTIFICATION_TIME)));
+}
+
+export function growlyNotificationPreferences(): GrowlyNotificationPreferences {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(NOTIFICATION_PREFERENCES_KEY) || "{}") as Partial<GrowlyNotificationPreferences>;
+    const earliestTime = clampToEarliestTime(
+      normalizeTime(parsed.earliestTime, DEFAULT_NOTIFICATION_PREFERENCES.earliestTime),
+      MIN_NOTIFICATION_TIME,
+    );
+    return {
+      earliestTime,
+      wateringTime: clampToEarliestTime(normalizeTime(parsed.wateringTime, DEFAULT_NOTIFICATION_PREFERENCES.wateringTime), earliestTime),
+      plantCheckTime: clampToEarliestTime(normalizeTime(parsed.plantCheckTime, DEFAULT_NOTIFICATION_PREFERENCES.plantCheckTime), earliestTime),
+      calendarTime: clampToEarliestTime(normalizeTime(parsed.calendarTime, DEFAULT_NOTIFICATION_PREFERENCES.calendarTime), earliestTime),
+      avoidAfterSunset: true,
+    };
+  } catch {
+    return DEFAULT_NOTIFICATION_PREFERENCES;
+  }
+}
+
+export function saveGrowlyNotificationPreferences(preferences: GrowlyNotificationPreferences): GrowlyNotificationPreferences {
+  const earliestTime = clampToEarliestTime(preferences.earliestTime, MIN_NOTIFICATION_TIME);
+  const normalized = {
+    earliestTime,
+    wateringTime: clampToEarliestTime(preferences.wateringTime, earliestTime),
+    plantCheckTime: clampToEarliestTime(preferences.plantCheckTime, earliestTime),
+    calendarTime: clampToEarliestTime(preferences.calendarTime, earliestTime),
+    avoidAfterSunset: true,
+  };
+  try {
+    window.localStorage.setItem(NOTIFICATION_PREFERENCES_KEY, JSON.stringify(normalized));
+  } catch {
+    // Storage is best effort in embedded contexts.
+  }
+  return normalized;
+}
+
+function dayOfYear(date: Date): number {
+  const start = new Date(date.getFullYear(), 0, 0);
+  return Math.floor((date.getTime() - start.getTime()) / 86_400_000);
+}
+
+function sunTimeUtc(date: Date, latitude: number, longitude: number, isSunrise: boolean): number | null {
+  const lngHour = longitude / 15;
+  const t = dayOfYear(date) + ((isSunrise ? 6 : 18) - lngHour) / 24;
+  const meanAnomaly = (0.9856 * t) - 3.289;
+  let trueLongitude =
+    meanAnomaly +
+    (1.916 * Math.sin(meanAnomaly * Math.PI / 180)) +
+    (0.020 * Math.sin(2 * meanAnomaly * Math.PI / 180)) +
+    282.634;
+  trueLongitude = (trueLongitude + 360) % 360;
+
+  let rightAscension = Math.atan(0.91764 * Math.tan(trueLongitude * Math.PI / 180)) * 180 / Math.PI;
+  rightAscension = (rightAscension + 360) % 360;
+  rightAscension += Math.floor(trueLongitude / 90) * 90 - Math.floor(rightAscension / 90) * 90;
+  rightAscension /= 15;
+
+  const sinDeclination = 0.39782 * Math.sin(trueLongitude * Math.PI / 180);
+  const cosDeclination = Math.cos(Math.asin(sinDeclination));
+  const cosHour =
+    (Math.cos(90.833 * Math.PI / 180) - sinDeclination * Math.sin(latitude * Math.PI / 180)) /
+    (cosDeclination * Math.cos(latitude * Math.PI / 180));
+  if (cosHour > 1 || cosHour < -1) {
+    return null;
+  }
+
+  const hourAngle = isSunrise ? 360 - Math.acos(cosHour) * 180 / Math.PI : Math.acos(cosHour) * 180 / Math.PI;
+  const localMeanTime = hourAngle / 15 + rightAscension - 0.06571 * t - 6.622;
+  return (localMeanTime - lngHour + 24) % 24;
+}
+
+function sunsetForDate(date: Date, latitude?: number, longitude?: number): Date | null {
+  if (typeof latitude !== "number" || typeof longitude !== "number") {
+    return null;
+  }
+  const sunsetUtc = sunTimeUtc(date, latitude, longitude, false);
+  if (sunsetUtc === null) {
+    return null;
+  }
+  const sunset = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0));
+  sunset.setUTCMinutes(Math.round(sunsetUtc * 60));
+  return sunset;
+}
+
+function notificationWindowEnd(baseDate: Date, weather: WeatherForecast | null, preferences: GrowlyNotificationPreferences): Date | null {
+  if (!preferences.avoidAfterSunset) {
+    return null;
+  }
+  const sunset = sunsetForDate(baseDate, weather?.location.latitude, weather?.location.longitude);
+  if (!sunset) {
+    return null;
+  }
+  const latest = new Date(sunset);
+  latest.setMinutes(latest.getMinutes() - SUNSET_BUFFER_MINUTES);
+  return latest;
+}
+
+function applyNotificationWindow(
+  date: Date,
+  weather: WeatherForecast | null,
+  preferences: GrowlyNotificationPreferences,
+): Date {
+  const earliestParts = parseTimeParts(preferences.earliestTime) ?? parseTimeParts(MIN_NOTIFICATION_TIME)!;
+  const adjusted = new Date(date);
+  const earliest = new Date(date);
+  earliest.setHours(earliestParts.hour, earliestParts.minute, 0, 0);
+  if (adjusted.getTime() < earliest.getTime()) {
+    adjusted.setTime(earliest.getTime());
+  }
+
+  const latest = notificationWindowEnd(adjusted, weather, preferences);
+  if (latest && adjusted.getTime() > latest.getTime()) {
+    const hardEarliest = new Date(date);
+    const hardEarliestParts = parseTimeParts(MIN_NOTIFICATION_TIME)!;
+    hardEarliest.setHours(hardEarliestParts.hour, hardEarliestParts.minute, 0, 0);
+    if (latest.getTime() >= hardEarliest.getTime()) {
+      adjusted.setTime(latest.getTime());
+    }
+  }
+  return adjusted;
+}
+
+function nextTime(
+  value: string,
+  weather: WeatherForecast | null,
+  preferences: GrowlyNotificationPreferences,
+  minimumDelayMinutes = MIN_NOTIFICATION_DELAY_MINUTES,
+): Date {
+  const parts = parseTimeParts(clampToEarliestTime(value, preferences.earliestTime)) ?? parseTimeParts(MIN_NOTIFICATION_TIME)!;
   const date = new Date();
-  date.setHours(hour, minute, 0, 0);
+  date.setHours(parts.hour, parts.minute, 0, 0);
+  const adjusted = applyNotificationWindow(date, weather, preferences);
+  if (adjusted.getTime() !== date.getTime()) {
+    date.setTime(adjusted.getTime());
+  }
   if (date.getTime() <= Date.now() + minimumDelayMinutes * 60_000) {
     date.setDate(date.getDate() + 1);
+    date.setTime(applyNotificationWindow(date, weather, preferences).getTime());
   }
   return date;
 }
 
-function dateAtTime(baseDate: Date, hour: number, minute: number): Date {
+function dateAtTime(
+  baseDate: Date,
+  value: string,
+  weather: WeatherForecast | null,
+  preferences: GrowlyNotificationPreferences,
+): Date {
+  const parts = parseTimeParts(clampToEarliestTime(value, preferences.earliestTime)) ?? parseTimeParts(MIN_NOTIFICATION_TIME)!;
   const date = new Date(baseDate);
-  date.setHours(hour, minute, 0, 0);
+  date.setHours(parts.hour, parts.minute, 0, 0);
+  date.setTime(applyNotificationWindow(date, weather, preferences).getTime());
   if (date.getTime() <= Date.now() + 15 * 60_000) {
     date.setDate(date.getDate() + 1);
+    date.setTime(applyNotificationWindow(date, weather, preferences).getTime());
   }
   return date;
 }
 
-function plantDisplayName(plant: GrowlyPlant): string {
-  return plant.display_name || plant.nickname || plant.catalogItemId || plant.profileId || "planten";
+function notificationText(language: AppLanguage, key: Parameters<typeof translate>[1], values?: Parameters<typeof translate>[2]): string {
+  return translate(language, key, values);
+}
+
+function plantDisplayName(plant: GrowlyPlant, language: AppLanguage): string {
+  return plant.display_name || plant.nickname || plant.catalogItemId || plant.profileId || notificationText(language, "notifications.generated.plantFallback");
 }
 
 function notificationRoute(type: string): string {
@@ -80,11 +278,54 @@ function notificationExtra(type: string): { type: string; route: string } {
   return { type, route: notificationRoute(type) };
 }
 
-function weatherAlertNotifications(weather: WeatherForecast | null): LocalNotificationSchema[] {
+function isGrowlyNotification(notification: LocalNotificationSchema | DeliveredNotificationSchema): boolean {
+  return (
+    MANAGED_NOTIFICATION_IDS.includes(notification.id) ||
+    Boolean(typeForNotification(notification) && typeForNotification(notification) !== "system") ||
+    notification.title.toLowerCase().includes("growly") ||
+    notification.title.toLowerCase().includes("vanning") ||
+    notification.title.toLowerCase().includes("plantesjekk")
+  );
+}
+
+function hasNotificationForTypeOnDate(type: string, date: Date): boolean {
+  const dateKey = localDateKey(date);
+  return growlyNotificationHistory().some((notification) => (
+    notification.type === type && localDateKey(new Date(notification.occurredAt)) === dateKey
+  ));
+}
+
+function moveToNextUnsentDay(
+  notification: LocalNotificationSchema,
+  weather: WeatherForecast | null,
+  preferences: GrowlyNotificationPreferences,
+): LocalNotificationSchema {
+  const scheduledAt = dateFromUnknown(notification.schedule?.at);
+  if (!scheduledAt) {
+    return notification;
+  }
+
+  const type = typeForNotification(notification);
+  const nextDate = new Date(scheduledAt);
+  while (hasNotificationForTypeOnDate(type, nextDate)) {
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+  const adjustedDate = applyNotificationWindow(nextDate, weather, preferences);
+  return {
+    ...notification,
+    schedule: {
+      ...notification.schedule,
+      at: adjustedDate,
+    },
+  };
+}
+
+function weatherAlertNotifications(weather: WeatherForecast | null, preferences: GrowlyNotificationPreferences): LocalNotificationSchema[] {
   if (!weather) {
     return [];
   }
 
+  const language = currentAppLanguage();
   const notifications: LocalNotificationSchema[] = [];
   const days = weather.forecast.days ?? [];
   const hours = weather.forecast.hours ?? [];
@@ -95,9 +336,9 @@ function weatherAlertNotifications(weather: WeatherForecast | null): LocalNotifi
   if (frostDay) {
     notifications.push({
       id: 14001,
-      title: "Fare for kald natt",
-      body: `Laveste temperatur er meldt rundt ${frostDay.temperature_min?.toFixed(0)}°C. Dekk eller flytt varme planter i tide.`,
-      schedule: { at: dateAtTime(new Date(`${frostDay.date}T12:00:00`), 18, 30) },
+      title: notificationText(language, "notifications.generated.frostTitle"),
+      body: notificationText(language, "notifications.generated.frostBody", { temperature: frostDay.temperature_min?.toFixed(0) ?? "" }),
+      schedule: { at: dateAtTime(new Date(`${frostDay.date}T12:00:00`), preferences.plantCheckTime, weather, preferences) },
       extra: notificationExtra("weather-frost"),
     });
   }
@@ -105,9 +346,9 @@ function weatherAlertNotifications(weather: WeatherForecast | null): LocalNotifi
   if (heatDay) {
     notifications.push({
       id: 14002,
-      title: "Sterk varme i vente",
-      body: `Det kan bli rundt ${heatDay.temperature_max?.toFixed(0)}°C. Planlegg lufting, skygge og rolig vanning.`,
-      schedule: { at: dateAtTime(new Date(`${heatDay.date}T12:00:00`), 8, 30) },
+      title: notificationText(language, "notifications.generated.heatTitle"),
+      body: notificationText(language, "notifications.generated.heatBody", { temperature: heatDay.temperature_max?.toFixed(0) ?? "" }),
+      schedule: { at: dateAtTime(new Date(`${heatDay.date}T12:00:00`), preferences.wateringTime, weather, preferences) },
       extra: notificationExtra("weather-heat"),
     });
   }
@@ -116,9 +357,9 @@ function weatherAlertNotifications(weather: WeatherForecast | null): LocalNotifi
     const windDate = new Date(windHour.time);
     notifications.push({
       id: 14003,
-      title: "Vind å følge med på",
-      body: `Vinden kan komme opp i ${windHour.wind_speed?.toFixed(1)} m/s. Sikre lette potter og luft forsiktig.`,
-      schedule: { at: dateAtTime(windDate, Math.max(7, windDate.getHours() - 2), 0) },
+      title: notificationText(language, "notifications.generated.windTitle"),
+      body: notificationText(language, "notifications.generated.windBody", { speed: windHour.wind_speed?.toFixed(1) ?? "" }),
+      schedule: { at: dateAtTime(windDate, timeFromMinutes((windDate.getHours() - 2) * 60), weather, preferences) },
       extra: notificationExtra("weather-wind"),
     });
   }
@@ -126,38 +367,46 @@ function weatherAlertNotifications(weather: WeatherForecast | null): LocalNotifi
   return notifications;
 }
 
-function recurringCareNotifications(plants: GrowlyPlant[]): LocalNotificationSchema[] {
+function recurringCareNotifications(
+  plants: GrowlyPlant[],
+  weather: WeatherForecast | null,
+  preferences: GrowlyNotificationPreferences,
+): LocalNotificationSchema[] {
   if (!plants.length) {
     return [];
   }
 
-  const firstPlant = plantDisplayName(plants[0]);
-  const plantText = plants.length === 1 ? firstPlant : `${firstPlant} og ${plants.length - 1} til`;
+  const language = currentAppLanguage();
+  const firstPlant = plantDisplayName(plants[0], language);
+  const plantText = plants.length === 1
+    ? firstPlant
+    : notificationText(language, "notifications.generated.morePlants", { first: firstPlant, count: plants.length - 1 });
   return [
     {
       id: 11001,
-      title: "Påminnelse om vanning",
-      body: `Sjekk jordfukt og potter for ${plantText}. Vann rolig hvis jorda kjennes tørr.`,
-      schedule: { at: nextTime(9, 0), repeats: true, every: "day" },
+      title: notificationText(language, "notifications.generated.wateringTitle"),
+      body: notificationText(language, "notifications.generated.wateringBody", { plants: plantText }),
+      schedule: { at: nextTime(preferences.wateringTime, weather, preferences), repeats: true, every: "day" },
       extra: notificationExtra("watering"),
     },
     {
       id: 12001,
-      title: "Plantesjekk",
-      body: "Se raskt over nye skudd, bladundersider og blomster. Små tegn er lettest å rette tidlig.",
-      schedule: { at: nextTime(18, 0), repeats: true, every: "day" },
+      title: notificationText(language, "notifications.generated.plantCheckTitle"),
+      body: notificationText(language, "notifications.generated.plantCheckBody"),
+      schedule: { at: nextTime(preferences.plantCheckTime, weather, preferences), repeats: true, every: "day" },
       extra: notificationExtra("plant-check"),
     },
   ];
 }
 
-function calendarNotifications(): LocalNotificationSchema[] {
+function calendarNotifications(weather: WeatherForecast | null, preferences: GrowlyNotificationPreferences): LocalNotificationSchema[] {
+  const language = currentAppLanguage();
   return [
     {
       id: 13001,
-      title: "Kalender og såoppgaver",
-      body: "Sjekk ukens så-, flytte- og oppfølgingsoppgaver i Growly-kalenderen.",
-      schedule: { at: nextTime(8, 30), repeats: true, every: "week" },
+      title: notificationText(language, "notifications.generated.calendarTitle"),
+      body: notificationText(language, "notifications.generated.calendarBody"),
+      schedule: { at: nextTime(preferences.calendarTime, weather, preferences), repeats: true, every: "week" },
       extra: notificationExtra("calendar"),
     },
   ];
@@ -430,11 +679,37 @@ export async function cancelGrowlyNotifications(): Promise<void> {
     saveScheduledNotifications([]);
     return;
   }
-  await LocalNotifications.cancel({
-    notifications: MANAGED_NOTIFICATION_IDS.map((id) => ({ id })),
-  });
+  await cancelPendingGrowlyNotifications();
+  await removeDeliveredGrowlyNotifications();
   setGrowlyNotificationsEnabled(false);
   saveScheduledNotifications([]);
+}
+
+async function cancelPendingGrowlyNotifications(): Promise<void> {
+  const ids = new Set(MANAGED_NOTIFICATION_IDS);
+  try {
+    const pending = await LocalNotifications.getPending();
+    pending.notifications
+      .filter(isGrowlyNotification)
+      .forEach((notification) => ids.add(notification.id));
+  } catch {
+    // Pending lookup is best effort; the managed IDs still cover current Growly schedules.
+  }
+  await LocalNotifications.cancel({
+    notifications: Array.from(ids).map((id) => ({ id })),
+  });
+}
+
+async function removeDeliveredGrowlyNotifications(): Promise<void> {
+  try {
+    const delivered = await LocalNotifications.getDeliveredNotifications();
+    const notifications = delivered.notifications.filter(isGrowlyNotification);
+    if (notifications.length) {
+      await LocalNotifications.removeDeliveredNotifications({ notifications });
+    }
+  } catch {
+    // Removing visible notifications is best effort and should not block scheduling.
+  }
 }
 
 export async function scheduleGrowlyNotifications(hubId = "", requestPermission = false): Promise<GrowlyNotificationStatus> {
@@ -456,19 +731,19 @@ export async function scheduleGrowlyNotifications(hubId = "", requestPermission 
   }
 
   setGrowlyNotificationsEnabled(true);
+  const preferences = growlyNotificationPreferences();
   const [plants, weather] = await Promise.all([
     fetchPlants(hubId),
     fetchWeatherForecast(hubId),
   ]);
   const notifications = [
-    ...recurringCareNotifications(plants),
-    ...calendarNotifications(),
-    ...weatherAlertNotifications(weather),
-  ];
+    ...recurringCareNotifications(plants, weather, preferences),
+    ...calendarNotifications(weather, preferences),
+    ...weatherAlertNotifications(weather, preferences),
+  ].map((notification) => moveToNextUnsentDay(notification, weather, preferences));
 
-  await LocalNotifications.cancel({
-    notifications: MANAGED_NOTIFICATION_IDS.map((id) => ({ id })),
-  });
+  await cancelPendingGrowlyNotifications();
+  await removeDeliveredGrowlyNotifications();
   if (notifications.length) {
     await LocalNotifications.schedule({ notifications });
   }

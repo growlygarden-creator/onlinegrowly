@@ -1,18 +1,19 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { registerAccount, type AuthSession } from "../lib/api";
+import { useI18n, type TranslationKey } from "../lib/i18n";
 
-const errorMap: Record<string, string> = {
-  password_mismatch: "Passordene er ikke like.",
-  missing_full_name: "Skriv inn navn.",
-  full_name_too_short: "Navnet må være minst 2 tegn.",
-  missing_phone: "Skriv inn telefonnummer.",
-  phone_too_short: "Telefonnummeret virker for kort.",
-  missing_email: "Skriv inn e-postadresse.",
-  invalid_email: "Skriv inn en gyldig e-postadresse.",
-  email_exists: "Denne e-postadressen er allerede i bruk.",
-  password_too_short: "Passordet må være minst 6 tegn.",
-  user_exists: "Denne e-postadressen er allerede i bruk.",
+const errorMap: Record<string, TranslationKey> = {
+  password_mismatch: "auth.register.error.passwordMismatch",
+  missing_full_name: "auth.register.error.missingFullName",
+  full_name_too_short: "auth.register.error.fullNameTooShort",
+  missing_phone: "auth.register.error.missingPhone",
+  phone_too_short: "auth.register.error.phoneTooShort",
+  missing_email: "auth.register.error.missingEmail",
+  invalid_email: "auth.register.error.invalidEmail",
+  email_exists: "auth.register.error.emailExists",
+  password_too_short: "auth.register.error.passwordTooShort",
+  user_exists: "auth.register.error.emailExists",
 };
 
 type RegisterPageProps = {
@@ -21,6 +22,7 @@ type RegisterPageProps = {
 
 export function RegisterPage({ setSession }: RegisterPageProps) {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [form, setForm] = useState({
     full_name: "",
     phone: "",
@@ -34,37 +36,37 @@ export function RegisterPage({ setSession }: RegisterPageProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
-    setStatus("Oppretter konto...");
+    setStatus(t("auth.register.creating"));
     try {
       const result = await registerAccount(form);
       if (result.email_verification_required) {
         setSession(null);
-        setStatus(`Kontoen er opprettet. Sjekk e-posten ${result.email ?? form.email} og bekreft kontoen før du logger inn.`);
+        setStatus(t("auth.register.verifyEmailFor", { email: result.email ?? form.email }));
         return;
       }
 
       if (result.session) {
         setSession(result.session);
-        setStatus("Konto opprettet.");
+        setStatus(t("auth.register.created"));
         navigate("/", { replace: true });
         return;
       }
 
       setSession(null);
-      setStatus("Kontoen er opprettet. Sjekk e-posten din og bekreft kontoen før du logger inn.");
+      setStatus(t("auth.register.verifyEmail"));
     } catch (error) {
       const code = error instanceof Error ? error.message : "unknown_error";
       if (code === "backend_unavailable") {
-        setStatus("Backend svarer ikke akkurat nå. Registrering virker når API-et er oppe igjen.");
+        setStatus(t("auth.register.backendUnavailable"));
         return;
       }
 
       if (code === "verification_email_failed") {
-        setStatus("Kontoen ble opprettet, men vi klarte ikke sende bekreftelsesmail akkurat nå.");
+        setStatus(t("auth.register.verificationEmailFailed"));
         return;
       }
 
-      setStatus(errorMap[code] ?? "Kunne ikke opprette konto akkurat nå.");
+      setStatus(errorMap[code] ? t(errorMap[code]) : t("auth.register.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -77,37 +79,37 @@ export function RegisterPage({ setSession }: RegisterPageProps) {
   return (
     <main className="page-shell auth-shell auth-page">
       <section className="auth-hero">
-        <span className="section-kicker">Ny konto</span>
-        <h1>Kom i gang med Growly</h1>
-        <p>Opprett kontoen din og gjør appen klar for drivhuset ditt.</p>
+        <span className="section-kicker">{t("auth.register.kicker")}</span>
+        <h1>{t("auth.register.heroTitle")}</h1>
+        <p>{t("auth.register.heroBody")}</p>
       </section>
 
       <section className="settings-section">
-        <p className="section-kicker">Ny konto</p>
+        <p className="section-kicker">{t("auth.register.kicker")}</p>
         <section className="soft-card auth-card auth-card--settings auth-panel premium-section-card">
         <div>
-          <h2>Ny Growly-konto</h2>
-          <p className="lead">Fyll inn det viktigste for å komme i gang.</p>
+          <h2>{t("auth.register.cardTitle")}</h2>
+          <p className="lead">{t("auth.register.cardBody")}</p>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field">
-            <span>Navn</span>
+            <span>{t("auth.register.name")}</span>
             <input value={form.full_name} onChange={(event) => updateField("full_name", event.target.value)} autoComplete="name" required />
           </label>
 
           <label className="field">
-            <span>Telefon</span>
+            <span>{t("auth.register.phone")}</span>
             <input value={form.phone} onChange={(event) => updateField("phone", event.target.value)} autoComplete="tel" required />
           </label>
 
           <label className="field">
-            <span>E-post</span>
+            <span>{t("auth.register.email")}</span>
             <input type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} autoComplete="email" required />
           </label>
 
           <label className="field">
-            <span>Passord</span>
+            <span>{t("auth.register.password")}</span>
             <input
               type="password"
               value={form.password}
@@ -118,7 +120,7 @@ export function RegisterPage({ setSession }: RegisterPageProps) {
           </label>
 
           <label className="field">
-            <span>Gjenta passord</span>
+            <span>{t("auth.register.repeatPassword")}</span>
             <input
               type="password"
               value={form.password_confirm}
@@ -129,13 +131,13 @@ export function RegisterPage({ setSession }: RegisterPageProps) {
           </label>
 
           <button className="button" type="submit" disabled={submitting}>
-            {submitting ? "Oppretter..." : "Opprett konto"}
+            {submitting ? t("auth.register.submitting") : t("auth.register.submit")}
           </button>
         </form>
 
         <p className="auth-status">{status}</p>
         <p className="auth-link-row">
-          Har du allerede konto? <Link to="/login">Logg inn</Link>
+          {t("auth.register.hasAccount")} <Link to="/login">{t("auth.login.submit")}</Link>
         </p>
         </section>
       </section>

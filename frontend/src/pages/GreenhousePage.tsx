@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   fetchPlants,
@@ -14,12 +14,14 @@ import {
 import { bundledPlantCatalog } from "../data/plantCatalog";
 import { PlantAvatar } from "../components/PlantAvatar";
 import { plantCareGuide } from "../lib/plantCare";
+import { localizePlantCatalogItems } from "../lib/plantCatalogLocalization";
 import {
   listPlantCalendarEntries,
   removePlantCalendarEntriesForPlant,
   saveGeneratedPlantPlan,
   type PlantCalendarEntry,
 } from "../lib/plantCalendar";
+import { useI18n, type AppLanguage } from "../lib/i18n";
 
 type GreenhousePageProps = {
   session: AuthSession | null;
@@ -145,36 +147,44 @@ function todayDateInputValue(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function formatSowedAt(value: string | null | undefined): string {
-  if (!value) {
-    return "Sådato ikke satt";
-  }
-
-  const date = new Date(`${value}T12:00:00`);
-  if (Number.isNaN(date.getTime())) {
-    return "Sådato ikke satt";
-  }
-
-  return `Sådd ${date.toLocaleDateString("nb-NO", { day: "2-digit", month: "short", year: "numeric" })}`;
+function dateLocale(language: AppLanguage): string {
+  return language === "en" ? "en-US" : "nb-NO";
 }
 
-function formatMovedAt(value: string | null | undefined): string {
+function formatSowedAt(value: string | null | undefined, language: AppLanguage): string {
   if (!value) {
-    return "Står i drivhus";
+    return language === "en" ? "Sowing date not set" : "Sådato ikke satt";
   }
 
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) {
-    return "Står i drivhus";
+    return language === "en" ? "Sowing date not set" : "Sådato ikke satt";
   }
 
-  return `Flyttet inn ${date.toLocaleDateString("nb-NO", { day: "2-digit", month: "short" })}`;
+  return language === "en"
+    ? `Sown ${date.toLocaleDateString(dateLocale(language), { day: "2-digit", month: "short", year: "numeric" })}`
+    : `Sådd ${date.toLocaleDateString(dateLocale(language), { day: "2-digit", month: "short", year: "numeric" })}`;
 }
 
-function formatPlanDate(value: string): string {
+function formatMovedAt(value: string | null | undefined, language: AppLanguage): string {
+  if (!value) {
+    return language === "en" ? "In greenhouse" : "Står i drivhus";
+  }
+
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) {
-    return "Dato ikke satt";
+    return language === "en" ? "In greenhouse" : "Står i drivhus";
+  }
+
+  return language === "en"
+    ? `Moved in ${date.toLocaleDateString(dateLocale(language), { day: "2-digit", month: "short" })}`
+    : `Flyttet inn ${date.toLocaleDateString(dateLocale(language), { day: "2-digit", month: "short" })}`;
+}
+
+function formatPlanDate(value: string, language: AppLanguage): string {
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return language === "en" ? "Date not set" : "Dato ikke satt";
   }
   const today = new Date();
   const tomorrow = new Date();
@@ -182,12 +192,12 @@ function formatPlanDate(value: string): string {
   tomorrow.setHours(0, 0, 0, 0);
   tomorrow.setDate(tomorrow.getDate() + 1);
   if (date.toDateString() === today.toDateString()) {
-    return "I dag";
+    return language === "en" ? "Today" : "I dag";
   }
   if (date.toDateString() === tomorrow.toDateString()) {
-    return "I morgen";
+    return language === "en" ? "Tomorrow" : "I morgen";
   }
-  return date.toLocaleDateString("nb-NO", { day: "2-digit", month: "short" });
+  return date.toLocaleDateString(dateLocale(language), { day: "2-digit", month: "short" });
 }
 
 function dateInputToDate(value: string | null | undefined): Date | null {
@@ -220,30 +230,34 @@ function maturityEstimateDays(profileId: string): number {
   return 75;
 }
 
-function plantTimelineSummary(plant: GreenhousePlant, profile: PlantProfile, status: ReturnType<typeof plantStatus>) {
+function plantTimelineSummary(plant: GreenhousePlant, profile: PlantProfile, status: ReturnType<typeof plantStatus>, language: AppLanguage) {
   const ageDays = daysSinceDate(plant.sowedAt);
   const estimate = maturityEstimateDays(profile.id);
   const progress = ageDays === null ? (plantLocation(plant) === "greenhouse" ? 34 : 12) : Math.min(100, Math.max(4, Math.round((ageDays / estimate) * 100)));
   const remainingDays = ageDays === null ? null : Math.max(0, estimate - ageDays);
   const phase =
     ageDays === null
-      ? "Planlagt"
+      ? (language === "en" ? "Planned" : "Planlagt")
       : ageDays < 14
-        ? "Spiring"
+        ? (language === "en" ? "Germination" : "Spiring")
         : ageDays < 35
-          ? "Etablering"
+          ? (language === "en" ? "Establishing" : "Etablering")
           : progress < 82
-            ? "Vekst"
-            : "Modning";
+            ? (language === "en" ? "Growth" : "Vekst")
+            : (language === "en" ? "Ripening" : "Modning");
 
-  const sowedLabel = ageDays === null ? "Sådato mangler" : `Sådd for ${ageDays} d siden`;
-  const dayLabel = ageDays === null ? "Sett dato" : `Dag ${ageDays + 1}`;
-  const harvestLabel = remainingDays === null ? "Ukjent innhøsting" : remainingDays === 0 ? "Klar snart" : `ca. ${remainingDays} d igjen`;
+  const sowedLabel = ageDays === null ? (language === "en" ? "Sowing date missing" : "Sådato mangler") : (language === "en" ? `Sown ${ageDays}d ago` : `Sådd for ${ageDays} d siden`);
+  const dayLabel = ageDays === null ? (language === "en" ? "Set date" : "Sett dato") : (language === "en" ? `Day ${ageDays + 1}` : `Dag ${ageDays + 1}`);
+  const harvestLabel = remainingDays === null
+    ? (language === "en" ? "Unknown harvest" : "Ukjent innhøsting")
+    : remainingDays === 0
+      ? (language === "en" ? "Ready soon" : "Klar snart")
+      : (language === "en" ? `about ${remainingDays}d left` : `ca. ${remainingDays} d igjen`);
   const nextAction =
     plantLocation(plant) === "outside"
-      ? "Neste: følg rot og lys før flytting"
+      ? (language === "en" ? "Next: follow roots and light before moving" : "Neste: følg rot og lys før flytting")
       : status.level === "good"
-        ? "Neste: hold jevn rytme"
+        ? (language === "en" ? "Next: keep a steady rhythm" : "Neste: hold jevn rytme")
         : status.note;
 
   return { dayLabel, harvestLabel, nextAction, phase, progress, sowedLabel };
@@ -253,8 +267,39 @@ function plantLocation(plant: GreenhousePlant): "greenhouse" | "outside" {
   return plant.location === "outside" ? "outside" : "greenhouse";
 }
 
-function profileById(profileId: string): PlantProfile {
-  return fallbackPlantProfiles.find((profile) => profile.id === profileId) ?? fallbackPlantProfiles[0];
+const fallbackProfileTextEn: Record<string, { name: string; family: string }> = {
+  tomato: { name: "Tomato", family: "Warm-loving" },
+  cucumber: { name: "Cucumber", family: "Warm-loving" },
+  basil: { name: "Basil", family: "Herbs" },
+  pepper: { name: "Sweet pepper", family: "Warm-loving" },
+  lettuce: { name: "Lettuce", family: "Cool start" },
+  strawberry: { name: "Strawberry", family: "Berries" },
+};
+
+function profileById(profileId: string, language: AppLanguage): PlantProfile {
+  const profile = fallbackPlantProfiles.find((item) => item.id === profileId) ?? fallbackPlantProfiles[0];
+  if (language !== "en") {
+    return profile;
+  }
+  const translated = fallbackProfileTextEn[profile.id];
+  return translated ? { ...profile, ...translated } : profile;
+}
+
+function plantSaveErrorMessage(error: unknown, language: AppLanguage): string {
+  const code = error instanceof Error ? error.message : "";
+  if (code === "hub_not_assigned" || code === "hub_not_found") {
+    return language === "en"
+      ? "Could not find a growing space for your account. Log out and in again, then try adding the plant once more."
+      : "Fant ikke et dyrkeområde for kontoen din. Logg ut og inn igjen, og prøv å legge til planten på nytt.";
+  }
+  if (code === "login_required") {
+    return language === "en"
+      ? "You need to log in again before the plant can be saved."
+      : "Du må logge inn på nytt før planten kan lagres.";
+  }
+  return language === "en"
+    ? "Could not save the plant right now. Try again in a moment."
+    : "Kunne ikke lagre planten akkurat nå. Prøv igjen om litt.";
 }
 
 function catalogItemToProfile(item: PlantCatalogItem): PlantProfile {
@@ -280,29 +325,29 @@ function catalogItemForPlant(plant: GreenhousePlant, catalogItems: PlantCatalogI
   );
 }
 
-function profileForPlant(plant: GreenhousePlant, catalogItems: PlantCatalogItem[]): PlantProfile {
+function profileForPlant(plant: GreenhousePlant, catalogItems: PlantCatalogItem[], language: AppLanguage): PlantProfile {
   const catalogMatch = catalogItemForPlant(plant, catalogItems);
 
   if (catalogMatch) {
     return catalogItemToProfile(catalogMatch);
   }
 
-  return profileById(plant.profileId);
+  return profileById(plant.profileId, language);
 }
 
-function plantStatus(plant: GreenhousePlant, profile: PlantProfile) {
+function plantStatus(plant: GreenhousePlant, profile: PlantProfile, language: AppLanguage) {
   if (plantLocation(plant) === "outside") {
     return {
-      title: "Forkultiveres",
-      note: "Følg lys, varme og rotutvikling før flytting.",
+      title: language === "en" ? "Started indoors" : "Forkultiveres",
+      note: language === "en" ? "Follow light, warmth and root development before moving." : "Følg lys, varme og rotutvikling før flytting.",
       level: "missing" as const,
       checks: [],
     };
   }
 
   return {
-    title: "I drivhus",
-    note: `${profile.name} følges med planteinfo og dyrkerytme.`,
+    title: language === "en" ? "In greenhouse" : "I drivhus",
+    note: language === "en" ? `${profile.name} is tracked with plant info and growing rhythm.` : `${profile.name} følges med planteinfo og dyrkerytme.`,
     level: "good" as const,
     checks: [],
   };
@@ -329,6 +374,7 @@ function normalizePlant(plant: GreenhousePlant): GreenhousePlant {
 }
 
 export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePageProps) {
+  const { language } = useI18n();
   const [catalogItems, setCatalogItems] = useState<PlantCatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [plants, setPlants] = useState<GreenhousePlant[]>([]);
@@ -352,11 +398,11 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
 
   useEffect(() => {
     setCatalogLoading(true);
-    fetchPlantCatalog().then((items) => {
+    fetchPlantCatalog("", language).then((items) => {
       setCatalogItems(items);
       setCatalogLoading(false);
     });
-  }, []);
+  }, [language]);
 
   useEffect(() => {
     let cancelled = false;
@@ -400,10 +446,11 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const selectedPlant = plants.find((plant) => plant.instanceId === selectedPlantId) ?? null;
   const hasPairedHub = Boolean(session?.hub?.hub_id || selectedHubId);
   const sevenInOnePlant = plants.find((plant) => plant.hasSevenInOne) ?? null;
-  const searchableCatalogItems = catalogItems.length ? catalogItems : bundledPlantCatalog;
+  const fallbackCatalogItems = useMemo(() => localizePlantCatalogItems(bundledPlantCatalog, language), [language]);
+  const searchableCatalogItems = catalogItems.length ? catalogItems : fallbackCatalogItems;
   const selectedCatalogDetail = selectedPlant ? catalogItemForPlant(selectedPlant, searchableCatalogItems) : null;
-  const selectedProfile = selectedPlant ? profileForPlant(selectedPlant, searchableCatalogItems) : null;
-  const selectedCareGuide = selectedCatalogDetail ? plantCareGuide(selectedCatalogDetail) : null;
+  const selectedProfile = selectedPlant ? profileForPlant(selectedPlant, searchableCatalogItems, language) : null;
+  const selectedCareGuide = selectedCatalogDetail ? plantCareGuide(selectedCatalogDetail, language) : null;
   const selectedPlantPlanEntries = selectedPlant
     ? plantCalendarEntries
         .filter((entry) => entry.plantId === selectedPlant.instanceId)
@@ -413,9 +460,9 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const selectedUpcomingPlanEntries = selectedPlantPlanEntries.filter((entry) => entry.date >= todayPlanDate);
   const selectedVisiblePlanEntries = (selectedUpcomingPlanEntries.length ? selectedUpcomingPlanEntries : selectedPlantPlanEntries).slice(0, 5);
   const plantSummaries = plants.map((plant) => {
-    const profile = profileForPlant(plant, searchableCatalogItems);
+    const profile = profileForPlant(plant, searchableCatalogItems, language);
     const catalogItem = catalogItemForPlant(plant, searchableCatalogItems);
-    return { plant, profile, catalogItem, status: plantStatus(plant, profile) };
+    return { plant, profile, catalogItem, status: plantStatus(plant, profile, language) };
   });
   const baseCatalogItems = searchableCatalogItems.filter((item) => item.kind === "base");
   const starterBaseItems = starterPlantProfileIds
@@ -504,6 +551,8 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
       setNewSowedAt(todayDateInputValue());
       setNewLocation("outside");
       setAddPlantFeedback("");
+    } catch (error) {
+      setAddPlantFeedback(plantSaveErrorMessage(error, language));
     } finally {
       setAddingPlant(false);
     }
@@ -612,7 +661,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
               <p>Growly sjekker den valgte huben.</p>
             </article>
           ) : plantSummaries.length ? plantSummaries.map(({ plant, profile, catalogItem, status }) => {
-              const timeline = plantTimelineSummary(plant, profile, status);
+              const timeline = plantTimelineSummary(plant, profile, status, language);
               return (
                 <button className="greenhouse-plant-card greenhouse-plant-card--compact soft-card" type="button" key={plant.instanceId} onClick={() => setSelectedPlantId(plant.instanceId)}>
                   <div className="greenhouse-plant-card__top">
@@ -634,7 +683,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                   ) : (
                     <div className="plant-mini-metrics plant-mini-metrics--nursery">
                       <span>Utenfor drivhus</span>
-                      <span>{catalogItem?.seed_guide?.sow ?? formatSowedAt(plant.sowedAt)}</span>
+                      <span>{catalogItem?.seed_guide?.sow ?? formatSowedAt(plant.sowedAt, language)}</span>
                     </div>
                   )}
                 </button>
@@ -685,7 +734,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                   <p className="section-kicker">{selectedProfile.family}</p>
                   <h2 id="plant-detail-title">{selectedPlant.nickname}</h2>
                   <span>
-                    {formatSowedAt(selectedPlant.sowedAt)} · {plantLocation(selectedPlant) === "greenhouse" ? formatMovedAt(selectedPlant.movedToGreenhouseAt) : "Utenfor drivhus"}
+                    {formatSowedAt(selectedPlant.sowedAt, language)} · {plantLocation(selectedPlant) === "greenhouse" ? formatMovedAt(selectedPlant.movedToGreenhouseAt, language) : (language === "en" ? "Outside greenhouse" : "Utenfor drivhus")}
                   </span>
                 </div>
               </div>
@@ -749,7 +798,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                 <div className="plant-calendar-list">
                   {selectedVisiblePlanEntries.map((entry) => (
                     <span className={`plant-calendar-item plant-calendar-item--${entry.category}`} key={entry.id}>
-                      <small>{formatPlanDate(entry.date)}</small>
+                      <small>{formatPlanDate(entry.date, language)}</small>
                       <strong>{entry.title}</strong>
                       <em>{entry.note}</em>
                     </span>
@@ -1046,7 +1095,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
 
             <article className="plant-plan-preview">
               <PlantAvatar
-                tone={plantPlanPrompt.catalogItem?.tone ?? profileForPlant(plantPlanPrompt.plant, searchableCatalogItems).tone}
+                tone={plantPlanPrompt.catalogItem?.tone ?? profileForPlant(plantPlanPrompt.plant, searchableCatalogItems, language).tone}
                 plantId={plantPlanPrompt.plant.profileId}
                 name={plantPlanPrompt.plant.nickname}
                 family={plantPlanPrompt.catalogItem?.family}

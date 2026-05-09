@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { login, type AuthSession } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 
 type LoginPageProps = {
   setSession: (session: AuthSession | null) => void;
@@ -9,48 +10,49 @@ type LoginPageProps = {
 export function LoginPage({ setSession }: LoginPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useI18n();
   const locationState = location.state as { registrationSuccess?: boolean; emailVerificationRequired?: boolean; username?: string } | null;
   const [username, setUsername] = useState(locationState?.username ?? "");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState(
     locationState?.emailVerificationRequired
-      ? "Sjekk e-posten din og bekreft kontoen før du logger inn."
-      : locationState?.registrationSuccess ? "Konto opprettet. Logg inn for å fortsette." : "",
+      ? t("auth.login.verifyEmail")
+      : locationState?.registrationSuccess ? t("auth.login.successRegistration") : "",
   );
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
-    setStatus("Logger inn...");
+    setStatus(t("auth.login.signingIn"));
     try {
       const session = await login(username.trim(), password);
       setSession(session);
-      setStatus("Innlogging vellykket.");
+      setStatus(t("auth.login.success"));
       navigate("/");
     } catch (error) {
       const code = error instanceof Error ? error.message : "unknown_error";
       if (code === "invalid_credentials") {
-        setStatus("Feil brukernavn eller passord.");
+        setStatus(t("auth.login.invalid"));
         return;
       }
 
       if (code === "admin_web_only") {
-        setStatus("Admin-kontoen brukes i Growly Management på web.");
+        setStatus(t("auth.login.adminWebOnly"));
         return;
       }
 
       if (code === "email_not_verified") {
-        setStatus("Bekreft e-postadressen din før du logger inn.");
+        setStatus(t("auth.login.emailNotVerified"));
         return;
       }
 
       if (code === "backend_unavailable") {
-        setStatus("Backend svarer ikke akkurat nå. Du kan fortsatt teste app-designet i simulatoren.");
+        setStatus(t("auth.login.backendUnavailable"));
         return;
       }
 
-      setStatus("Kunne ikke logge inn.");
+      setStatus(t("auth.login.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -60,21 +62,21 @@ export function LoginPage({ setSession }: LoginPageProps) {
     <main className="page-shell auth-shell auth-page">
       <section className="auth-hero">
         <span className="section-kicker">Growly Garden</span>
-        <h1>Velkommen tilbake</h1>
-        <p>Logg inn for å åpne drivhuset ditt og se statusen på ett sted.</p>
+        <h1>{t("auth.login.heroTitle")}</h1>
+        <p>{t("auth.login.heroBody")}</p>
       </section>
 
       <section className="settings-section">
-        <p className="section-kicker">Konto</p>
+        <p className="section-kicker">{t("auth.login.account")}</p>
         <section className="soft-card auth-card auth-card--settings auth-panel premium-section-card">
         <div>
           <h2>Growly Garden</h2>
-          <p className="lead">Bruk kontoen din for å åpne drivhuset.</p>
+          <p className="lead">{t("auth.login.cardBody")}</p>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field">
-            <span>E-post</span>
+            <span>{t("auth.login.email")}</span>
             <input
               value={username}
               onChange={(event) => setUsername(event.target.value)}
@@ -87,7 +89,7 @@ export function LoginPage({ setSession }: LoginPageProps) {
           </label>
 
           <label className="field">
-            <span>Passord</span>
+            <span>{t("auth.login.password")}</span>
             <input
               type="password"
               value={password}
@@ -98,13 +100,13 @@ export function LoginPage({ setSession }: LoginPageProps) {
           </label>
 
           <button className="button" type="submit" disabled={submitting}>
-            {submitting ? "Logger inn..." : "Logg inn"}
+            {submitting ? t("auth.login.signingIn") : t("auth.login.submit")}
           </button>
         </form>
 
         <p className="auth-status">{status}</p>
         <p className="auth-link-row">
-          Har du ikke konto ennå? <Link to="/register">Opprett konto</Link>
+          {t("auth.login.noAccount")} <Link to="/register">{t("auth.login.createAccount")}</Link>
         </p>
         </section>
       </section>

@@ -20,6 +20,7 @@ import {
   syncGrowlyNotificationHistory,
   type GrowlyNotificationHistoryItem,
 } from "../lib/notifications";
+import { useI18n, type AppLanguage } from "../lib/i18n";
 import greenhouseDay from "../assets/greenhouse-assets/greenhouse-day.png";
 import greenhouseEvening from "../assets/greenhouse-assets/greenhouse-evening.png";
 import humidityDot from "../assets/greenhouse-assets/humidity-dot.png";
@@ -60,24 +61,30 @@ type DailyAdvice = {
   tip: string;
 };
 
-const currentMonthName = new Date().toLocaleDateString("nb-NO", { month: "long" });
+function localeForLanguage(language: AppLanguage): string {
+  return language === "no" ? "nb-NO" : "en-US";
+}
 
-function formatDashboardNotificationTime(value: string): string {
+function currentMonthName(language: AppLanguage): string {
+  return new Date().toLocaleDateString(localeForLanguage(language), { month: "long" });
+}
+
+function formatDashboardNotificationTime(value: string, language: AppLanguage): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "Nylig";
+    return language === "no" ? "Nylig" : "Recently";
   }
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
-  const time = date.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" });
+  const time = date.toLocaleTimeString(localeForLanguage(language), { hour: "2-digit", minute: "2-digit" });
   if (date.toDateString() === today.toDateString()) {
-    return `I dag ${time}`;
+    return language === "no" ? `I dag ${time}` : `Today ${time}`;
   }
   if (date.toDateString() === yesterday.toDateString()) {
-    return `I går ${time}`;
+    return language === "no" ? `I går ${time}` : `Yesterday ${time}`;
   }
-  return date.toLocaleDateString("nb-NO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleDateString(localeForLanguage(language), { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 function isHubActive(value: unknown): boolean {
@@ -273,8 +280,8 @@ function trendWindow(range: TrendRange): { span: "minutes" | "hours" | "days"; l
   };
 }
 
-function formatTrendTime(value: string): string {
-  return new Date(value).toLocaleString("nb-NO", {
+function formatTrendTime(value: string, language: AppLanguage): string {
+  return new Date(value).toLocaleString(localeForLanguage(language), {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
@@ -282,17 +289,17 @@ function formatTrendTime(value: string): string {
   });
 }
 
-function formatTrendTick(value: string, range: TrendRange): string {
+function formatTrendTick(value: string, range: TrendRange, language: AppLanguage): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
 
   if (range === "24h") {
-    return date.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" });
+    return date.toLocaleTimeString(localeForLanguage(language), { hour: "2-digit", minute: "2-digit" });
   }
 
-  return date.toLocaleDateString("nb-NO", { day: "2-digit", month: "2-digit" });
+  return date.toLocaleDateString(localeForLanguage(language), { day: "2-digit", month: "2-digit" });
 }
 
 function formatAxisValue(value: number, unit: string, digits: number): string {
@@ -310,6 +317,7 @@ function chartPath(
   points: HistoryPoint[],
   config: TrendMetricConfig | undefined,
   range: TrendRange,
+  language: AppLanguage,
 ): {
   area: string;
   line: string;
@@ -369,7 +377,7 @@ function chartPath(
 
   const tickIndexes = Array.from(new Set([0, Math.floor((points.length - 1) / 2), points.length - 1]));
   const xTicks = tickIndexes.map((index) => ({
-    label: formatTrendTick(points[index].recorded_at, range),
+    label: formatTrendTick(points[index].recorded_at, range, language),
     x: coords[index].x,
   }));
 
@@ -454,7 +462,7 @@ function growthStatus(sample: LatestSample | null): { title: string; note: strin
   };
 }
 
-function buildWeeklyTasks(sample: LatestSample | null, hasWeather: boolean, plantCount: number): HomeTask[] {
+function buildWeeklyTasks(sample: LatestSample | null, hasWeather: boolean, plantCount: number, language: AppLanguage): HomeTask[] {
   const tasks: HomeTask[] = [];
 
   if (!sample) {
@@ -529,8 +537,10 @@ function buildWeeklyTasks(sample: LatestSample | null, hasWeather: boolean, plan
     });
   } else {
     tasks.push({
-      title: "Planlegg ompotting",
-      detail: `${currentMonthName} er riktig tid for flere varme planter når nettene holder seg stabile.`,
+      title: language === "no" ? "Planlegg ompotting" : "Plan repotting",
+      detail: language === "no"
+        ? `${currentMonthName(language)} er riktig tid for flere varme planter når nettene holder seg stabile.`
+        : `${currentMonthName(language)} is the right time for more warmth-loving plants when nights stay stable.`,
       badge: "Plan",
       tone: "good",
     });
@@ -636,8 +646,8 @@ function daysBetween(startDate: Date, endDate = new Date()): number {
   return Math.max(0, Math.floor((end - start) / 86400000));
 }
 
-function formatShortDate(date: Date): string {
-  return date.toLocaleDateString("nb-NO", { day: "numeric", month: "short" }).replace(".", "");
+function formatShortDate(date: Date, language: AppLanguage): string {
+  return date.toLocaleDateString(localeForLanguage(language), { day: "numeric", month: "short" }).replace(".", "");
 }
 
 function plantProgress(profileId: string, index: number, sample: LatestSample | null, sowedAt?: string): number {
@@ -660,7 +670,7 @@ function plantStage(profileId: string, progress: number): string {
   return "Følg opp";
 }
 
-function plantTimeline(profileId: string, progress: number, sowedAt?: string, index = 0) {
+function plantTimeline(profileId: string, progress: number, sowedAt: string | undefined, index: number, language: AppLanguage) {
   const profile = dashboardPlantProfiles[profileId] ?? dashboardPlantProfiles.tomato;
   const fallbackSowedDate = addDays(new Date(), -Math.round((progress / 100) * profile.maturityDays) - index * 2);
   const sowedDate = dateFromInput(sowedAt) ?? fallbackSowedDate;
@@ -670,11 +680,13 @@ function plantTimeline(profileId: string, progress: number, sowedAt?: string, in
   const activeStep = progress >= 85 ? 3 : progress >= 55 ? 2 : progress >= 22 ? 1 : 0;
 
   return {
-    sowedLabel: `Sådd ${formatShortDate(sowedDate)}`,
-    ageLabel: `${daysSince} ${daysSince === 1 ? "dag" : "dager"} siden`,
-    dayLabel: `Dag ${daysSince}`,
-    harvestLabel: `Høsting: ~${formatShortDate(harvestDate)}`,
-    daysLeftLabel: daysLeft === 0 ? "klar" : `${daysLeft}d igjen`,
+    sowedLabel: language === "no" ? `Sådd ${formatShortDate(sowedDate, language)}` : `Sown ${formatShortDate(sowedDate, language)}`,
+    ageLabel: language === "no"
+      ? `${daysSince} ${daysSince === 1 ? "dag" : "dager"} siden`
+      : `${daysSince} ${daysSince === 1 ? "day" : "days"} ago`,
+    dayLabel: language === "no" ? `Dag ${daysSince}` : `Day ${daysSince}`,
+    harvestLabel: language === "no" ? `Høsting: ~${formatShortDate(harvestDate, language)}` : `Harvest: ~${formatShortDate(harvestDate, language)}`,
+    daysLeftLabel: daysLeft === 0 ? (language === "no" ? "klar" : "ready") : `${daysLeft}d ${language === "no" ? "igjen" : "left"}`,
     activeStep,
   };
 }
@@ -789,20 +801,20 @@ function WeatherGlyph({ symbolCode, compact = false, className = "" }: { symbolC
   );
 }
 
-function formatWeatherHour(value: string): string {
+function formatWeatherHour(value: string, language: AppLanguage): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  return date.toLocaleTimeString("nb-NO", { hour: "2-digit" });
+  return date.toLocaleTimeString(localeForLanguage(language), { hour: "2-digit" });
 }
 
-function formatWeatherDay(value: string): string {
+function formatWeatherDay(value: string, language: AppLanguage): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  return date.toLocaleDateString("nb-NO", { weekday: "short", day: "numeric" }).replace(".", "");
+  return date.toLocaleDateString(localeForLanguage(language), { weekday: "short", day: "numeric" }).replace(".", "");
 }
 
 function weatherWindArrowRotation(value: number | null | undefined): number {
@@ -834,7 +846,7 @@ function smoothWeatherPath(coords: Array<{ x: number; y: number }>): string {
   return `${path} L ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
 }
 
-function weatherHourlyChart(hours: WeatherHour[]) {
+function weatherHourlyChart(hours: WeatherHour[], language: AppLanguage) {
   const points = hours
     .slice(0, 49)
     .filter((hour) => typeof hour.air_temperature === "number")
@@ -887,7 +899,7 @@ function weatherHourlyChart(hours: WeatherHour[]) {
     .map((_, index) => index)
     .filter((index) => index === 0 || index === points.length - 1 || index % 6 === 0);
   const dayMarkers = points.reduce<Array<{ label: string; start: number; end: number; x: number }>>((markers, point, index) => {
-    const label = formatWeatherDay(point.time);
+    const label = formatWeatherDay(point.time, language);
     if (!label) {
       return markers;
     }
@@ -928,8 +940,8 @@ function weatherHourlyChart(hours: WeatherHour[]) {
   };
 }
 
-function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
-  const chart = weatherHourlyChart(weather.forecast.hours ?? []);
+function WeatherHourlyCard({ weather, language }: { weather: WeatherForecast; language: AppLanguage }) {
+  const chart = weatherHourlyChart(weather.forecast.hours ?? [], language);
 
   return (
     <section className="weather-inline-card weather-sheet__panel soft-card" aria-label="Timesvis værgraf">
@@ -1046,7 +1058,7 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
                   const offset = ((x - chart.left) / (chart.right - chart.left || 1)) * 100;
                   return (
                     <span key={`hour-${point.time}`} style={{ left: `${offset}%` }}>
-                      {formatWeatherHour(point.time)}
+                      {formatWeatherHour(point.time, language)}
                     </span>
                   );
                 })}
@@ -1058,7 +1070,7 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
               <span><i className="legend-wind" /> Vind</span>
               <span><i className="legend-icon" /> Værtype</span>
             </div>
-            <p className="weather-hourly-updated">{formatUpdatedAt(weather.forecast.updated_at)}</p>
+            <p className="weather-hourly-updated">{formatUpdatedAt(weather.forecast.updated_at, language)}</p>
           </div>
         ) : (
           <div className="weather-hourly-empty">
@@ -1070,20 +1082,21 @@ function WeatherHourlyCard({ weather }: { weather: WeatherForecast }) {
   );
 }
 
-function formatUpdatedAt(value: string | null | undefined): string {
+function formatUpdatedAt(value: string | null | undefined, language: AppLanguage): string {
   if (!value) {
-    return "Venter på første oppdatering";
+    return language === "no" ? "Venter på første oppdatering" : "Waiting for the first update";
   }
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "Oppdatert nylig";
+    return language === "no" ? "Oppdatert nylig" : "Updated recently";
   }
 
-  return `Oppdatert ${date.toLocaleTimeString("nb-NO", {
+  const updatedAt = date.toLocaleTimeString(localeForLanguage(language), {
     hour: "2-digit",
     minute: "2-digit",
-  })}`;
+  });
+  return language === "no" ? `Oppdatert ${updatedAt}` : `Updated ${updatedAt}`;
 }
 
 function normalizeDashboardPlants(plants: GrowlyPlant[]): DashboardPlant[] {
@@ -1150,6 +1163,7 @@ function scoreClimate(value: number | null | undefined, range: { optimal: [numbe
 }
 
 export function DashboardPage({ session, selectedHubId = "", theme }: DashboardPageProps) {
+  const { language } = useI18n();
   const [sample, setSample] = useState<LatestSample | null>(null);
   const [weather, setWeather] = useState<WeatherForecast | null>(null);
   const [dailyWeatherReport, setDailyWeatherReport] = useState<DailyWeatherReport | null>(null);
@@ -1205,7 +1219,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
       };
     }
 
-    fetchDailyWeatherReport(selectedHubId).then((result) => {
+    fetchDailyWeatherReport(selectedHubId, language).then((result) => {
       if (!cancelled) {
         setDailyWeatherReport(result);
       }
@@ -1214,7 +1228,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
     return () => {
       cancelled = true;
     };
-  }, [selectedHubId, weather?.forecast.updated_at]);
+  }, [language, selectedHubId, weather?.forecast.updated_at]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1328,8 +1342,8 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
       to: "/varsler",
     },
   ];
-  const updatedAt = formatUpdatedAt(activeSample?.recorded_at);
-  const weeklyTasks = buildWeeklyTasks(activeSample, !!weather, dashboardPlants.length);
+  const updatedAt = formatUpdatedAt(activeSample?.recorded_at, language);
+  const weeklyTasks = buildWeeklyTasks(activeSample, !!weather, dashboardPlants.length, language);
   const primaryTask = weeklyTasks[0] ?? null;
   const dailyAdvice = buildDailyAdvice(weather, dailyWeatherReport, primaryTask, dashboardPlants.length);
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
@@ -1345,7 +1359,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   const trendDelta = latestTrendValue !== null && previousTrendValue !== null ? latestTrendValue - previousTrendValue : null;
   const trendMin = trendValues.length ? Math.min(...trendValues) : null;
   const trendMax = trendValues.length ? Math.max(...trendValues) : null;
-  const trendChart = chartPath(trendPoints, activeTrendConfig, trendRange);
+  const trendChart = chartPath(trendPoints, activeTrendConfig, trendRange, language);
   const trendStatus = trendReferenceStatus(latestTrendValue, activeTrendConfig);
   const hoverPoint = hoverIndex !== null ? trendChart.coords[hoverIndex] : null;
   function openTrend(metric: TrendMetricKey) {
@@ -1414,7 +1428,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                     <span className="home-forecast-day" key={day.date}>
                       <WeatherGlyph symbolCode={day.symbol_code} compact />
                       <span className="home-forecast-day__main">
-                        <small>{formatWeatherDay(day.date)}</small>
+                        <small>{formatWeatherDay(day.date, language)}</small>
                         <strong>{weatherIconLabel(day.symbol_code)}</strong>
                         <em>
                           {typeof day.humidity_avg === "number" ? `Fukt ${day.humidity_avg.toFixed(0)}%` : "Fukt —"}
@@ -1438,7 +1452,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                 <span><i className="home-forecast-legend__cool" aria-hidden="true" /> Kjøligere</span>
                 <span><i className="home-forecast-legend__warm" aria-hidden="true" /> Varmere</span>
               </div>
-              {weatherHourlyOpen ? <WeatherHourlyCard weather={weather} /> : null}
+              {weatherHourlyOpen ? <WeatherHourlyCard weather={weather} language={language} /> : null}
             </div>
           ) : null}
 
@@ -1492,7 +1506,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                 <>
                   <strong>{latestNotification.title}</strong>
                   <p>{latestNotification.body}</p>
-                  <small>{formatDashboardNotificationTime(latestNotification.occurredAt)}</small>
+                  <small>{formatDashboardNotificationTime(latestNotification.occurredAt, language)}</small>
                 </>
               ) : (
                 <>
@@ -1528,7 +1542,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
             const profile = dashboardPlantProfiles[plant.profileId] ?? dashboardPlantProfiles.tomato;
             const sowedAt = plant.sowedAt ?? undefined;
             const progress = plantProgress(plant.profileId, index, activeSample, sowedAt);
-            const timeline = plantTimeline(plant.profileId, progress, sowedAt, index);
+            const timeline = plantTimeline(plant.profileId, progress, sowedAt, index, language);
             const stage = plantStage(plant.profileId, progress);
             const nextAction = plantNextAction(plant.profileId, progress, activeSample);
             return (
@@ -1667,7 +1681,9 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                   {trendLoading
                     ? "Henter historikk"
                     : trendPoints.length
-                      ? `${trendPoints.length} målinger · siste ${formatTrendTime(trendPoints[trendPoints.length - 1].recorded_at)}`
+                      ? language === "no"
+                        ? `${trendPoints.length} målinger · siste ${formatTrendTime(trendPoints[trendPoints.length - 1].recorded_at, language)}`
+                        : `${trendPoints.length} measurements · latest ${formatTrendTime(trendPoints[trendPoints.length - 1].recorded_at, language)}`
                       : trendError || "Ingen historikk ennå"}
                 </span>
               </div>
@@ -1791,7 +1807,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
               {hoverPoint ? (
                 <div className="trend-tooltip-lite">
                   <strong>{formatTrendValue(Number(hoverPoint.point.value), activeTrendConfig.unit, activeTrendConfig.digits)}</strong>
-                  <span>{formatTrendTime(hoverPoint.point.recorded_at)}</span>
+                  <span>{formatTrendTime(hoverPoint.point.recorded_at, language)}</span>
                 </div>
               ) : null}
               {!trendLoading && !trendPoints.length ? (

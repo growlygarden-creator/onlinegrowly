@@ -5,6 +5,7 @@ import { LocalNotifications } from "@capacitor/local-notifications";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { fetchSession, type AuthSession } from "./lib/api";
+import { useI18n } from "./lib/i18n";
 import { BottomNav } from "./components/BottomNav";
 import { GrowlyAssistantDock } from "./components/GrowlyAssistantDock";
 import { HubSwitcher } from "./components/HubSwitcher";
@@ -51,6 +52,7 @@ function readStoredThemeMode(): ThemeMode {
 
 export function App() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredThemeMode);
   const [systemTheme, setSystemTheme] = useState<AppTheme>(readSystemTheme);
@@ -136,9 +138,19 @@ export function App() {
     syncGrowlyNotificationHistory().catch(() => undefined);
     LocalNotifications.addListener("localNotificationReceived", (notification) => {
       recordGrowlyNotificationDelivery(notification, "received");
+      if (growlyNotificationsEnabled()) {
+        scheduleGrowlyNotifications(selectedHubId, false)
+          .then(setNotificationStatus)
+          .catch(() => undefined);
+      }
     }).then(keepHandle).catch(() => undefined);
     LocalNotifications.addListener("localNotificationActionPerformed", (action) => {
       recordGrowlyNotificationDelivery(action.notification, "opened");
+      if (growlyNotificationsEnabled()) {
+        scheduleGrowlyNotifications(selectedHubId, false)
+          .then(setNotificationStatus)
+          .catch(() => undefined);
+      }
       navigate("/varsler", { state: { fromNotification: growlyNotificationTargetRoute(action.notification) } });
     }).then(keepHandle).catch(() => undefined);
     CapacitorApp.addListener("appStateChange", (state) => {
@@ -153,15 +165,15 @@ export function App() {
         handle.remove().catch(() => undefined);
       });
     };
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, selectedHubId]);
 
   if (session === undefined) {
     return (
       <main className="page-shell auth-shell">
         <section className="auth-card">
           <p className="eyebrow">Growly Garden</p>
-          <h1>Laster inn...</h1>
-          <p className="lead">Sjekker innloggingen din. Hvis backend ikke svarer, fortsetter appen straks til innlogging.</p>
+          <h1>{t("app.loading.title")}</h1>
+          <p className="lead">{t("app.loading.body")}</p>
         </section>
       </main>
     );

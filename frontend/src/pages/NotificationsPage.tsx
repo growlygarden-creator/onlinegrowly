@@ -9,51 +9,53 @@ import {
   type GrowlyNotificationHistoryItem,
   type GrowlyScheduledNotification,
 } from "../lib/notifications";
+import { useI18n, type AppLanguage, type TranslationKey } from "../lib/i18n";
 
-const notificationTypeLabels: Record<string, string> = {
-  watering: "Vanning",
-  "plant-check": "Plantesjekk",
-  calendar: "Kalender",
-  "weather-frost": "Kald natt",
-  "weather-heat": "Varme",
-  "weather-wind": "Vind",
-  system: "Growly",
+const notificationTypeLabels: Record<string, TranslationKey> = {
+  watering: "notifications.type.watering",
+  "plant-check": "notifications.type.plantCheck",
+  calendar: "notifications.type.calendar",
+  "weather-frost": "notifications.type.weatherFrost",
+  "weather-heat": "notifications.type.weatherHeat",
+  "weather-wind": "notifications.type.weatherWind",
 };
 
-const notificationSourceLabels: Record<string, string> = {
-  received: "Mottatt",
-  opened: "Åpnet",
-  delivered: "Levert",
-  scheduled: "Planlagt",
+const notificationSourceLabels: Record<string, TranslationKey> = {
+  received: "notifications.source.received",
+  opened: "notifications.source.opened",
+  delivered: "notifications.source.delivered",
+  scheduled: "notifications.source.scheduled",
 };
 
-function formatNotificationTime(value: string): string {
+function formatNotificationTime(value: string, language: AppLanguage, t: ReturnType<typeof useI18n>["t"]): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "Ukjent tid";
+    return t("notifications.time.unknown");
   }
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
-  const time = date.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" });
+  const locale = language === "no" ? "nb-NO" : "en-US";
+  const time = date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
   if (date.toDateString() === today.toDateString()) {
-    return `I dag ${time}`;
+    return t("notifications.time.today", { time });
   }
   if (date.toDateString() === yesterday.toDateString()) {
-    return `I går ${time}`;
+    return t("notifications.time.yesterday", { time });
   }
-  return date.toLocaleDateString("nb-NO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleDateString(locale, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function notificationLabel(type: string): string {
-  return notificationTypeLabels[type] ?? "Growly";
+function notificationLabel(type: string, t: ReturnType<typeof useI18n>["t"]): string {
+  return notificationTypeLabels[type] ? t(notificationTypeLabels[type]) : "Growly";
 }
 
-function sourceLabel(source: string): string {
-  return notificationSourceLabels[source] ?? "Lagret";
+function sourceLabel(source: string, t: ReturnType<typeof useI18n>["t"]): string {
+  return notificationSourceLabels[source] ? t(notificationSourceLabels[source]) : t("notifications.source.saved");
 }
 
 export function NotificationsPage() {
+  const { language, t } = useI18n();
   const [history, setHistory] = useState<GrowlyNotificationHistoryItem[]>([]);
   const [upcoming, setUpcoming] = useState<GrowlyScheduledNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,11 +88,11 @@ export function NotificationsPage() {
     <main className="page-shell app-page notifications-page">
       <section className="screen-header">
         <div>
-          <p className="section-kicker">Varsler</p>
-          <h1>Varsler</h1>
-          <p>Siste beskjeder fra Growly og neste planlagte påminnelser.</p>
+          <p className="section-kicker">{t("notifications.title")}</p>
+          <h1>{t("notifications.title")}</h1>
+          <p>{t("notifications.subtitle")}</p>
         </div>
-        <Link className="icon-button" to="/" aria-label="Tilbake til start">
+        <Link className="icon-button" to="/" aria-label={t("notifications.backAria")}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
           </svg>
@@ -99,33 +101,33 @@ export function NotificationsPage() {
 
       <section className="notification-summary-grid">
         <article className="soft-card notification-summary-card">
-          <span>Lagret</span>
+          <span>{t("notifications.saved")}</span>
           <strong>{history.length}</strong>
-          <small>{history.length === 1 ? "varsel" : "varsler"}</small>
+          <small>{history.length === 1 ? t("notifications.notificationSingular") : t("notifications.notificationPlural")}</small>
         </article>
         <article className="soft-card notification-summary-card">
-          <span>Kommende</span>
+          <span>{t("notifications.upcoming")}</span>
           <strong>{upcoming.length}</strong>
-          <small>{upcoming.length === 1 ? "påminnelse" : "påminnelser"}</small>
+          <small>{upcoming.length === 1 ? t("notifications.reminderSingular") : t("notifications.reminderPlural")}</small>
         </article>
       </section>
 
       <section className="settings-section">
         <div className="notification-section-head">
           <div>
-            <p className="section-kicker">Historikk</p>
-            <h2>Siste varsler</h2>
+            <p className="section-kicker">{t("notifications.history")}</p>
+            <h2>{t("notifications.latest")}</h2>
           </div>
           {history.length ? (
             <button className="text-action" type="button" onClick={handleClearHistory}>
-              Tøm
+              {t("notifications.clear")}
             </button>
           ) : null}
         </div>
         {loading ? (
           <article className="soft-card notification-empty-card">
-            <strong>Laster varsler...</strong>
-            <span>Henter siste Growly-beskjeder.</span>
+            <strong>{t("notifications.loadingTitle")}</strong>
+            <span>{t("notifications.loadingBody")}</span>
           </article>
         ) : history.length ? (
           <div className="notification-log-list">
@@ -135,13 +137,13 @@ export function NotificationsPage() {
                 <div className="notification-log-content">
                   <div className="notification-log-title">
                     <strong>{notification.title}</strong>
-                    <time>{formatNotificationTime(notification.occurredAt)}</time>
+                    <time>{formatNotificationTime(notification.occurredAt, language, t)}</time>
                   </div>
                   <p>{notification.body}</p>
                   <div className="notification-log-meta">
-                    <span>{notificationLabel(notification.type)}</span>
-                    <span>{sourceLabel(notification.source)}</span>
-                    <Link to={notification.route}>Åpne</Link>
+                    <span>{notificationLabel(notification.type, t)}</span>
+                    <span>{sourceLabel(notification.source, t)}</span>
+                    <Link to={notification.route}>{t("notifications.open")}</Link>
                   </div>
                 </div>
               </article>
@@ -149,8 +151,8 @@ export function NotificationsPage() {
           </div>
         ) : (
           <article className="soft-card notification-empty-card">
-            <strong>Ingen varsler lagret ennå</strong>
-            <span>Nye Growly-varsler dukker opp her etter hvert.</span>
+            <strong>{t("notifications.emptyHistoryTitle")}</strong>
+            <span>{t("notifications.emptyHistoryBody")}</span>
           </article>
         )}
       </section>
@@ -158,8 +160,8 @@ export function NotificationsPage() {
       <section className="settings-section">
         <div className="notification-section-head">
           <div>
-            <p className="section-kicker">Planlagt</p>
-            <h2>Neste påminnelser</h2>
+            <p className="section-kicker">{t("notifications.scheduled")}</p>
+            <h2>{t("notifications.nextReminders")}</h2>
           </div>
         </div>
         {upcoming.length ? (
@@ -167,17 +169,17 @@ export function NotificationsPage() {
             {upcoming.slice(0, 5).map((notification) => (
               <article className="soft-card notification-upcoming-item" key={`${notification.notificationId}-${notification.scheduledAt}`}>
                 <span>
-                  <small>{notificationLabel(notification.type)}</small>
+                  <small>{notificationLabel(notification.type, t)}</small>
                   <strong>{notification.title}</strong>
                 </span>
-                <time>{formatNotificationTime(notification.scheduledAt)}</time>
+                <time>{formatNotificationTime(notification.scheduledAt, language, t)}</time>
               </article>
             ))}
           </div>
         ) : (
           <article className="soft-card notification-empty-card">
-            <strong>Ingen kommende påminnelser</strong>
-            <span>Aktiver varsler i innstillingene når du vil ha Growly-påminnelser.</span>
+            <strong>{t("notifications.emptyUpcomingTitle")}</strong>
+            <span>{t("notifications.emptyUpcomingBody")}</span>
           </article>
         )}
       </section>

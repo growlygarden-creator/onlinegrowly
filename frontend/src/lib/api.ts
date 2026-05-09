@@ -1,3 +1,5 @@
+import { localizePlantCatalogItems } from "./plantCatalogLocalization";
+
 export type PairingInfo = {
   token: string;
   expires_at: string;
@@ -473,9 +475,10 @@ export async function fetchWeatherForecast(hubId = ""): Promise<WeatherForecast 
   }
 }
 
-export async function fetchDailyWeatherReport(hubId = ""): Promise<DailyWeatherReport | null> {
+export async function fetchDailyWeatherReport(hubId = "", language = ""): Promise<DailyWeatherReport | null> {
   try {
-    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/weather/daily-report", hubId)), {
+    const path = language ? `/api/weather/daily-report?lang=${encodeURIComponent(language)}` : "/api/weather/daily-report";
+    const response = await fetchWithTimeout(apiUrl(appendHubId(path, hubId)), {
       credentials: "include",
       cache: "no-store",
       headers: authHeaders(),
@@ -618,11 +621,14 @@ export async function fetchMetricHistory(params: {
   }
 }
 
-export async function fetchPlantCatalog(query = ""): Promise<PlantCatalogItem[]> {
+export async function fetchPlantCatalog(query = "", language = ""): Promise<PlantCatalogItem[]> {
   try {
     const search = new URLSearchParams();
     if (query.trim()) {
       search.set("q", query.trim());
+    }
+    if (language) {
+      search.set("lang", language);
     }
 
     const response = await fetchWithTimeout(apiUrl(`/api/plant-catalog${search.toString() ? `?${search.toString()}` : ""}`), {
@@ -635,7 +641,9 @@ export async function fetchPlantCatalog(query = ""): Promise<PlantCatalogItem[]>
     }
 
     const result = await parseJson<{ ok: true; items: PlantCatalogItem[] }>(response);
-    return Array.isArray(result.items) ? result.items : [];
+    return Array.isArray(result.items)
+      ? localizePlantCatalogItems(result.items, language === "en" ? "en" : "no")
+      : [];
   } catch {
     return [];
   }
@@ -675,13 +683,20 @@ export async function createPlant(payload: Partial<GrowlyPlant>, hubId = ""): Pr
       body: JSON.stringify(payload),
     }, AUTH_REQUEST_TIMEOUT_MS);
     if (!response.ok) {
-      return null;
+      let error = `plant_create_http_${response.status}`;
+      try {
+        const result = await parseJson<ApiError>(response);
+        error = result.error || error;
+      } catch {
+        // Keep status-based error when the response is not JSON.
+      }
+      throw new Error(error);
     }
 
     const result = await parseJson<{ ok: true; plant: GrowlyPlant }>(response);
     return result.plant ?? null;
-  } catch {
-    return null;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("plant_create_failed");
   }
 }
 
@@ -723,6 +738,7 @@ export async function askGrowlyAssistant(
   question: string,
   image?: GrowlyAssistantImage | null,
   hubId = "",
+  language = "",
 ): Promise<{ answer: string; model: string } | null> {
   try {
     const response = await fetchWithTimeout(apiUrl(appendHubId("/api/ai/assistant", hubId)), {
@@ -731,7 +747,7 @@ export async function askGrowlyAssistant(
       headers: {
         ...authHeaders({ "Content-Type": "application/json" }),
       },
-      body: JSON.stringify({ question, image: image ?? null }),
+      body: JSON.stringify({ question, image: image ?? null, language }),
     }, AI_REQUEST_TIMEOUT_MS);
     if (!response.ok) {
       let error = `ai_http_${response.status}`;

@@ -1,15 +1,16 @@
 import { NavLink } from "react-router-dom";
+import { useI18n, type TranslationKey } from "../lib/i18n";
 
 type Tab = {
-  label: string;
-  shortLabel?: string;
+  labelKey: TranslationKey;
+  shortLabelKey?: TranslationKey;
   to: string;
   icon: (props: { className?: string }) => JSX.Element;
 };
 
 const tabs: Tab[] = [
   {
-    label: "Start",
+    labelKey: "nav.start",
     to: "/",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -21,7 +22,7 @@ const tabs: Tab[] = [
     ),
   },
   {
-    label: "Kalender",
+    labelKey: "nav.calendar",
     to: "/kalender",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -37,7 +38,7 @@ const tabs: Tab[] = [
     ),
   },
   {
-    label: "Planter",
+    labelKey: "nav.plants",
     to: "/drivhus",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -53,8 +54,8 @@ const tabs: Tab[] = [
     ),
   },
   {
-    label: "Kartotek",
-    shortLabel: "Kart.",
+    labelKey: "nav.catalog",
+    shortLabelKey: "nav.catalogShort",
     to: "/kartotek",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -70,7 +71,7 @@ const tabs: Tab[] = [
     ),
   },
   {
-    label: "Innst.",
+    labelKey: "nav.settings",
     to: "/settings",
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -84,20 +85,26 @@ const tabs: Tab[] = [
 ];
 
 export function BottomNav() {
+  const { t } = useI18n();
+
   return (
-    <nav className="bottom-nav" aria-label="Hovedmeny">
-      {tabs.map((tab) => (
-        <NavLink
-          key={tab.to}
-          to={tab.to}
-          className={({ isActive }) => `bottom-nav__item${isActive ? " is-active" : ""}`}
-          end={tab.to === "/"}
-        >
-          <tab.icon className="bottom-nav__icon" />
-          <span className="bottom-nav__label bottom-nav__label--full">{tab.label}</span>
-          <span className="bottom-nav__label bottom-nav__label--short">{tab.shortLabel ?? tab.label}</span>
-        </NavLink>
-      ))}
+    <nav className="bottom-nav" aria-label={t("nav.aria")}>
+      {tabs.map((tab) => {
+        const label = t(tab.labelKey);
+        const shortLabel = tab.shortLabelKey ? t(tab.shortLabelKey) : label;
+        return (
+          <NavLink
+            key={tab.to}
+            to={tab.to}
+            className={({ isActive }) => `bottom-nav__item${isActive ? " is-active" : ""}`}
+            end={tab.to === "/"}
+          >
+            <tab.icon className="bottom-nav__icon" />
+            <span className="bottom-nav__label bottom-nav__label--full">{label}</span>
+            <span className="bottom-nav__label bottom-nav__label--short">{shortLabel}</span>
+          </NavLink>
+        );
+      })}
     </nav>
   );
 }

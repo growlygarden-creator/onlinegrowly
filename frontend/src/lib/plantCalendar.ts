@@ -1,4 +1,5 @@
 import type { GrowlyPlant, PlantCatalogItem } from "./api";
+import { currentAppLanguage, type AppLanguage } from "./i18n";
 
 const PLANT_CALENDAR_STORAGE_KEY = "growly.plantCalendar.entries";
 
@@ -74,8 +75,8 @@ function plantId(plant: GrowlyPlant): string {
   return plant.instanceId || plant.plant_id || `${plant.profileId || plant.profile_id || "plant"}-${Date.now()}`;
 }
 
-function plantName(plant: GrowlyPlant, catalogItem?: PlantCatalogItem | null): string {
-  return plant.nickname || plant.display_name || catalogItem?.display_name || plant.profileId || "Plante";
+function plantName(plant: GrowlyPlant, catalogItem: PlantCatalogItem | null | undefined, language: AppLanguage): string {
+  return plant.nickname || plant.display_name || catalogItem?.display_name || plant.profileId || (language === "en" ? "Plant" : "Plante");
 }
 
 function plantProfileId(plant: GrowlyPlant, catalogItem?: PlantCatalogItem | null): string {
@@ -95,22 +96,23 @@ function planStartDate(plant: GrowlyPlant): Date {
   return base.getTime() > today.getTime() ? base : today;
 }
 
-function profileSpecificSteps(profileId: string, name: string): CalendarStep[] {
+function profileSpecificSteps(profileId: string, name: string, language: AppLanguage): CalendarStep[] {
   const text = `${profileId} ${name}`.toLowerCase();
+  const isEnglish = language === "en";
   if (text.includes("tomato") || text.includes("tomat")) {
     return [
       {
         key: "support",
         offsetDays: 8,
-        title: "Bind opp og form planten",
-        note: "Fest hovedstammen mykt, sjekk sideskudd og hold bladverk unna fuktig jord.",
+        title: isEnglish ? "Tie and shape the plant" : "Bind opp og form planten",
+        note: isEnglish ? "Tie the main stem gently, check side shoots and keep foliage away from damp soil." : "Fest hovedstammen mykt, sjekk sideskudd og hold bladverk unna fuktig jord.",
         category: "support",
       },
       {
         key: "feeding",
         offsetDays: 15,
-        title: "Gi mild næring",
-        note: "Tomat liker jevn rytme. Gi rolig næring hvis planten er i god vekst.",
+        title: isEnglish ? "Give mild feeding" : "Gi mild næring",
+        note: isEnglish ? "Tomato likes a steady rhythm. Feed gently if the plant is growing well." : "Tomat liker jevn rytme. Gi rolig næring hvis planten er i god vekst.",
         category: "feeding",
       },
     ];
@@ -120,15 +122,15 @@ function profileSpecificSteps(profileId: string, name: string): CalendarStep[] {
       {
         key: "support",
         offsetDays: 7,
-        title: "Led ranker oppover",
-        note: "Agurk vil raskt opp i høyden. Fest løst og unngå knekk i hovedranken.",
+        title: isEnglish ? "Guide vines upward" : "Led ranker oppover",
+        note: isEnglish ? "Cucumber climbs quickly. Tie loosely and avoid kinks in the main vine." : "Agurk vil raskt opp i høyden. Fest løst og unngå knekk i hovedranken.",
         category: "support",
       },
       {
         key: "check-humidity",
         offsetDays: 13,
-        title: "Sjekk fukt og meldugg",
-        note: "Hold jevn jordfukt, men luft etter fuktige perioder så bladene tørker opp.",
+        title: isEnglish ? "Check moisture and mildew" : "Sjekk fukt og meldugg",
+        note: isEnglish ? "Keep soil moisture even, but ventilate after humid periods so leaves dry up." : "Hold jevn jordfukt, men luft etter fuktige perioder så bladene tørker opp.",
         category: "check",
       },
     ];
@@ -138,15 +140,15 @@ function profileSpecificSteps(profileId: string, name: string): CalendarStep[] {
       {
         key: "flower-check",
         offsetDays: 9,
-        title: "Sjekk blomster og stress",
-        note: "Se etter blomsterfall, bladlus og små potter som tørker fort.",
+        title: isEnglish ? "Check flowers and stress" : "Sjekk blomster og stress",
+        note: isEnglish ? "Look for flower drop, aphids and small pots that dry quickly." : "Se etter blomsterfall, bladlus og små potter som tørker fort.",
         category: "check",
       },
       {
         key: "support",
         offsetDays: 18,
-        title: "Støtt tunge greiner",
-        note: "Når fruktene setter seg, trenger planten ofte en diskret støtte.",
+        title: isEnglish ? "Support heavy branches" : "Støtt tunge greiner",
+        note: isEnglish ? "When fruits set, the plant often needs discreet support." : "Når fruktene setter seg, trenger planten ofte en diskret støtte.",
         category: "support",
       },
     ];
@@ -156,15 +158,15 @@ function profileSpecificSteps(profileId: string, name: string): CalendarStep[] {
       {
         key: "pinch",
         offsetDays: 6,
-        title: "Topp over et bladpar",
-        note: "Klipp over et bladpar for tettere vekst, og ikke la basilikum stå kaldt.",
+        title: isEnglish ? "Pinch above a leaf pair" : "Topp over et bladpar",
+        note: isEnglish ? "Cut above a leaf pair for denser growth, and do not let basil stand cold." : "Klipp over et bladpar for tettere vekst, og ikke la basilikum stå kaldt.",
         category: "harvest",
       },
       {
         key: "sow-more",
         offsetDays: 16,
-        title: "Start en liten påfyllsrunde",
-        note: "Urter føles luksus når det alltid er litt nytt på vei.",
+        title: isEnglish ? "Start a small refill round" : "Start en liten påfyllsrunde",
+        note: isEnglish ? "Herbs feel luxurious when there is always a little new growth coming." : "Urter føles luksus når det alltid er litt nytt på vei.",
         category: "harvest",
       },
     ];
@@ -174,15 +176,15 @@ function profileSpecificSteps(profileId: string, name: string): CalendarStep[] {
       {
         key: "harvest-outer",
         offsetDays: 7,
-        title: "Høst ytterblader",
-        note: "Ta litt og litt. Det holder planten i gang og gir jevnere avling.",
+        title: isEnglish ? "Harvest outer leaves" : "Høst ytterblader",
+        note: isEnglish ? "Take a little at a time. It keeps the plant going and gives a steadier crop." : "Ta litt og litt. Det holder planten i gang og gir jevnere avling.",
         category: "harvest",
       },
       {
         key: "shade",
         offsetDays: 14,
-        title: "Sjekk varme og skygge",
-        note: "Salat går fort i stokk når den blir varm og tørr.",
+        title: isEnglish ? "Check heat and shade" : "Sjekk varme og skygge",
+        note: isEnglish ? "Lettuce bolts quickly when it gets warm and dry." : "Salat går fort i stokk når den blir varm og tørr.",
         category: "check",
       },
     ];
@@ -192,15 +194,15 @@ function profileSpecificSteps(profileId: string, name: string): CalendarStep[] {
       {
         key: "flower-cleanup",
         offsetDays: 7,
-        title: "Rydd rundt blomster",
-        note: "Hold luft rundt kronen og unngå vann rett på blomster.",
+        title: isEnglish ? "Clean around flowers" : "Rydd rundt blomster",
+        note: isEnglish ? "Keep air around the crown and avoid water directly on flowers." : "Hold luft rundt kronen og unngå vann rett på blomster.",
         category: "cleanup",
       },
       {
         key: "runner-check",
         offsetDays: 18,
-        title: "Følg utløpere og bær",
-        note: "Velg om utløpere skal beholdes eller fjernes for mer energi til bær.",
+        title: isEnglish ? "Follow runners and berries" : "Følg utløpere og bær",
+        note: isEnglish ? "Decide whether runners should be kept or removed for more energy to berries." : "Velg om utløpere skal beholdes eller fjernes for mer energi til bær.",
         category: "check",
       },
     ];
@@ -209,15 +211,15 @@ function profileSpecificSteps(profileId: string, name: string): CalendarStep[] {
     {
       key: "support",
       offsetDays: 9,
-      title: "Sjekk støtte og plass",
-      note: "Gi planten rom før den blir tett. Det er enklere nå enn senere.",
+      title: isEnglish ? "Check support and space" : "Sjekk støtte og plass",
+      note: isEnglish ? "Give the plant room before it gets crowded. It is easier now than later." : "Gi planten rom før den blir tett. Det er enklere nå enn senere.",
       category: "support",
     },
     {
       key: "feeding",
       offsetDays: 18,
-      title: "Vurder mild næring",
-      note: "Hvis planten er i aktiv vekst, kan en rolig næringsrunde passe.",
+      title: isEnglish ? "Consider mild feeding" : "Vurder mild næring",
+      note: isEnglish ? "If the plant is actively growing, a gentle feeding round may fit." : "Hvis planten er i aktiv vekst, kan en rolig næringsrunde passe.",
       category: "feeding",
     },
   ];
@@ -246,8 +248,10 @@ export function saveGeneratedPlantPlan(
   hubId = "",
   note = "",
 ): PlantCalendarEntry[] {
+  const language = currentAppLanguage();
+  const isEnglish = language === "en";
   const id = plantId(plant);
-  const name = plantName(plant, catalogItem);
+  const name = plantName(plant, catalogItem, language);
   const profileId = plantProfileId(plant, catalogItem);
   const startDate = planStartDate(plant);
   const createdAt = new Date().toISOString();
@@ -255,22 +259,22 @@ export function saveGeneratedPlantPlan(
     {
       key: "first-water",
       offsetDays: 1,
-      title: "Husk vann og jordfukt",
-      note: "Kjenn i jorda før du vanner. Vann rolig ved roten hvis det begynner å tørke.",
+      title: isEnglish ? "Remember water and soil moisture" : "Husk vann og jordfukt",
+      note: isEnglish ? "Feel the soil before watering. Water gently at the root if it starts to dry." : "Kjenn i jorda før du vanner. Vann rolig ved roten hvis det begynner å tørke.",
       category: "water",
     },
     {
       key: "cleanup",
       offsetDays: 3,
-      title: "Rydd opp rundt planten",
-      note: "Fjern visne blader og småting rundt potten. Luft rundt planten forebygger trøbbel.",
+      title: isEnglish ? "Clean up around the plant" : "Rydd opp rundt planten",
+      note: isEnglish ? "Remove wilted leaves and small debris around the pot. Airflow around the plant prevents trouble." : "Fjern visne blader og småting rundt potten. Luft rundt planten forebygger trøbbel.",
       category: "cleanup",
     },
     {
       key: "leaf-check",
       offsetDays: 5,
-      title: "Sjekk bladundersider",
-      note: "Se etter små prikker, skadedyr, slappe blad og tegn på stress mens det er lett å rette.",
+      title: isEnglish ? "Check leaf undersides" : "Sjekk bladundersider",
+      note: isEnglish ? "Look for small spots, pests, limp leaves and signs of stress while it is easy to correct." : "Se etter små prikker, skadedyr, slappe blad og tegn på stress mens det er lett å rette.",
       category: "check",
     },
   ];
@@ -278,12 +282,12 @@ export function saveGeneratedPlantPlan(
     {
       key: "weekly-review",
       offsetDays: 21,
-      title: "Ukessjekk og justering",
-      note: "Se om vann, lys, luft og plass fortsatt passer. Juster før planten roper om hjelp.",
+      title: isEnglish ? "Weekly check and adjustment" : "Ukessjekk og justering",
+      note: isEnglish ? "Check whether water, light, air and space still fit. Adjust before the plant asks for help." : "Se om vann, lys, luft og plass fortsatt passer. Juster før planten roper om hjelp.",
       category: "check",
     },
   ];
-  const generated = [...baseSteps, ...profileSpecificSteps(profileId, name), ...finishSteps].map((step) => ({
+  const generated = [...baseSteps, ...profileSpecificSteps(profileId, name, language), ...finishSteps].map((step) => ({
     id: `generated-${cleanId(hubId || "local")}-${cleanId(id)}-${step.key}`,
     hubId,
     plantId: id,
@@ -307,7 +311,7 @@ export function saveGeneratedPlantPlan(
           plantProfileId: profileId,
           catalogItemId: catalogItem?.id || plant.catalogItemId || plant.catalog_item_id,
           date: dateParam(startDate),
-          title: "Notat til planteplanen",
+          title: isEnglish ? "Note for the plant plan" : "Notat til planteplanen",
           note: note.trim(),
           category: "note" as const,
           source: "note" as const,
@@ -334,6 +338,7 @@ export function addPlantCalendarNote(input: {
   date: string;
   note: string;
 }): PlantCalendarEntry | null {
+  const language = currentAppLanguage();
   const note = input.note.trim();
   if (!note) {
     return null;
@@ -347,7 +352,7 @@ export function addPlantCalendarNote(input: {
     plantProfileId: input.plantProfileId,
     catalogItemId: input.catalogItemId,
     date: input.date,
-    title: "Eget notat",
+    title: language === "en" ? "Own note" : "Eget notat",
     note,
     category: "note",
     source: "note",
