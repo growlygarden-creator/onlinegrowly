@@ -197,9 +197,9 @@ type GrowlyAssistantDockProps = {
 };
 
 const ASSISTANT_IMAGE_MAX_SOURCE_BYTES = 35 * 1024 * 1024;
-const ASSISTANT_IMAGE_TARGET_BYTES = 1_600_000;
-const ASSISTANT_IMAGE_MAX_EDGE = 1600;
-const ASSISTANT_IMAGE_MAX_DATA_URL_LENGTH = 6_800_000;
+const ASSISTANT_IMAGE_TARGET_BYTES = 900_000;
+const ASSISTANT_IMAGE_MAX_EDGE = 1280;
+const ASSISTANT_IMAGE_MAX_DATA_URL_LENGTH = 2_100_000;
 
 function dataUrlByteLength(dataUrl: string): number {
   const base64 = dataUrl.split(",", 2)[1] ?? "";

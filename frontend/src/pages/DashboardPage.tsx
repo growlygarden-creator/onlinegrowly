@@ -265,7 +265,7 @@ function formatTrendValue(value: number | null | undefined, unit: string, digits
 
 function trendWindow(range: TrendRange): { span: "minutes" | "hours" | "days"; limit: number; dateFrom?: string; dateTo?: string } {
   if (range === "all") {
-    return { span: "days", limit: 2000 };
+    return { span: "days", limit: 730 };
   }
 
   const now = new Date();
@@ -274,7 +274,7 @@ function trendWindow(range: TrendRange): { span: "minutes" | "hours" | "days"; l
 
   return {
     span: range === "24h" ? "minutes" : "hours",
-    limit: range === "24h" ? 1500 : 2000,
+    limit: range === "24h" ? 288 : range === "3d" ? 216 : 336,
     dateFrom: start.toISOString(),
     dateTo: now.toISOString(),
   };

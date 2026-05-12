@@ -80,6 +80,8 @@ ACTIVE_FIRMWARE_URL = os.getenv("ACTIVE_FIRMWARE_URL", "").strip()
 BUNDLED_FIRMWARE_DIR = BASE_DIR / "static" / "firmware"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip()
+MAX_REQUEST_BODY_BYTES = int(os.getenv("MAX_REQUEST_BODY_BYTES", "2500000").strip() or "2500000")
+MAX_AI_IMAGE_DATA_URL_LENGTH = int(os.getenv("MAX_AI_IMAGE_DATA_URL_LENGTH", "2200000").strip() or "2200000")
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587").strip() or "587")
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
@@ -117,6 +119,9 @@ MET_WEATHER_USER_AGENT = os.getenv(
     "GrowlyGarden/1.0 growlygarden@gmail.com",
 ).strip()
 WEATHER_REPORT_CACHE: dict[str, dict[str, Any]] = {}
+WEATHER_FORECAST_CACHE: dict[str, dict[str, Any]] = {}
+WEATHER_FORECAST_CACHE_TTL = timedelta(minutes=20)
+MAX_HISTORY_RAW_ROWS = int(os.getenv("MAX_HISTORY_RAW_ROWS", "3000").strip() or "3000")
 SUPABASE_CORE_TABLES = (
     "growly_users",
     "growly_hubs",
@@ -3996,7 +4001,7 @@ def clean_ai_image_payload(image: Any) -> dict[str, str] | None:
     data_url = str(image.get("dataUrl") or image.get("data_url") or "").strip()
     if not data_url.startswith("data:image/") or ";base64," not in data_url:
         return None
-    if len(data_url) > 7_000_000:
+    if len(data_url) > MAX_AI_IMAGE_DATA_URL_LENGTH:
         raise ValueError("image_too_large")
     name = str(image.get("name") or "plantebilde").strip()[:80]
     return {"data_url": data_url, "name": name}
@@ -4192,6 +4197,7 @@ def metric_history_by_span(
     since_dt, until_dt = clamp_history_window(hub_id, requested_since, requested_until)
     bucket_seconds = config["bucket_seconds"]
     custom_window = bool(date_from or date_to)
+    raw_limit = min(limit * 3, MAX_HISTORY_RAW_ROWS)
 
     with db_connection() as connection:
         rows = connection.execute(
@@ -4205,7 +4211,7 @@ def metric_history_by_span(
             ORDER BY recorded_at ASC
             LIMIT ?
             """,
-            (hub_id, since_dt.isoformat(), until_dt.isoformat(), limit * 8),
+            (hub_id, since_dt.isoformat(), until_dt.isoformat(), raw_limit),
         ).fetchall()
         if not rows and not custom_window:
             latest_row = connection.execute(
@@ -4238,7 +4244,7 @@ def metric_history_by_span(
                         ORDER BY recorded_at ASC
                         LIMIT ?
                         """,
-                        (hub_id, since_dt.isoformat(), until_dt.isoformat(), limit * 8),
+                        (hub_id, since_dt.isoformat(), until_dt.isoformat(), raw_limit),
                     ).fetchall()
 
     buckets: dict[str, list[float]] = {}
@@ -4436,6 +4442,7 @@ def supabase_metric_history_by_span(
     requested_until = parse_iso_datetime(date_to) or datetime.now(timezone.utc)
     since_dt, until_dt = clamp_history_window(hub_id, requested_since, requested_until)
     custom_window = bool(date_from or date_to)
+    raw_limit = min(limit * 3, MAX_HISTORY_RAW_ROWS)
     rows = fetch_supabase_rows_for_hub(
         hub_id,
         {
@@ -4444,7 +4451,7 @@ def supabase_metric_history_by_span(
             f"{metric}": "not.is.null",
             "and": f"(created_at.lt.{until_dt.isoformat()})",
             "order": "created_at.asc",
-            "limit": str(limit * 8),
+            "limit": str(raw_limit),
         },
     )
 
@@ -4476,7 +4483,7 @@ def supabase_metric_history_by_span(
                         f"{metric}": "not.is.null",
                         "and": f"(created_at.lt.{until_dt.isoformat()})",
                         "order": "created_at.asc",
-                        "limit": str(limit * 8),
+                        "limit": str(raw_limit),
                     },
                 )
 
@@ -5352,6 +5359,14 @@ def weather_symbol_for_timeseries(item: dict[str, Any]) -> str:
 
 
 def fetch_met_weather_forecast(lat: float, lon: float) -> dict[str, Any]:
+    cache_key = f"{lat:.4f}:{lon:.4f}"
+    cached = WEATHER_FORECAST_CACHE.get(cache_key)
+    if cached:
+        cached_at = parse_iso_datetime(str(cached.get("cached_at") or ""))
+        forecast = cached.get("forecast")
+        if cached_at and datetime.now(timezone.utc) - cached_at < WEATHER_FORECAST_CACHE_TTL and isinstance(forecast, dict):
+            return forecast
+
     params = urlencode({"lat": f"{lat:.6f}", "lon": f"{lon:.6f}"})
     request = UrlRequest(
         f"https://api.met.no/weatherapi/locationforecast/2.0/compact?{params}",
@@ -5419,12 +5434,15 @@ def fetch_met_weather_forecast(lat: float, lon: float) -> dict[str, Any]:
             }
         )
 
-    return {
+    forecast = {
         "updated_at": utc_now_iso(),
         "now": upcoming[0] if upcoming else None,
         "hours": upcoming[:54],
         "days": days,
     }
+    WEATHER_FORECAST_CACHE.clear()
+    WEATHER_FORECAST_CACHE[cache_key] = {"cached_at": utc_now_iso(), "forecast": forecast}
+    return forecast
 
 
 def weather_label_nb(symbol_code: str | None) -> str:
@@ -5796,6 +5814,21 @@ app = FastAPI(
     description="Minimal Growly app shell for rebuilding from scratch.",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def reject_oversized_requests(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            body_size = int(content_length)
+        except ValueError:
+            body_size = 0
+        if body_size > MAX_REQUEST_BODY_BYTES:
+            return JSONResponse(status_code=413, content={"ok": False, "error": "request_too_large"})
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(NATIVE_APP_ORIGINS),
