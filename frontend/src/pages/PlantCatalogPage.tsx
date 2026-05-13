@@ -594,8 +594,13 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
             <button className={seedView === "activity" ? "is-selected" : ""} type="button" onClick={() => setSeedView("activity")}>
               Sådd / podet
             </button>
-            <button className={seedView === "print" ? "is-selected" : ""} type="button" onClick={() => setSeedView("print")}>
-              Innholdsfortegnelse
+            <button
+              className={seedView === "print" ? "is-selected" : ""}
+              type="button"
+              onClick={() => setSeedView("print")}
+              aria-label="Innholdsliste og utskrift"
+            >
+              Utskrift
             </button>
           </div>
 
@@ -768,10 +773,10 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
               <div className="seed-print-actions">
                 <div>
                   <p className="section-kicker">Utskrift</p>
-                  <h2>Innholdsfortegnelse for frøesken</h2>
+                  <h2>Innholdsliste for frøesken</h2>
                 </div>
                 <button className="primary-action" type="button" onClick={printSeedIndex}>
-                  Skriv ut
+                  Skriv ut / PDF
                 </button>
               </div>
 
@@ -779,7 +784,7 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
                 <header>
                   <div>
                     <p>Growly Garden</p>
-                    <h2>Frøeske innholdsfortegnelse</h2>
+                    <h2>Frøeske innholdsliste</h2>
                   </div>
                   <span>{printDate}</span>
                 </header>
