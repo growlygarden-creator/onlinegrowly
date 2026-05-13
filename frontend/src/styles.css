@@ -5719,6 +5719,16 @@ b {
   gap: 12px;
 }
 
+.seed-print-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.seed-print-footer-actions .primary-action {
+  min-width: 220px;
+}
+
 .seed-action-row .primary-action,
 .seed-action-row .secondary-action {
   flex: 1;
@@ -8190,8 +8200,13 @@ b {
   }
 
   .seed-print-actions .primary-action,
+  .seed-print-footer-actions .primary-action,
   .seed-activity-panel__head .primary-action {
     width: 100%;
+  }
+
+  .seed-print-footer-actions {
+    justify-content: stretch;
   }
 
   .seed-print-sheet {

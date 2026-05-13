@@ -598,9 +598,9 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
               className={seedView === "print" ? "is-selected" : ""}
               type="button"
               onClick={() => setSeedView("print")}
-              aria-label="Innholdsliste og utskrift"
+              aria-label="Innholdsliste for frøesken"
             >
-              Utskrift
+              Liste
             </button>
           </div>
 
@@ -772,12 +772,9 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
             <section className="settings-section seed-print-panel">
               <div className="seed-print-actions">
                 <div>
-                  <p className="section-kicker">Utskrift</p>
+                  <p className="section-kicker">Frøeske</p>
                   <h2>Innholdsliste for frøesken</h2>
                 </div>
-                <button className="primary-action" type="button" onClick={printSeedIndex}>
-                  Skriv ut / PDF
-                </button>
               </div>
 
               <article className="seed-print-sheet">
@@ -820,6 +817,11 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
                   <span>{needsCheckCount} bør sjekkes</span>
                 </footer>
               </article>
+              <div className="seed-print-footer-actions">
+                <button className="primary-action" type="button" onClick={printSeedIndex}>
+                  Skriv ut / PDF
+                </button>
+              </div>
             </section>
           ) : null}
         </>
