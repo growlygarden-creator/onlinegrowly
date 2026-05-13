@@ -625,18 +625,8 @@ function monthGridDays() {
   ];
 }
 
-function calendarEvents(today: number, actions: PlannerAction[]): CalendarEvent[] {
-  const events: CalendarEvent[] = [
-    { ...actions[0], day: today, marker: "sow" },
-    { ...actions[2], day: today + 1, marker: "sow" },
-    { ...actions[5], day: today + 5, marker: "sow" },
-    { ...actions[8], day: today + 9, marker: "move" },
-    { ...actions[10], day: today + 12, marker: "move" },
-    { ...actions[11], day: today + 15, marker: "watch" },
-    { ...actions[12], day: today + 20, marker: "watch" },
-  ];
-
-  return events.filter((event) => event.day <= 31);
+function calendarEvents(): CalendarEvent[] {
+  return [];
 }
 
 function plantEntryDate(entry: PlantCalendarEntry): Date | null {
@@ -673,11 +663,17 @@ function markerForDay(day: number, events: CalendarEvent[], plantEntries: PlantC
   return plantEntry ? plantEntryMarker(plantEntry) : null;
 }
 
+function hasCalendarPlantOption(plant: GrowlyPlant): boolean {
+  const plantId = plant.instanceId || plant.plant_id || "";
+  const plantName = plant.nickname || plant.display_name || "";
+  return Boolean(plantId.trim() && plantName.trim());
+}
+
 function normalizePlantOption(plant: GrowlyPlant): CalendarPlantOption {
-  const profileId = plant.profileId || plant.profile_id || "plant";
+  const profileId = plant.profileId || plant.profile_id || "unknown";
   return {
-    plantId: plant.instanceId || plant.plant_id || `${profileId}-${Date.now()}`,
-    plantName: plant.nickname || plant.display_name || profileId,
+    plantId: plant.instanceId || plant.plant_id || "",
+    plantName: plant.nickname || plant.display_name || (profileId === "unknown" ? "Egen plante" : profileId),
     plantProfileId: profileId,
     catalogItemId: plant.catalogItemId || plant.catalog_item_id || profileId,
   };
@@ -700,7 +696,7 @@ export function CalendarPage({ session, selectedHubId = "" }: CalendarPageProps)
   const plannerActions = useMemo(() => localizePlannerActions(language), [language]);
   const groupedActions = actionGroups(plannerActions, language);
   const calendarDays = monthGridDays();
-  const events = calendarEvents(today, plannerActions);
+  const events = calendarEvents();
   const selectedEvents = events.filter((event) => event.day === selectedDay);
   const selectedDate = new Date(now.getFullYear(), now.getMonth(), selectedDay);
   const selectedDateQuery = dateParam(selectedDate);
@@ -737,7 +733,7 @@ export function CalendarPage({ session, selectedHubId = "" }: CalendarPageProps)
       if (cancelled) {
         return;
       }
-      const options = plants.map(normalizePlantOption);
+      const options = plants.filter(hasCalendarPlantOption).map(normalizePlantOption);
       setPlantOptions(options);
       setPlantsLoading(false);
       setNoteCategory((current) => {

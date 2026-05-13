@@ -141,6 +141,22 @@ const fallbackPlantProfiles: PlantProfile[] = [
   },
 ];
 
+const unknownPlantProfile: PlantProfile = {
+  id: "unknown",
+  name: "Egen plante",
+  family: "Plante",
+  icon: "P",
+  tone: "leafy",
+  ranges: {
+    airTemperature: { optimal: [16, 24], caution: [8, 30] },
+    airHumidity: { optimal: [45, 75], caution: [30, 90] },
+    soilHumidity: { optimal: [45, 75], caution: [30, 88] },
+    soilTemperature: { optimal: [14, 22], caution: [6, 28] },
+    ph: { optimal: [5.8, 7.0], caution: [5.2, 7.8] },
+    lux: { optimal: [3000, 20000], caution: [1000, 40000] },
+  },
+};
+
 const starterPlantProfileIds = ["tomato", "cucumber", "basil", "pepper", "chili", "lettuce", "strawberry"];
 
 function todayDateInputValue(): string {
@@ -220,6 +236,11 @@ function daysSinceDate(value: string | null | undefined): number | null {
   return Math.max(0, Math.floor((todayAtNoon.getTime() - date.getTime()) / 86_400_000));
 }
 
+function plantAgeDay(value: string | null | undefined): number | null {
+  const daysSince = daysSinceDate(value);
+  return daysSince === null ? null : daysSince + 1;
+}
+
 function maturityEstimateDays(profileId: string): number {
   if (profileId === "pepper" || profileId === "chili") return 110;
   if (profileId === "tomato") return 90;
@@ -230,32 +251,49 @@ function maturityEstimateDays(profileId: string): number {
   return 75;
 }
 
+function moveReadyEstimateDays(profileId: string): number {
+  if (profileId === "pepper" || profileId === "chili") return 56;
+  if (profileId === "tomato") return 49;
+  if (profileId === "cucumber" || profileId === "squash" || profileId === "melon") return 28;
+  if (profileId === "basil") return 35;
+  if (profileId === "lettuce") return 21;
+  if (profileId === "strawberry") return 42;
+  return 35;
+}
+
 function plantTimelineSummary(plant: GreenhousePlant, profile: PlantProfile, status: ReturnType<typeof plantStatus>, language: AppLanguage) {
-  const ageDays = daysSinceDate(plant.sowedAt);
-  const estimate = maturityEstimateDays(profile.id);
-  const progress = ageDays === null ? (plantLocation(plant) === "greenhouse" ? 34 : 12) : Math.min(100, Math.max(4, Math.round((ageDays / estimate) * 100)));
-  const remainingDays = ageDays === null ? null : Math.max(0, estimate - ageDays);
+  const ageDay = plantAgeDay(plant.sowedAt);
+  const location = plantLocation(plant);
+  const estimate = location === "greenhouse" ? maturityEstimateDays(profile.id) : moveReadyEstimateDays(profile.id);
+  const progress = ageDay === null ? (location === "greenhouse" ? 34 : 12) : Math.min(100, Math.max(4, Math.round((ageDay / estimate) * 100)));
+  const remainingDays = ageDay === null ? null : Math.max(0, estimate - ageDay);
   const phase =
-    ageDays === null
+    ageDay === null
       ? (language === "en" ? "Planned" : "Planlagt")
-      : ageDays < 14
+      : ageDay < 14
         ? (language === "en" ? "Germination" : "Spiring")
-        : ageDays < 35
+        : ageDay < 35
           ? (language === "en" ? "Establishing" : "Etablering")
           : progress < 82
             ? (language === "en" ? "Growth" : "Vekst")
             : (language === "en" ? "Ripening" : "Modning");
 
-  const sowedLabel = ageDays === null ? (language === "en" ? "Sowing date missing" : "Sådato mangler") : (language === "en" ? `Sown ${ageDays}d ago` : `Sådd for ${ageDays} d siden`);
-  const dayLabel = ageDays === null ? (language === "en" ? "Set date" : "Sett dato") : (language === "en" ? `Day ${ageDays + 1}` : `Dag ${ageDays + 1}`);
+  const sowedLabel = ageDay === null ? (language === "en" ? "Sowing date missing" : "Sådato mangler") : (language === "en" ? `Day ${ageDay} after sowing` : `Dag ${ageDay} etter såing`);
+  const dayLabel = ageDay === null ? (language === "en" ? "Set date" : "Sett dato") : (language === "en" ? `Day ${ageDay}` : `Dag ${ageDay}`);
   const harvestLabel = remainingDays === null
-    ? (language === "en" ? "Unknown harvest" : "Ukjent innhøsting")
+    ? (location === "greenhouse"
+      ? (language === "en" ? "Unknown harvest" : "Ukjent innhøsting")
+      : (language === "en" ? "Unknown move date" : "Ukjent flyttedato"))
     : remainingDays === 0
-      ? (language === "en" ? "Ready soon" : "Klar snart")
+      ? (location === "greenhouse"
+        ? (language === "en" ? "Ready soon" : "Klar snart")
+        : (language === "en" ? "Ready to move" : "Klar for flytting"))
       : (language === "en" ? `about ${remainingDays}d left` : `ca. ${remainingDays} d igjen`);
   const nextAction =
-    plantLocation(plant) === "outside"
-      ? (language === "en" ? "Next: follow roots and light before moving" : "Neste: følg rot og lys før flytting")
+    location === "outside"
+      ? (remainingDays === 0
+        ? (language === "en" ? "Next: ready to move when weather allows" : "Neste: klar for flytting når været passer")
+        : (language === "en" ? "Next: follow roots and light before moving" : "Neste: følg rot og lys før flytting"))
       : status.level === "good"
         ? (language === "en" ? "Next: keep a steady rhythm" : "Neste: hold jevn rytme")
         : status.note;
@@ -274,10 +312,11 @@ const fallbackProfileTextEn: Record<string, { name: string; family: string }> = 
   pepper: { name: "Sweet pepper", family: "Warm-loving" },
   lettuce: { name: "Lettuce", family: "Cool start" },
   strawberry: { name: "Strawberry", family: "Berries" },
+  unknown: { name: "Custom plant", family: "Plant" },
 };
 
 function profileById(profileId: string, language: AppLanguage): PlantProfile {
-  const profile = fallbackPlantProfiles.find((item) => item.id === profileId) ?? fallbackPlantProfiles[0];
+  const profile = fallbackPlantProfiles.find((item) => item.id === profileId) ?? unknownPlantProfile;
   if (language !== "en") {
     return profile;
   }
@@ -353,18 +392,22 @@ function plantStatus(plant: GreenhousePlant, profile: PlantProfile, language: Ap
   };
 }
 
+function hasRenderablePlant(plant: GreenhousePlant): boolean {
+  const instanceId = plant.instanceId || plant.plant_id || "";
+  const name = plant.nickname || plant.display_name || "";
+  return Boolean(instanceId.trim() && name.trim());
+}
+
 function normalizePlant(plant: GreenhousePlant): GreenhousePlant {
   const nickname = String(plant.nickname || plant.display_name || "").toLowerCase();
-  const profileId = plant.profileId || plant.profile_id || "tomato";
-  if (nickname.includes("chili") && profileId === "tomato") {
-    return { ...plant, profileId: "chili", catalogItemId: plant.catalogItemId || "chili", location: plant.location ?? "greenhouse" };
-  }
+  const profileId = plant.profileId || plant.profile_id || "unknown";
+  const normalizedProfileId = nickname.includes("chili") && profileId === "tomato" ? "chili" : profileId;
   return {
     ...plant,
-    instanceId: plant.instanceId || plant.plant_id || `${profileId}-${Date.now()}`,
-    profileId,
-    catalogItemId: plant.catalogItemId || plant.catalog_item_id || profileId,
-    nickname: plant.nickname || plant.display_name || profileId,
+    instanceId: plant.instanceId || plant.plant_id || `${normalizedProfileId}-${Date.now()}`,
+    profileId: normalizedProfileId,
+    catalogItemId: plant.catalogItemId || plant.catalog_item_id || normalizedProfileId,
+    nickname: plant.nickname || plant.display_name || (normalizedProfileId === "unknown" ? "Egen plante" : normalizedProfileId),
     location: plant.location ?? plant.location_label ?? "greenhouse",
     sowedAt: plant.sowedAt ?? plant.sowed_at ?? null,
     movedToGreenhouseAt: plant.movedToGreenhouseAt ?? plant.moved_to_greenhouse_at ?? null,
@@ -412,7 +455,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
       if (cancelled) {
         return;
       }
-      setPlants(items.map(normalizePlant));
+      setPlants(items.filter(hasRenderablePlant).map(normalizePlant));
       setPlantsLoading(false);
     });
     return () => {
@@ -673,19 +716,12 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                     <span className={`plant-status-pill plant-status-pill--${status.level}`}>{status.title}</span>
                   </div>
                   <p className="plant-card-next">{timeline.nextAction}</p>
-                  {plantLocation(plant) === "greenhouse" ? (
-                    <div className="plant-mini-metrics">
-                      <span>{timeline.dayLabel}</span>
-                      <span>{timeline.phase}</span>
-                      <span>{timeline.harvestLabel}</span>
-                      <span>{plant.hasSevenInOne ? "7-i-1" : "I drivhus"}</span>
-                    </div>
-                  ) : (
-                    <div className="plant-mini-metrics plant-mini-metrics--nursery">
-                      <span>Utenfor drivhus</span>
-                      <span>{catalogItem?.seed_guide?.sow ?? formatSowedAt(plant.sowedAt, language)}</span>
-                    </div>
-                  )}
+                  <div className={`plant-mini-metrics${plantLocation(plant) === "greenhouse" ? "" : " plant-mini-metrics--nursery"}`}>
+                    <span>{timeline.dayLabel}</span>
+                    <span>{timeline.phase}</span>
+                    <span>{timeline.harvestLabel}</span>
+                    <span>{plantLocation(plant) === "greenhouse" ? (plant.hasSevenInOne ? "7-i-1" : "I drivhus") : "Før flytting"}</span>
+                  </div>
                 </button>
               );
           }) : (
@@ -1036,6 +1072,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
             <label className="field">
               <span>Sådd / plantet</span>
               <input type="date" value={newSowedAt} onChange={(event) => setNewSowedAt(event.target.value)} />
+              <small>Velg faktisk sådato, også hvis den ligger tilbake i tid. Dag 1 regnes fra denne datoen.</small>
             </label>
 
             <div className="plant-choice-group">

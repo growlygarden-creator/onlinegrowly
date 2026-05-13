@@ -162,6 +162,21 @@ const dashboardPlantProfiles: Record<
   },
 };
 
+const fallbackDashboardPlantProfile = {
+  name: "Egen plante",
+  tone: "leafy" as const,
+  maturityDays: 75,
+  ranges: {
+    temperature: { optimal: [16, 24], caution: [8, 30] },
+    humidity: { optimal: [45, 75], caution: [30, 90] },
+    lux: { optimal: [3000, 20000], caution: [1000, 40000] },
+  },
+};
+
+function dashboardProfile(profileId: string) {
+  return dashboardPlantProfiles[profileId] ?? fallbackDashboardPlantProfile;
+}
+
 const trendMetricConfigs: TrendMetricConfig[] = [
   {
     key: "air_temperature",
@@ -651,7 +666,7 @@ function formatShortDate(date: Date, language: AppLanguage): string {
 }
 
 function plantProgress(profileId: string, index: number, sample: LatestSample | null, sowedAt?: string): number {
-  const profile = dashboardPlantProfiles[profileId] ?? dashboardPlantProfiles.tomato;
+  const profile = dashboardProfile(profileId);
   const sowedDate = dateFromInput(sowedAt);
   if (sowedDate) {
     return Math.max(4, Math.min(100, Math.round((daysBetween(sowedDate) / profile.maturityDays) * 100)));
@@ -671,7 +686,7 @@ function plantStage(profileId: string, progress: number): string {
 }
 
 function plantTimeline(profileId: string, progress: number, sowedAt: string | undefined, index: number, language: AppLanguage) {
-  const profile = dashboardPlantProfiles[profileId] ?? dashboardPlantProfiles.tomato;
+  const profile = dashboardProfile(profileId);
   const fallbackSowedDate = addDays(new Date(), -Math.round((progress / 100) * profile.maturityDays) - index * 2);
   const sowedDate = dateFromInput(sowedAt) ?? fallbackSowedDate;
   const daysSince = daysBetween(sowedDate);
@@ -1115,16 +1130,22 @@ function formatUpdatedAt(value: string | null | undefined, language: AppLanguage
 
 function normalizeDashboardPlants(plants: GrowlyPlant[]): DashboardPlant[] {
   return plants
-    .filter((plant) => plant?.profileId && plant?.nickname)
-    .map((plant) => ({
-      instanceId: plant.instanceId,
-      profileId: plant.profileId,
-      catalogItemId: plant.catalogItemId,
-      nickname: plant.nickname,
-      sowedAt: plant.sowedAt,
-      location: plant.location,
-      hasSevenInOne: plant.hasSevenInOne,
-    }));
+    .map((plant) => {
+      const instanceId = plant.instanceId || plant.plant_id || "";
+      const profileId = plant.profileId || plant.profile_id || "unknown";
+      const catalogItemId = plant.catalogItemId || plant.catalog_item_id || profileId;
+      const nickname = plant.nickname || plant.display_name || "";
+      return {
+        instanceId,
+        profileId,
+        catalogItemId,
+        nickname,
+        sowedAt: plant.sowedAt ?? plant.sowed_at ?? null,
+        location: plant.location ?? plant.location_label ?? "greenhouse",
+        hasSevenInOne: Boolean(plant.hasSevenInOne ?? plant.has_seven_in_one),
+      };
+    })
+    .filter((plant) => plant.instanceId.trim() && plant.nickname.trim());
 }
 
 function climateValue(sample: LatestSample | null, metric: ClimateReportMetric): number | null | undefined {
@@ -1557,7 +1578,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
         </div>
         <div className="growth-list">
           {dashboardPlants.length ? dashboardPlants.slice(0, 4).map((plant, index) => {
-            const profile = dashboardPlantProfiles[plant.profileId] ?? dashboardPlantProfiles.tomato;
+            const profile = dashboardProfile(plant.profileId);
             const sowedAt = plant.sowedAt ?? undefined;
             const progress = plantProgress(plant.profileId, index, activeSample, sowedAt);
             const timeline = plantTimeline(plant.profileId, progress, sowedAt, index, language);
@@ -1677,7 +1698,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
 
             <div className="climate-report-list">
               {dashboardPlants.map((plant) => {
-                const profile = dashboardPlantProfiles[plant.profileId] ?? dashboardPlantProfiles.tomato;
+                const profile = dashboardProfile(plant.profileId);
                 const range = profile.ranges[reportMetric];
                 const score = scoreClimate(activeReportValue, range);
                 return (

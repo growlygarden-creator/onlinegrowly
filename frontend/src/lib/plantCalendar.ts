@@ -227,7 +227,7 @@ function profileSpecificSteps(profileId: string, name: string, language: AppLang
 
 export function listPlantCalendarEntries(hubId = ""): PlantCalendarEntry[] {
   return parseJsonArray<PlantCalendarEntry>(PLANT_CALENDAR_STORAGE_KEY)
-    .filter((entry) => !hubId || entry.hubId === hubId)
+    .filter((entry) => (entry.hubId || "") === hubId)
     .sort((first, second) => first.date.localeCompare(second.date));
 }
 
