@@ -127,6 +127,8 @@ SUPABASE_CORE_TABLES = (
     "growly_hubs",
     "growly_hub_members",
     "growly_pairing_tokens",
+    "growly_seed_entries",
+    "growly_seed_activities",
 )
 
 
@@ -1719,6 +1721,146 @@ def init_db() -> None:
             ON growly_plants(remote_plant_id)
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS growly_seed_entries (
+                seed_id TEXT PRIMARY KEY,
+                remote_seed_id TEXT,
+                hub_id TEXT NOT NULL,
+                owner_username TEXT NOT NULL,
+                code TEXT NOT NULL,
+                name TEXT NOT NULL,
+                variety TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'annet',
+                origin TEXT NOT NULL DEFAULT 'egne',
+                year_label TEXT NOT NULL DEFAULT '',
+                harvest_date TEXT,
+                source TEXT NOT NULL DEFAULT '',
+                stock TEXT NOT NULL DEFAULT 'ukjent',
+                germination TEXT NOT NULL DEFAULT 'ukjent',
+                location TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                deleted_at TEXT,
+                sync_status TEXT NOT NULL DEFAULT 'pending',
+                sync_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(hub_id) REFERENCES hubs(hub_id),
+                FOREIGN KEY(owner_username) REFERENCES app_users(username)
+            )
+            """
+        )
+        seed_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(growly_seed_entries)").fetchall()
+        }
+        seed_column_defaults = {
+            "remote_seed_id": "TEXT",
+            "variety": "TEXT NOT NULL DEFAULT ''",
+            "category": "TEXT NOT NULL DEFAULT 'annet'",
+            "origin": "TEXT NOT NULL DEFAULT 'egne'",
+            "year_label": "TEXT NOT NULL DEFAULT ''",
+            "harvest_date": "TEXT",
+            "source": "TEXT NOT NULL DEFAULT ''",
+            "stock": "TEXT NOT NULL DEFAULT 'ukjent'",
+            "germination": "TEXT NOT NULL DEFAULT 'ukjent'",
+            "location": "TEXT NOT NULL DEFAULT ''",
+            "notes": "TEXT NOT NULL DEFAULT ''",
+            "deleted_at": "TEXT",
+            "sync_status": "TEXT NOT NULL DEFAULT 'pending'",
+            "sync_error": "TEXT NOT NULL DEFAULT ''",
+            "created_at": "TEXT NOT NULL DEFAULT ''",
+            "updated_at": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column_name, column_definition in seed_column_defaults.items():
+            if column_name not in seed_columns:
+                connection.execute(f"ALTER TABLE growly_seed_entries ADD COLUMN {column_name} {column_definition}")
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_growly_seed_entries_owner_hub
+            ON growly_seed_entries(owner_username, hub_id, deleted_at, code)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_growly_seed_entries_remote
+            ON growly_seed_entries(remote_seed_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS growly_seed_activities (
+                activity_id TEXT PRIMARY KEY,
+                remote_activity_id TEXT,
+                seed_id TEXT NOT NULL,
+                remote_seed_id TEXT,
+                hub_id TEXT NOT NULL,
+                owner_username TEXT NOT NULL,
+                seed_code TEXT NOT NULL,
+                seed_name TEXT NOT NULL,
+                activity_type TEXT NOT NULL DEFAULT 'sadd',
+                activity_date TEXT NOT NULL,
+                quantity TEXT NOT NULL DEFAULT '',
+                placement TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'planlagt',
+                rootstock TEXT NOT NULL DEFAULT '',
+                scion TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                deleted_at TEXT,
+                sync_status TEXT NOT NULL DEFAULT 'pending',
+                sync_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(seed_id) REFERENCES growly_seed_entries(seed_id),
+                FOREIGN KEY(hub_id) REFERENCES hubs(hub_id),
+                FOREIGN KEY(owner_username) REFERENCES app_users(username)
+            )
+            """
+        )
+        seed_activity_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(growly_seed_activities)").fetchall()
+        }
+        seed_activity_column_defaults = {
+            "remote_activity_id": "TEXT",
+            "remote_seed_id": "TEXT",
+            "seed_code": "TEXT NOT NULL DEFAULT ''",
+            "seed_name": "TEXT NOT NULL DEFAULT ''",
+            "activity_type": "TEXT NOT NULL DEFAULT 'sadd'",
+            "activity_date": "TEXT NOT NULL DEFAULT ''",
+            "quantity": "TEXT NOT NULL DEFAULT ''",
+            "placement": "TEXT NOT NULL DEFAULT ''",
+            "status": "TEXT NOT NULL DEFAULT 'planlagt'",
+            "rootstock": "TEXT NOT NULL DEFAULT ''",
+            "scion": "TEXT NOT NULL DEFAULT ''",
+            "notes": "TEXT NOT NULL DEFAULT ''",
+            "deleted_at": "TEXT",
+            "sync_status": "TEXT NOT NULL DEFAULT 'pending'",
+            "sync_error": "TEXT NOT NULL DEFAULT ''",
+            "created_at": "TEXT NOT NULL DEFAULT ''",
+            "updated_at": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column_name, column_definition in seed_activity_column_defaults.items():
+            if column_name not in seed_activity_columns:
+                connection.execute(f"ALTER TABLE growly_seed_activities ADD COLUMN {column_name} {column_definition}")
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_growly_seed_activities_owner_hub
+            ON growly_seed_activities(owner_username, hub_id, deleted_at, activity_date)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_growly_seed_activities_seed
+            ON growly_seed_activities(seed_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_growly_seed_activities_remote
+            ON growly_seed_activities(remote_activity_id)
+            """
+        )
         pairing_columns = {
             row["name"]
             for row in connection.execute("PRAGMA table_info(pairing_tokens)").fetchall()
@@ -2793,6 +2935,20 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
             )
             connection.execute(
                 """
+                DELETE FROM growly_seed_activities
+                WHERE hub_id = ?
+                """,
+                (target_hub_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM growly_seed_entries
+                WHERE hub_id = ?
+                """,
+                (target_hub_id,),
+            )
+            connection.execute(
+                """
                 DELETE FROM pairing_tokens
                 WHERE paired_hub_id = ?
                 """,
@@ -2830,6 +2986,28 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
         )
         connection.execute(
             """
+            UPDATE growly_seed_entries
+            SET owner_username = ?,
+                sync_status = 'pending',
+                sync_error = '',
+                updated_at = ?
+            WHERE hub_id = ?
+            """,
+            (clean_username, now, clean_hub_id),
+        )
+        connection.execute(
+            """
+            UPDATE growly_seed_activities
+            SET owner_username = ?,
+                sync_status = 'pending',
+                sync_error = '',
+                updated_at = ?
+            WHERE hub_id = ?
+            """,
+            (clean_username, now, clean_hub_id),
+        )
+        connection.execute(
+            """
             DELETE FROM hub_members
             WHERE hub_id = ?
               AND role = 'owner'
@@ -2843,9 +3021,11 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
     for deleted_hub_id in deleted_hub_ids:
         best_effort_delete_supabase_sensor_samples(deleted_hub_id)
         best_effort_delete_supabase_plants_for_hub(deleted_hub_id)
+        best_effort_delete_supabase_seeds_for_hub(deleted_hub_id)
         best_effort_delete_supabase_hub(deleted_hub_id)
     hub = find_hub(clean_hub_id) or {}
     best_effort_sync_user_plants(clean_username, clean_hub_id)
+    best_effort_sync_user_seeds(clean_username, clean_hub_id)
     best_effort_sync_core_to_supabase("hub transfer")
     return hub
 
@@ -2867,6 +3047,20 @@ def delete_hub(hub_id: str) -> None:
         connection.execute(
             """
             DELETE FROM growly_plants
+            WHERE hub_id = ?
+            """,
+            (clean_hub_id,),
+        )
+        connection.execute(
+            """
+            DELETE FROM growly_seed_activities
+            WHERE hub_id = ?
+            """,
+            (clean_hub_id,),
+        )
+        connection.execute(
+            """
+            DELETE FROM growly_seed_entries
             WHERE hub_id = ?
             """,
             (clean_hub_id,),
@@ -2897,6 +3091,7 @@ def delete_hub(hub_id: str) -> None:
     best_effort_delete_supabase_hub(clean_hub_id)
     best_effort_delete_supabase_sensor_samples(clean_hub_id)
     best_effort_delete_supabase_plants_for_hub(clean_hub_id)
+    best_effort_delete_supabase_seeds_for_hub(clean_hub_id)
     best_effort_sync_core_to_supabase("hub delete")
 
 
@@ -3520,6 +3715,20 @@ def delete_app_user(username: str, acting_username: str) -> None:
             )
             connection.execute(
                 """
+                DELETE FROM growly_seed_activities
+                WHERE hub_id = ?
+                """,
+                (hub_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM growly_seed_entries
+                WHERE hub_id = ?
+                """,
+                (hub_id,),
+            )
+            connection.execute(
+                """
                 DELETE FROM hub_members
                 WHERE hub_id = ?
                 """,
@@ -3543,6 +3752,20 @@ def delete_app_user(username: str, acting_username: str) -> None:
         connection.execute(
             """
             DELETE FROM growly_plants
+            WHERE owner_username = ?
+            """,
+            (username,),
+        )
+        connection.execute(
+            """
+            DELETE FROM growly_seed_activities
+            WHERE owner_username = ?
+            """,
+            (username,),
+        )
+        connection.execute(
+            """
+            DELETE FROM growly_seed_entries
             WHERE owner_username = ?
             """,
             (username,),
@@ -3581,8 +3804,10 @@ def delete_app_user(username: str, acting_username: str) -> None:
         if hub_id:
             best_effort_delete_supabase_sensor_samples(hub_id)
             best_effort_delete_supabase_plants_for_hub(hub_id)
+            best_effort_delete_supabase_seeds_for_hub(hub_id)
             best_effort_delete_supabase_hub(hub_id)
     best_effort_delete_supabase_plants_for_user(username)
+    best_effort_delete_supabase_seeds_for_user(username)
     best_effort_delete_supabase_user(username)
     best_effort_sync_core_to_supabase("user delete")
 
@@ -4781,6 +5006,26 @@ def best_effort_delete_supabase_plants_for_user(username: str) -> None:
         print(f"Supabase plant delete skipped for user {username}: {exc}")
 
 
+def best_effort_delete_supabase_seeds_for_hub(hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    try:
+        supabase_delete_rows("growly_seed_activities", {"hub_id": f"eq.{hub_id}"})
+        supabase_delete_rows("growly_seed_entries", {"hub_id": f"eq.{hub_id}"})
+    except Exception as exc:
+        print(f"Supabase seed delete skipped for hub {hub_id}: {exc}")
+
+
+def best_effort_delete_supabase_seeds_for_user(username: str) -> None:
+    if not supabase_enabled():
+        return
+    try:
+        supabase_delete_rows("growly_seed_activities", {"owner_username": f"eq.{username}"})
+        supabase_delete_rows("growly_seed_entries", {"owner_username": f"eq.{username}"})
+    except Exception as exc:
+        print(f"Supabase seed delete skipped for user {username}: {exc}")
+
+
 def plant_row_payload(row: dict[str, Any]) -> dict[str, Any]:
     remote_plant_id = row.get("remote_plant_id") if "remote_plant_id" in row else row.get("remotePlantId") or row.get("plant_id")
     sync_status = str(row.get("sync_status") or "synced").strip() or "synced"
@@ -5275,6 +5520,946 @@ def update_user_plant(username: str, hub_id: str, plant_id: str, payload: dict[s
     if not updated:
         raise ValueError("plant_not_found")
     return plant_row_payload(updated)
+
+
+SEED_CATEGORIES = {"gronnsak", "urt", "blomst", "frukt", "bar", "annet"}
+SEED_ORIGINS = {"kjopt", "egne", "fatt", "byttet"}
+SEED_STOCKS = {"mye", "lite", "tom", "ukjent"}
+SEED_GERMINATIONS = {"ukjent", "god", "middels", "darlig", "test"}
+SEED_ACTIVITY_TYPES = {"sadd", "podet", "spiretest"}
+SEED_ACTIVITY_STATUSES = {"planlagt", "ikke_spirt", "spirt", "plantet_ut", "mislykket", "hostet", "vellykket"}
+
+
+def normalize_choice(value: Any, allowed: set[str], fallback: str) -> str:
+    text = str(value or "").strip()
+    return text if text in allowed else fallback
+
+
+def generate_local_seed_id() -> str:
+    return f"local_seed_{secrets.token_urlsafe(14)}"
+
+
+def generate_local_seed_activity_id() -> str:
+    return f"local_seed_activity_{secrets.token_urlsafe(14)}"
+
+
+def next_user_seed_code(connection: sqlite3.Connection, username: str, hub_id: str) -> str:
+    rows = connection.execute(
+        """
+        SELECT code
+        FROM growly_seed_entries
+        WHERE owner_username = ?
+          AND hub_id = ?
+        """,
+        (username, hub_id),
+    ).fetchall()
+    highest = 0
+    for row in rows:
+        digits = "".join(character for character in str(row["code"] or "") if character.isdigit())
+        if digits:
+            highest = max(highest, int(digits))
+    return f"F-{highest + 1:03d}"
+
+
+def seed_entry_payload(row: dict[str, Any]) -> dict[str, Any]:
+    remote_seed_id = row.get("remote_seed_id") if "remote_seed_id" in row else row.get("seed_id")
+    sync_status = str(row.get("sync_status") or "synced").strip() or "synced"
+    year_label = row.get("year_label") if "year_label" in row else row.get("year")
+    harvest_date = row.get("harvest_date") if "harvest_date" in row else row.get("harvestDate")
+    return {
+        "id": row.get("seed_id"),
+        "seed_id": row.get("seed_id"),
+        "remote_seed_id": remote_seed_id,
+        "remoteSeedId": remote_seed_id,
+        "hub_id": row.get("hub_id"),
+        "owner_username": row.get("owner_username"),
+        "code": row.get("code") or "",
+        "name": row.get("name") or "",
+        "variety": row.get("variety") or "",
+        "category": normalize_choice(row.get("category"), SEED_CATEGORIES, "annet"),
+        "origin": normalize_choice(row.get("origin"), SEED_ORIGINS, "egne"),
+        "year": year_label or "",
+        "year_label": year_label or "",
+        "harvestDate": harvest_date,
+        "harvest_date": harvest_date,
+        "source": row.get("source") or "",
+        "stock": normalize_choice(row.get("stock"), SEED_STOCKS, "ukjent"),
+        "germination": normalize_choice(row.get("germination"), SEED_GERMINATIONS, "ukjent"),
+        "location": row.get("location") or "",
+        "notes": row.get("notes") or "",
+        "deletedAt": row.get("deleted_at"),
+        "deleted_at": row.get("deleted_at"),
+        "syncStatus": sync_status,
+        "sync_status": sync_status,
+        "syncError": row.get("sync_error") or "",
+        "sync_error": row.get("sync_error") or "",
+        "createdAt": row.get("created_at"),
+        "created_at": row.get("created_at"),
+        "updatedAt": row.get("updated_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def seed_activity_payload(row: dict[str, Any]) -> dict[str, Any]:
+    remote_activity_id = row.get("remote_activity_id") if "remote_activity_id" in row else row.get("activity_id")
+    remote_seed_id = row.get("remote_seed_id") if "remote_seed_id" in row else row.get("seed_id")
+    sync_status = str(row.get("sync_status") or "synced").strip() or "synced"
+    activity_type = row.get("activity_type") if "activity_type" in row else row.get("type")
+    activity_date = row.get("activity_date") if "activity_date" in row else row.get("date")
+    return {
+        "id": row.get("activity_id"),
+        "activity_id": row.get("activity_id"),
+        "remote_activity_id": remote_activity_id,
+        "remoteActivityId": remote_activity_id,
+        "seedId": row.get("seed_id"),
+        "seed_id": row.get("seed_id"),
+        "remote_seed_id": remote_seed_id,
+        "remoteSeedId": remote_seed_id,
+        "hub_id": row.get("hub_id"),
+        "owner_username": row.get("owner_username"),
+        "seedCode": row.get("seed_code") or "",
+        "seed_code": row.get("seed_code") or "",
+        "seedName": row.get("seed_name") or "",
+        "seed_name": row.get("seed_name") or "",
+        "type": normalize_choice(activity_type, SEED_ACTIVITY_TYPES, "sadd"),
+        "activity_type": normalize_choice(activity_type, SEED_ACTIVITY_TYPES, "sadd"),
+        "date": activity_date or "",
+        "activity_date": activity_date or "",
+        "quantity": row.get("quantity") or "",
+        "placement": row.get("placement") or "",
+        "status": normalize_choice(row.get("status"), SEED_ACTIVITY_STATUSES, "planlagt"),
+        "rootstock": row.get("rootstock") or "",
+        "scion": row.get("scion") or "",
+        "notes": row.get("notes") or "",
+        "deletedAt": row.get("deleted_at"),
+        "deleted_at": row.get("deleted_at"),
+        "syncStatus": sync_status,
+        "sync_status": sync_status,
+        "syncError": row.get("sync_error") or "",
+        "sync_error": row.get("sync_error") or "",
+        "createdAt": row.get("created_at"),
+        "created_at": row.get("created_at"),
+        "updatedAt": row.get("updated_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def local_seed_entry_by_id(username: str, hub_id: str, seed_id: str) -> dict[str, Any] | None:
+    with db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT seed_id, remote_seed_id, hub_id, owner_username, code, name, variety, category,
+                   origin, year_label, harvest_date, source, stock, germination, location,
+                   notes, deleted_at, sync_status, sync_error, created_at, updated_at
+            FROM growly_seed_entries
+            WHERE owner_username = ?
+              AND hub_id = ?
+              AND (seed_id = ? OR remote_seed_id = ?)
+            LIMIT 1
+            """,
+            (username, hub_id, seed_id, seed_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_local_seed_entries(username: str, hub_id: str, include_deleted: bool = False) -> list[dict[str, Any]]:
+    delete_clause = "" if include_deleted else "AND deleted_at IS NULL"
+    with db_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT seed_id, remote_seed_id, hub_id, owner_username, code, name, variety, category,
+                   origin, year_label, harvest_date, source, stock, germination, location,
+                   notes, deleted_at, sync_status, sync_error, created_at, updated_at
+            FROM growly_seed_entries
+            WHERE owner_username = ?
+              AND hub_id = ?
+              {delete_clause}
+            ORDER BY code ASC, name COLLATE NOCASE ASC
+            """,
+            (username, hub_id),
+        ).fetchall()
+    return [seed_entry_payload(dict(row)) for row in rows]
+
+
+def list_local_seed_activities(username: str, hub_id: str, include_deleted: bool = False) -> list[dict[str, Any]]:
+    delete_clause = "" if include_deleted else "AND deleted_at IS NULL"
+    with db_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT activity_id, remote_activity_id, seed_id, remote_seed_id, hub_id, owner_username,
+                   seed_code, seed_name, activity_type, activity_date, quantity, placement, status,
+                   rootstock, scion, notes, deleted_at, sync_status, sync_error, created_at, updated_at
+            FROM growly_seed_activities
+            WHERE owner_username = ?
+              AND hub_id = ?
+              {delete_clause}
+            ORDER BY activity_date DESC, created_at DESC
+            """,
+            (username, hub_id),
+        ).fetchall()
+    return [seed_activity_payload(dict(row)) for row in rows]
+
+
+def seed_mutation_row(username: str, hub_id: str, payload: dict[str, Any], existing_code: str = "") -> dict[str, Any]:
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise ValueError("missing_seed_name")
+    return {
+        "hub_id": hub_id,
+        "owner_username": username,
+        "code": str(payload.get("code") or existing_code or "").strip(),
+        "name": name,
+        "variety": str(payload.get("variety") or "").strip(),
+        "category": normalize_choice(payload.get("category"), SEED_CATEGORIES, "annet"),
+        "origin": normalize_choice(payload.get("origin"), SEED_ORIGINS, "egne"),
+        "year_label": str(payload.get("year_label") or payload.get("year") or "").strip(),
+        "harvest_date": iso_or_none(payload.get("harvest_date") or payload.get("harvestDate")),
+        "source": str(payload.get("source") or "").strip(),
+        "stock": normalize_choice(payload.get("stock"), SEED_STOCKS, "ukjent"),
+        "germination": normalize_choice(payload.get("germination"), SEED_GERMINATIONS, "ukjent"),
+        "location": str(payload.get("location") or "").strip(),
+        "notes": str(payload.get("notes") or "").strip(),
+    }
+
+
+def create_user_seed_entry(username: str, hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    now = utc_now_iso()
+    seed_id = generate_local_seed_id()
+    with db_connection() as connection:
+        row = seed_mutation_row(username, hub_id, payload)
+        if not row["code"]:
+            row["code"] = next_user_seed_code(connection, username, hub_id)
+        connection.execute(
+            """
+            INSERT INTO growly_seed_entries (
+                seed_id, remote_seed_id, hub_id, owner_username, code, name, variety, category,
+                origin, year_label, harvest_date, source, stock, germination, location, notes,
+                deleted_at, sync_status, sync_error, created_at, updated_at
+            )
+            VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', '', ?, ?)
+            """,
+            (
+                seed_id,
+                row["hub_id"],
+                row["owner_username"],
+                row["code"],
+                row["name"],
+                row["variety"],
+                row["category"],
+                row["origin"],
+                row["year_label"],
+                row["harvest_date"],
+                row["source"],
+                row["stock"],
+                row["germination"],
+                row["location"],
+                row["notes"],
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+    created = local_seed_entry_by_id(username, hub_id, seed_id)
+    if not created:
+        raise ValueError("seed_create_failed")
+    return seed_entry_payload(created)
+
+
+def update_user_seed_entry(username: str, hub_id: str, seed_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    existing = local_seed_entry_by_id(username, hub_id, seed_id)
+    if not existing or existing.get("deleted_at"):
+        raise ValueError("seed_not_found")
+    row = seed_mutation_row(username, hub_id, payload, existing_code=str(existing.get("code") or ""))
+    now = utc_now_iso()
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE growly_seed_entries
+            SET code = ?,
+                name = ?,
+                variety = ?,
+                category = ?,
+                origin = ?,
+                year_label = ?,
+                harvest_date = ?,
+                source = ?,
+                stock = ?,
+                germination = ?,
+                location = ?,
+                notes = ?,
+                sync_status = 'pending',
+                sync_error = '',
+                updated_at = ?
+            WHERE seed_id = ?
+            """,
+            (
+                row["code"],
+                row["name"],
+                row["variety"],
+                row["category"],
+                row["origin"],
+                row["year_label"],
+                row["harvest_date"],
+                row["source"],
+                row["stock"],
+                row["germination"],
+                row["location"],
+                row["notes"],
+                now,
+                str(existing["seed_id"]),
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE growly_seed_activities
+            SET seed_code = ?,
+                seed_name = ?,
+                sync_status = 'pending',
+                sync_error = '',
+                updated_at = ?
+            WHERE seed_id = ?
+              AND deleted_at IS NULL
+            """,
+            (row["code"], row["name"] if not row["variety"] else f"{row['name']}, {row['variety']}", now, str(existing["seed_id"])),
+        )
+        connection.commit()
+    updated = local_seed_entry_by_id(username, hub_id, str(existing["seed_id"]))
+    if not updated:
+        raise ValueError("seed_not_found")
+    return seed_entry_payload(updated)
+
+
+def delete_user_seed_entry(username: str, hub_id: str, seed_id: str) -> dict[str, Any]:
+    existing = local_seed_entry_by_id(username, hub_id, seed_id)
+    if not existing or existing.get("deleted_at"):
+        raise ValueError("seed_not_found")
+    now = utc_now_iso()
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE growly_seed_entries
+            SET deleted_at = ?,
+                sync_status = 'pending',
+                sync_error = '',
+                updated_at = ?
+            WHERE seed_id = ?
+            """,
+            (now, now, str(existing["seed_id"])),
+        )
+        connection.execute(
+            """
+            UPDATE growly_seed_activities
+            SET deleted_at = ?,
+                sync_status = 'pending',
+                sync_error = '',
+                updated_at = ?
+            WHERE seed_id = ?
+              AND deleted_at IS NULL
+            """,
+            (now, now, str(existing["seed_id"])),
+        )
+        connection.commit()
+    deleted = local_seed_entry_by_id(username, hub_id, str(existing["seed_id"]))
+    if not deleted:
+        raise ValueError("seed_not_found")
+    return seed_entry_payload(deleted)
+
+
+def create_user_seed_activity(username: str, hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    seed_id = str(payload.get("seed_id") or payload.get("seedId") or "").strip()
+    seed = local_seed_entry_by_id(username, hub_id, seed_id)
+    if not seed or seed.get("deleted_at"):
+        raise ValueError("seed_not_found")
+    activity_date = iso_or_none(payload.get("activity_date") or payload.get("date"))
+    if not activity_date:
+        activity_date = datetime.now().date().isoformat()
+    seed_title = str(seed.get("name") or "")
+    if str(seed.get("variety") or ""):
+        seed_title = f"{seed_title}, {seed['variety']}"
+    now = utc_now_iso()
+    activity_id = generate_local_seed_activity_id()
+    with db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO growly_seed_activities (
+                activity_id, remote_activity_id, seed_id, remote_seed_id, hub_id, owner_username,
+                seed_code, seed_name, activity_type, activity_date, quantity, placement, status,
+                rootstock, scion, notes, deleted_at, sync_status, sync_error, created_at, updated_at
+            )
+            VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', '', ?, ?)
+            """,
+            (
+                activity_id,
+                str(seed["seed_id"]),
+                str(seed.get("remote_seed_id") or ""),
+                hub_id,
+                username,
+                str(seed.get("code") or ""),
+                seed_title,
+                normalize_choice(payload.get("activity_type") or payload.get("type"), SEED_ACTIVITY_TYPES, "sadd"),
+                activity_date,
+                str(payload.get("quantity") or "").strip(),
+                str(payload.get("placement") or "").strip(),
+                normalize_choice(payload.get("status"), SEED_ACTIVITY_STATUSES, "planlagt"),
+                str(payload.get("rootstock") or "").strip(),
+                str(payload.get("scion") or "").strip(),
+                str(payload.get("notes") or "").strip(),
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+    with db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT activity_id, remote_activity_id, seed_id, remote_seed_id, hub_id, owner_username,
+                   seed_code, seed_name, activity_type, activity_date, quantity, placement, status,
+                   rootstock, scion, notes, deleted_at, sync_status, sync_error, created_at, updated_at
+            FROM growly_seed_activities
+            WHERE activity_id = ?
+            """,
+            (activity_id,),
+        ).fetchone()
+    if not row:
+        raise ValueError("seed_activity_create_failed")
+    return seed_activity_payload(dict(row))
+
+
+def supabase_list_user_seed_entries(username: str, hub_id: str) -> list[dict[str, Any]]:
+    if not supabase_enabled():
+        return []
+    rows = supabase_fetch_table(
+        "growly_seed_entries",
+        {
+            "select": "*",
+            "owner_username": f"eq.{username}",
+            "hub_id": f"eq.{hub_id}",
+            "order": "code.asc",
+        },
+    )
+    return [seed_entry_payload(row) for row in rows]
+
+
+def supabase_list_user_seed_activities(username: str, hub_id: str) -> list[dict[str, Any]]:
+    if not supabase_enabled():
+        return []
+    rows = supabase_fetch_table(
+        "growly_seed_activities",
+        {
+            "select": "*",
+            "owner_username": f"eq.{username}",
+            "hub_id": f"eq.{hub_id}",
+            "order": "activity_date.desc",
+        },
+    )
+    return [seed_activity_payload(row) for row in rows]
+
+
+def remote_seed_entry_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "hub_id": row["hub_id"],
+        "owner_username": row["owner_username"],
+        "code": row.get("code") or "",
+        "name": row.get("name") or "",
+        "variety": row.get("variety") or "",
+        "category": normalize_choice(row.get("category"), SEED_CATEGORIES, "annet"),
+        "origin": normalize_choice(row.get("origin"), SEED_ORIGINS, "egne"),
+        "year_label": row.get("year_label") or row.get("year") or "",
+        "harvest_date": iso_or_none(row.get("harvest_date") or row.get("harvestDate")),
+        "source": row.get("source") or "",
+        "stock": normalize_choice(row.get("stock"), SEED_STOCKS, "ukjent"),
+        "germination": normalize_choice(row.get("germination"), SEED_GERMINATIONS, "ukjent"),
+        "location": row.get("location") or "",
+        "notes": row.get("notes") or "",
+        "deleted_at": iso_or_none(row.get("deleted_at")),
+        "updated_at": row.get("updated_at") or utc_now_iso(),
+    }
+
+
+def mark_local_seed_entry_sync_error(seed_id: str, error: str) -> None:
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE growly_seed_entries
+            SET sync_status = 'error',
+                sync_error = ?
+            WHERE seed_id = ?
+            """,
+            (error[:500], seed_id),
+        )
+        connection.commit()
+
+
+def mark_local_seed_entry_synced(seed_id: str, remote_row: dict[str, Any]) -> None:
+    remote_seed_id = str(remote_row.get("seed_id") or "").strip()
+    if not remote_seed_id:
+        return
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE growly_seed_entries
+            SET remote_seed_id = ?,
+                sync_status = 'synced',
+                sync_error = '',
+                updated_at = COALESCE(NULLIF(?, ''), updated_at)
+            WHERE seed_id = ?
+            """,
+            (remote_seed_id, str(remote_row.get("updated_at") or ""), seed_id),
+        )
+        connection.execute(
+            """
+            UPDATE growly_seed_activities
+            SET remote_seed_id = ?
+            WHERE seed_id = ?
+            """,
+            (remote_seed_id, seed_id),
+        )
+        connection.commit()
+
+
+def push_local_seed_entry_to_supabase(row: dict[str, Any]) -> None:
+    if not supabase_enabled():
+        mark_local_seed_entry_sync_error(str(row["seed_id"]), "supabase_not_configured")
+        return
+    remote_id = str(row.get("remote_seed_id") or "").strip()
+    payload = remote_seed_entry_payload(row)
+    if remote_id:
+        rows = supabase_request(
+            "growly_seed_entries",
+            method="PATCH",
+            params={
+                "seed_id": f"eq.{remote_id}",
+                "hub_id": f"eq.{row['hub_id']}",
+                "owner_username": f"eq.{row['owner_username']}",
+            },
+            payload=payload,
+            prefer="return=representation",
+        )
+        if isinstance(rows, list) and rows:
+            mark_local_seed_entry_synced(str(row["seed_id"]), rows[0])
+            return
+    inserted = supabase_request(
+        "growly_seed_entries",
+        method="POST",
+        payload=[payload],
+        prefer="return=representation",
+    )
+    if not isinstance(inserted, list) or not inserted:
+        raise ValueError("seed_sync_failed")
+    mark_local_seed_entry_synced(str(row["seed_id"]), inserted[0])
+
+
+def upsert_local_seed_entry_from_remote(username: str, hub_id: str, remote_row: dict[str, Any]) -> None:
+    remote_seed_id = str(remote_row.get("seed_id") or "").strip()
+    if not remote_seed_id:
+        return
+    payload = seed_entry_payload(remote_row)
+    now = utc_now_iso()
+    with db_connection() as connection:
+        existing = connection.execute(
+            """
+            SELECT seed_id, sync_status, updated_at
+            FROM growly_seed_entries
+            WHERE owner_username = ?
+              AND hub_id = ?
+              AND (remote_seed_id = ? OR seed_id = ?)
+            LIMIT 1
+            """,
+            (username, hub_id, remote_seed_id, remote_seed_id),
+        ).fetchone()
+        if existing and str(existing["sync_status"] or "") in {"pending", "error"}:
+            local_updated_at = str(existing["updated_at"] or "")
+            remote_updated_at = str(remote_row.get("updated_at") or "")
+            if not remote_updated_at or local_updated_at >= remote_updated_at:
+                return
+        values = (
+            remote_seed_id,
+            remote_seed_id,
+            hub_id,
+            username,
+            payload["code"],
+            payload["name"],
+            payload["variety"],
+            payload["category"],
+            payload["origin"],
+            payload["year_label"],
+            payload["harvest_date"],
+            payload["source"],
+            payload["stock"],
+            payload["germination"],
+            payload["location"],
+            payload["notes"],
+            payload["deleted_at"],
+            "synced",
+            "",
+            str(remote_row.get("created_at") or now),
+            str(remote_row.get("updated_at") or now),
+        )
+        if existing:
+            connection.execute(
+                """
+                UPDATE growly_seed_entries
+                SET remote_seed_id = ?,
+                    hub_id = ?,
+                    owner_username = ?,
+                    code = ?,
+                    name = ?,
+                    variety = ?,
+                    category = ?,
+                    origin = ?,
+                    year_label = ?,
+                    harvest_date = ?,
+                    source = ?,
+                    stock = ?,
+                    germination = ?,
+                    location = ?,
+                    notes = ?,
+                    deleted_at = ?,
+                    sync_status = ?,
+                    sync_error = ?,
+                    updated_at = ?
+                WHERE seed_id = ?
+                """,
+                (
+                    values[1],
+                    values[2],
+                    values[3],
+                    values[4],
+                    values[5],
+                    values[6],
+                    values[7],
+                    values[8],
+                    values[9],
+                    values[10],
+                    values[11],
+                    values[12],
+                    values[13],
+                    values[14],
+                    values[15],
+                    values[16],
+                    values[17],
+                    values[18],
+                    values[20],
+                    str(existing["seed_id"]),
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO growly_seed_entries (
+                    seed_id, remote_seed_id, hub_id, owner_username, code, name, variety, category,
+                    origin, year_label, harvest_date, source, stock, germination, location, notes,
+                    deleted_at, sync_status, sync_error, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+        connection.commit()
+
+
+def remote_seed_activity_payload(row: dict[str, Any], remote_seed_id: str) -> dict[str, Any]:
+    return {
+        "seed_id": remote_seed_id,
+        "hub_id": row["hub_id"],
+        "owner_username": row["owner_username"],
+        "seed_code": row.get("seed_code") or "",
+        "seed_name": row.get("seed_name") or "",
+        "activity_type": normalize_choice(row.get("activity_type"), SEED_ACTIVITY_TYPES, "sadd"),
+        "activity_date": iso_or_none(row.get("activity_date")) or datetime.now().date().isoformat(),
+        "quantity": row.get("quantity") or "",
+        "placement": row.get("placement") or "",
+        "status": normalize_choice(row.get("status"), SEED_ACTIVITY_STATUSES, "planlagt"),
+        "rootstock": row.get("rootstock") or "",
+        "scion": row.get("scion") or "",
+        "notes": row.get("notes") or "",
+        "deleted_at": iso_or_none(row.get("deleted_at")),
+        "updated_at": row.get("updated_at") or utc_now_iso(),
+    }
+
+
+def mark_local_seed_activity_sync_error(activity_id: str, error: str) -> None:
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE growly_seed_activities
+            SET sync_status = 'error',
+                sync_error = ?
+            WHERE activity_id = ?
+            """,
+            (error[:500], activity_id),
+        )
+        connection.commit()
+
+
+def mark_local_seed_activity_synced(activity_id: str, remote_row: dict[str, Any]) -> None:
+    remote_activity_id = str(remote_row.get("activity_id") or "").strip()
+    if not remote_activity_id:
+        return
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE growly_seed_activities
+            SET remote_activity_id = ?,
+                remote_seed_id = ?,
+                sync_status = 'synced',
+                sync_error = '',
+                updated_at = COALESCE(NULLIF(?, ''), updated_at)
+            WHERE activity_id = ?
+            """,
+            (
+                remote_activity_id,
+                str(remote_row.get("seed_id") or ""),
+                str(remote_row.get("updated_at") or ""),
+                activity_id,
+            ),
+        )
+        connection.commit()
+
+
+def push_local_seed_activity_to_supabase(row: dict[str, Any]) -> None:
+    if not supabase_enabled():
+        mark_local_seed_activity_sync_error(str(row["activity_id"]), "supabase_not_configured")
+        return
+    remote_seed_id = str(row.get("remote_seed_id") or "").strip()
+    if not remote_seed_id:
+        seed = local_seed_entry_by_id(str(row["owner_username"]), str(row["hub_id"]), str(row["seed_id"]))
+        if seed:
+            push_local_seed_entry_to_supabase(seed)
+            seed = local_seed_entry_by_id(str(row["owner_username"]), str(row["hub_id"]), str(row["seed_id"]))
+            remote_seed_id = str(seed.get("remote_seed_id") or "") if seed else ""
+    if not remote_seed_id:
+        raise ValueError("seed_activity_missing_remote_seed")
+    remote_id = str(row.get("remote_activity_id") or "").strip()
+    payload = remote_seed_activity_payload(row, remote_seed_id)
+    if remote_id:
+        rows = supabase_request(
+            "growly_seed_activities",
+            method="PATCH",
+            params={
+                "activity_id": f"eq.{remote_id}",
+                "hub_id": f"eq.{row['hub_id']}",
+                "owner_username": f"eq.{row['owner_username']}",
+            },
+            payload=payload,
+            prefer="return=representation",
+        )
+        if isinstance(rows, list) and rows:
+            mark_local_seed_activity_synced(str(row["activity_id"]), rows[0])
+            return
+    inserted = supabase_request(
+        "growly_seed_activities",
+        method="POST",
+        payload=[payload],
+        prefer="return=representation",
+    )
+    if not isinstance(inserted, list) or not inserted:
+        raise ValueError("seed_activity_sync_failed")
+    mark_local_seed_activity_synced(str(row["activity_id"]), inserted[0])
+
+
+def upsert_local_seed_activity_from_remote(username: str, hub_id: str, remote_row: dict[str, Any]) -> None:
+    remote_activity_id = str(remote_row.get("activity_id") or "").strip()
+    remote_seed_id = str(remote_row.get("seed_id") or "").strip()
+    if not remote_activity_id or not remote_seed_id:
+        return
+    payload = seed_activity_payload(remote_row)
+    now = utc_now_iso()
+    with db_connection() as connection:
+        local_seed = connection.execute(
+            """
+            SELECT seed_id
+            FROM growly_seed_entries
+            WHERE owner_username = ?
+              AND hub_id = ?
+              AND (remote_seed_id = ? OR seed_id = ?)
+            LIMIT 1
+            """,
+            (username, hub_id, remote_seed_id, remote_seed_id),
+        ).fetchone()
+        if not local_seed:
+            return
+        existing = connection.execute(
+            """
+            SELECT activity_id, sync_status, updated_at
+            FROM growly_seed_activities
+            WHERE owner_username = ?
+              AND hub_id = ?
+              AND (remote_activity_id = ? OR activity_id = ?)
+            LIMIT 1
+            """,
+            (username, hub_id, remote_activity_id, remote_activity_id),
+        ).fetchone()
+        if existing and str(existing["sync_status"] or "") in {"pending", "error"}:
+            local_updated_at = str(existing["updated_at"] or "")
+            remote_updated_at = str(remote_row.get("updated_at") or "")
+            if not remote_updated_at or local_updated_at >= remote_updated_at:
+                return
+        values = (
+            remote_activity_id,
+            remote_activity_id,
+            str(local_seed["seed_id"]),
+            remote_seed_id,
+            hub_id,
+            username,
+            payload["seed_code"],
+            payload["seed_name"],
+            payload["activity_type"],
+            payload["activity_date"],
+            payload["quantity"],
+            payload["placement"],
+            payload["status"],
+            payload["rootstock"],
+            payload["scion"],
+            payload["notes"],
+            payload["deleted_at"],
+            "synced",
+            "",
+            str(remote_row.get("created_at") or now),
+            str(remote_row.get("updated_at") or now),
+        )
+        if existing:
+            connection.execute(
+                """
+                UPDATE growly_seed_activities
+                SET remote_activity_id = ?,
+                    seed_id = ?,
+                    remote_seed_id = ?,
+                    hub_id = ?,
+                    owner_username = ?,
+                    seed_code = ?,
+                    seed_name = ?,
+                    activity_type = ?,
+                    activity_date = ?,
+                    quantity = ?,
+                    placement = ?,
+                    status = ?,
+                    rootstock = ?,
+                    scion = ?,
+                    notes = ?,
+                    deleted_at = ?,
+                    sync_status = ?,
+                    sync_error = ?,
+                    updated_at = ?
+                WHERE activity_id = ?
+                """,
+                (
+                    values[1],
+                    values[2],
+                    values[3],
+                    values[4],
+                    values[5],
+                    values[6],
+                    values[7],
+                    values[8],
+                    values[9],
+                    values[10],
+                    values[11],
+                    values[12],
+                    values[13],
+                    values[14],
+                    values[15],
+                    values[16],
+                    values[17],
+                    values[18],
+                    values[20],
+                    str(existing["activity_id"]),
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO growly_seed_activities (
+                    activity_id, remote_activity_id, seed_id, remote_seed_id, hub_id, owner_username,
+                    seed_code, seed_name, activity_type, activity_date, quantity, placement, status,
+                    rootstock, scion, notes, deleted_at, sync_status, sync_error, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+        connection.commit()
+
+
+def sync_pending_local_seed_entries_to_supabase(username: str, hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    with db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT seed_id, remote_seed_id, hub_id, owner_username, code, name, variety, category,
+                   origin, year_label, harvest_date, source, stock, germination, location,
+                   notes, deleted_at, sync_status, sync_error, created_at, updated_at
+            FROM growly_seed_entries
+            WHERE owner_username = ?
+              AND hub_id = ?
+              AND sync_status != 'synced'
+            ORDER BY updated_at ASC
+            """,
+            (username, hub_id),
+        ).fetchall()
+    for row in rows:
+        try:
+            push_local_seed_entry_to_supabase(dict(row))
+        except Exception as exc:
+            mark_local_seed_entry_sync_error(str(row["seed_id"]), str(exc) or "seed_sync_failed")
+
+
+def sync_pending_local_seed_activities_to_supabase(username: str, hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    with db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT activity_id, remote_activity_id, seed_id, remote_seed_id, hub_id, owner_username,
+                   seed_code, seed_name, activity_type, activity_date, quantity, placement, status,
+                   rootstock, scion, notes, deleted_at, sync_status, sync_error, created_at, updated_at
+            FROM growly_seed_activities
+            WHERE owner_username = ?
+              AND hub_id = ?
+              AND sync_status != 'synced'
+            ORDER BY updated_at ASC
+            """,
+            (username, hub_id),
+        ).fetchall()
+    for row in rows:
+        try:
+            push_local_seed_activity_to_supabase(dict(row))
+        except Exception as exc:
+            mark_local_seed_activity_sync_error(str(row["activity_id"]), str(exc) or "seed_activity_sync_failed")
+
+
+def pull_user_seed_entries_from_supabase(username: str, hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    for seed in supabase_list_user_seed_entries(username, hub_id):
+        upsert_local_seed_entry_from_remote(username, hub_id, seed)
+
+
+def pull_user_seed_activities_from_supabase(username: str, hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    for activity in supabase_list_user_seed_activities(username, hub_id):
+        upsert_local_seed_activity_from_remote(username, hub_id, activity)
+
+
+def best_effort_sync_user_seeds(username: str, hub_id: str) -> None:
+    if not supabase_enabled():
+        return
+    try:
+        sync_pending_local_seed_entries_to_supabase(username, hub_id)
+        pull_user_seed_entries_from_supabase(username, hub_id)
+        sync_pending_local_seed_activities_to_supabase(username, hub_id)
+        pull_user_seed_activities_from_supabase(username, hub_id)
+    except Exception as exc:
+        print(f"Supabase seed sync skipped for {username}/{hub_id}: {exc}")
+
+
+def list_user_seed_catalog(username: str, hub_id: str) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "seeds": list_local_seed_entries(username, hub_id),
+        "activities": list_local_seed_activities(username, hub_id),
+    }
 
 
 def local_day_summary(hub_id: str) -> dict[str, dict[str, float | None]]:
@@ -6669,6 +7854,91 @@ async def archive_plant_api(request: Request, plant_id: str, background_tasks: B
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
     return {"ok": True, "plant": plant}
+
+
+@app.get("/api/seeds")
+async def get_seed_catalog(request: Request, background_tasks: BackgroundTasks):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+    except ValueError as exc:
+        return hub_error_response(str(exc))
+    username = current_username(request)
+    hub_id = str(hub["hub_id"])
+    catalog = list_user_seed_catalog(username, hub_id)
+    if supabase_enabled():
+        if not catalog["seeds"] and not catalog["activities"]:
+            best_effort_sync_user_seeds(username, hub_id)
+            catalog = list_user_seed_catalog(username, hub_id)
+        else:
+            background_tasks.add_task(best_effort_sync_user_seeds, username, hub_id)
+    return {"ok": True, **catalog}
+
+
+@app.post("/api/seeds")
+async def add_seed_entry(request: Request, background_tasks: BackgroundTasks, payload: dict[str, Any]):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        username = current_username(request)
+        hub_id = str(hub["hub_id"])
+        seed = create_user_seed_entry(username, hub_id, payload)
+        background_tasks.add_task(best_effort_sync_user_seeds, username, hub_id)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "seed": seed}
+
+
+@app.patch("/api/seeds/{seed_id}")
+async def edit_seed_entry(request: Request, seed_id: str, background_tasks: BackgroundTasks, payload: dict[str, Any]):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        username = current_username(request)
+        hub_id = str(hub["hub_id"])
+        seed = update_user_seed_entry(username, hub_id, seed_id, payload)
+        background_tasks.add_task(best_effort_sync_user_seeds, username, hub_id)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "seed": seed}
+
+
+@app.delete("/api/seeds/{seed_id}")
+async def delete_seed_entry_api(request: Request, seed_id: str, background_tasks: BackgroundTasks):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        username = current_username(request)
+        hub_id = str(hub["hub_id"])
+        seed = delete_user_seed_entry(username, hub_id, seed_id)
+        background_tasks.add_task(best_effort_sync_user_seeds, username, hub_id)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "seed": seed}
+
+
+@app.post("/api/seed-activities")
+async def add_seed_activity(request: Request, background_tasks: BackgroundTasks, payload: dict[str, Any]):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        username = current_username(request)
+        hub_id = str(hub["hub_id"])
+        activity = create_user_seed_activity(username, hub_id, payload)
+        background_tasks.add_task(best_effort_sync_user_seeds, username, hub_id)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "activity": activity}
 
 
 @app.get("/api/settings")

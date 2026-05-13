@@ -1,4 +1,5 @@
 import { localizePlantCatalogItems } from "./plantCatalogLocalization";
+import type { SeedActivityEntry, SeedCatalogEntry } from "./seedCatalog";
 
 export type PairingInfo = {
   token: string;
@@ -731,6 +732,108 @@ export async function archivePlant(plantId: string, hubId = ""): Promise<boolean
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+export type SeedCatalogResponse = {
+  seeds: SeedCatalogEntry[];
+  activities: SeedActivityEntry[];
+};
+
+export async function fetchSeedCatalog(hubId = ""): Promise<SeedCatalogResponse | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/seeds", hubId)), {
+      credentials: "include",
+      cache: "no-store",
+      headers: authHeaders(),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; seeds: SeedCatalogEntry[]; activities: SeedActivityEntry[] }>(response);
+    return {
+      seeds: Array.isArray(result.seeds) ? result.seeds : [],
+      activities: Array.isArray(result.activities) ? result.activities : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function createSeedEntry(payload: Partial<SeedCatalogEntry>, hubId = ""): Promise<SeedCatalogEntry | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/seeds", hubId)), {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify(payload),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; seed: SeedCatalogEntry }>(response);
+    return result.seed ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function updateSeedEntry(seedId: string, payload: Partial<SeedCatalogEntry>, hubId = ""): Promise<SeedCatalogEntry | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId(`/api/seeds/${encodeURIComponent(seedId)}`, hubId)), {
+      method: "PATCH",
+      credentials: "include",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify(payload),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; seed: SeedCatalogEntry }>(response);
+    return result.seed ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteSeedEntry(seedId: string, hubId = ""): Promise<boolean> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId(`/api/seeds/${encodeURIComponent(seedId)}`, hubId)), {
+      method: "DELETE",
+      credentials: "include",
+      headers: authHeaders(),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function createSeedActivity(payload: Partial<SeedActivityEntry>, hubId = ""): Promise<SeedActivityEntry | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/seed-activities", hubId)), {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify(payload),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; activity: SeedActivityEntry }>(response);
+    return result.activity ?? null;
+  } catch {
+    return null;
   }
 }
 
