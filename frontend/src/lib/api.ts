@@ -735,6 +735,19 @@ export async function archivePlant(plantId: string, hubId = ""): Promise<boolean
   }
 }
 
+export async function deletePlantHistoryEntry(plantId: string, hubId = ""): Promise<boolean> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId(`/api/plant-history/${encodeURIComponent(plantId)}`, hubId)), {
+      method: "DELETE",
+      credentials: "include",
+      headers: authHeaders(),
+    }, AUTH_REQUEST_TIMEOUT_MS);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export type SeedCatalogResponse = {
   seeds: SeedCatalogEntry[];
   activities: SeedActivityEntry[];

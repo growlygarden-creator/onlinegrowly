@@ -2338,7 +2338,19 @@ b {
   letter-spacing: 0;
 }
 
-.home-section-head a {
+.home-section-title-link {
+  display: inline-flex;
+  color: inherit;
+}
+
+.home-section-title-link h2 {
+  text-decoration: underline;
+  text-decoration-color: rgba(47, 138, 84, 0.26);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+
+.home-section-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2357,7 +2369,7 @@ b {
   white-space: nowrap;
 }
 
-.theme-dark .home-section-head a {
+.theme-dark .home-section-action {
   border-color: rgba(163, 231, 157, 0.34);
   background:
     linear-gradient(180deg, rgba(76, 153, 80, 0.98) 0%, rgba(35, 79, 43, 0.98) 100%);
@@ -2444,7 +2456,7 @@ b {
 }
 
 .theme-dark .weekly-task-card > span,
-.theme-dark .home-section-head a,
+.theme-dark .home-section-action,
 .theme-dark .planner-header-link,
 .theme-dark .catalog-filter-row button.is-selected,
 .theme-dark .bottom-nav__item.is-active {
@@ -2700,6 +2712,10 @@ b {
   font-weight: 560;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
   white-space: nowrap;
+}
+
+.home-plant-card {
+  text-decoration: none;
 }
 
 .theme-dark .home-plant-row em {
@@ -6278,6 +6294,8 @@ b {
 .theme-dark .placement-toggle button,
 .theme-dark .finish-plant-button,
 .theme-dark .archive-choice,
+.theme-dark .history-delete-action,
+.theme-dark .history-feedback,
 .theme-dark .greenhouse-sheet__panel,
 .theme-dark .plant-condition-row,
 .theme-dark .plant-zone-card,
@@ -7074,6 +7092,8 @@ b {
 
 .plant-history-item--page {
   align-items: flex-start;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   padding: 16px;
   border: 1px solid rgba(38, 98, 65, 0.08);
   background:
@@ -7090,6 +7110,32 @@ b {
 .plant-history-item span,
 .plant-history-item small {
   color: var(--muted);
+}
+
+.history-delete-action {
+  align-self: start;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(176, 74, 61, 0.16);
+  border-radius: 999px;
+  background: rgba(246, 226, 221, 0.72);
+  color: #984033;
+  font: inherit;
+  font-weight: 500;
+}
+
+.history-delete-action:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.history-feedback {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(237, 245, 235, 0.78);
+  color: var(--accent-strong);
+  font-weight: 500;
 }
 
 .history-summary-card,
@@ -7857,6 +7903,15 @@ b {
     grid-template-columns: 1fr;
   }
 
+  .plant-history-item--page {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .history-delete-action {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
   .notification-log-title,
   .notification-upcoming-item {
     align-items: flex-start;
@@ -8149,7 +8204,7 @@ b {
     gap: 8px;
   }
 
-  .home-section-head a {
+  .home-section-action {
     width: 100%;
   }
 

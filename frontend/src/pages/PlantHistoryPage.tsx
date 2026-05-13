@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { PlantAvatar } from "../components/PlantAvatar";
-import { fetchPlantHistory, type AuthSession, type GrowlyPlant, type PlantCatalogItem } from "../lib/api";
+import { deletePlantHistoryEntry, fetchPlantHistory, type AuthSession, type GrowlyPlant, type PlantCatalogItem } from "../lib/api";
 import { useI18n, type AppLanguage } from "../lib/i18n";
 
 type PlantTone = PlantCatalogItem["tone"];
@@ -31,6 +31,8 @@ export function PlantHistoryPage({ session }: PlantHistoryPageProps) {
   const { language } = useI18n();
   const [plantHistory, setPlantHistory] = useState<GrowlyPlant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +47,34 @@ export function PlantHistoryPage({ session }: PlantHistoryPageProps) {
       cancelled = true;
     };
   }, [session?.username, session?.hub?.hub_id]);
+
+  async function deleteHistoryItem(item: GrowlyPlant) {
+    const plantId = item.instanceId || item.plant_id || "";
+    if (!plantId || deletingId) {
+      return;
+    }
+    const plantName = item.display_name || item.nickname || (language === "en" ? "this plant project" : "dette planteprosjektet");
+    const confirmed = window.confirm(
+      language === "en"
+        ? `Delete ${plantName} permanently from history?`
+        : `Slette ${plantName} permanent fra historikken?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingId(plantId);
+    setFeedback("");
+    const deleted = await deletePlantHistoryEntry(plantId, session?.hub?.hub_id ?? "");
+    if (!deleted) {
+      setFeedback(language === "en" ? "Could not delete from history right now." : "Kunne ikke slette fra historikken akkurat nå.");
+      setDeletingId(null);
+      return;
+    }
+    setPlantHistory((current) => current.filter((entry) => (entry.instanceId || entry.plant_id) !== plantId));
+    setFeedback(language === "en" ? "Deleted from history." : "Slettet fra historikken.");
+    setDeletingId(null);
+  }
 
   return (
     <main className="page-shell app-page history-page">
@@ -78,6 +108,7 @@ export function PlantHistoryPage({ session }: PlantHistoryPageProps) {
       </section>
 
       <section className="settings-section">
+        {feedback ? <p className="history-feedback" role="status">{feedback}</p> : null}
         {loading ? (
           <article className="soft-card empty-history-card">
             <strong>{language === "en" ? "Loading history..." : "Laster historikk..."}</strong>
@@ -98,6 +129,16 @@ export function PlantHistoryPage({ session }: PlantHistoryPageProps) {
                     </small>
                   ) : null}
                 </div>
+                <button
+                  className="history-delete-action"
+                  type="button"
+                  onClick={() => deleteHistoryItem(item)}
+                  disabled={deletingId === (item.instanceId || item.plant_id)}
+                >
+                  {deletingId === (item.instanceId || item.plant_id)
+                    ? (language === "en" ? "Deleting..." : "Sletter...")
+                    : (language === "en" ? "Delete" : "Slett")}
+                </button>
               </article>
             ))}
           </div>

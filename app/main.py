@@ -5522,6 +5522,47 @@ def update_user_plant(username: str, hub_id: str, plant_id: str, payload: dict[s
     return plant_row_payload(updated)
 
 
+def delete_archived_user_plant(username: str, hub_id: str, plant_id: str) -> dict[str, Any]:
+    existing = local_plant_by_id(username, hub_id, plant_id)
+    if not existing:
+        raise ValueError("plant_not_found")
+    if not existing.get("archived_at"):
+        raise ValueError("plant_not_archived")
+
+    with db_connection() as connection:
+        connection.execute(
+            """
+            DELETE FROM growly_plants
+            WHERE plant_id = ?
+              AND owner_username = ?
+              AND hub_id = ?
+              AND archived_at IS NOT NULL
+            """,
+            (str(existing["plant_id"]), username, hub_id),
+        )
+        connection.commit()
+    return plant_row_payload(existing)
+
+
+def best_effort_delete_supabase_plant(plant: dict[str, Any]) -> None:
+    if not supabase_enabled():
+        return
+    remote_plant_id = str(plant.get("remote_plant_id") or plant.get("remotePlantId") or "").strip()
+    if not remote_plant_id:
+        return
+    try:
+        supabase_delete_rows(
+            "growly_plants",
+            {
+                "plant_id": f"eq.{remote_plant_id}",
+                "hub_id": f"eq.{plant.get('hub_id')}",
+                "owner_username": f"eq.{plant.get('owner_username')}",
+            },
+        )
+    except Exception as exc:
+        print(f"Supabase plant history delete skipped for {remote_plant_id}: {exc}")
+
+
 SEED_CATEGORIES = {"gronnsak", "urt", "blomst", "frukt", "bar", "annet"}
 SEED_ORIGINS = {"kjopt", "egne", "fatt", "byttet"}
 SEED_STOCKS = {"mye", "lite", "tom", "ukjent"}
@@ -7853,6 +7894,23 @@ async def archive_plant_api(request: Request, plant_id: str, background_tasks: B
         background_tasks.add_task(best_effort_sync_user_plants, username, hub_id)
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "plant": plant}
+
+
+@app.delete("/api/plant-history/{plant_id}")
+async def delete_plant_history_api(request: Request, plant_id: str):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        username = current_username(request)
+        hub_id = str(hub["hub_id"])
+        plant = delete_archived_user_plant(username, hub_id, plant_id)
+        best_effort_delete_supabase_plant(plant)
+    except ValueError as exc:
+        status_code = 404 if str(exc) == "plant_not_found" else 400
+        return JSONResponse(status_code=status_code, content={"ok": False, "error": str(exc)})
     return {"ok": True, "plant": plant}
 
 

@@ -47,7 +47,7 @@ type TrendMetricConfig = {
   referenceNote?: string;
 };
 
-type DashboardPlant = Pick<GrowlyPlant, "instanceId" | "nickname" | "profileId" | "catalogItemId" | "sowedAt">;
+type DashboardPlant = Pick<GrowlyPlant, "instanceId" | "nickname" | "profileId" | "catalogItemId" | "sowedAt" | "location" | "hasSevenInOne">;
 type HomeTask = {
   title: string;
   detail: string;
@@ -708,6 +708,20 @@ function plantNextAction(profileId: string, progress: number, sample: LatestSamp
   return "La spirene etablere seg før store endringer.";
 }
 
+function dashboardPlantLocation(plant: DashboardPlant): "greenhouse" | "outside" {
+  return plant.location === "outside" ? "outside" : "greenhouse";
+}
+
+function dashboardPlantStatus(plant: DashboardPlant, language: AppLanguage): string {
+  if (dashboardPlantLocation(plant) === "outside") {
+    return language === "en" ? "Pre-growing" : "Forkultiveres";
+  }
+  if (plant.hasSevenInOne) {
+    return "7-i-1";
+  }
+  return language === "en" ? "In greenhouse" : "I drivhus";
+}
+
 function greenhouseScene(theme: "light" | "dark"): { image: string; mode: "day" | "evening" } {
   if (theme === "dark") {
     return { image: greenhouseEvening, mode: "evening" };
@@ -1108,6 +1122,8 @@ function normalizeDashboardPlants(plants: GrowlyPlant[]): DashboardPlant[] {
       catalogItemId: plant.catalogItemId,
       nickname: plant.nickname,
       sowedAt: plant.sowedAt,
+      location: plant.location,
+      hasSevenInOne: plant.hasSevenInOne,
     }));
 }
 
@@ -1533,9 +1549,11 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
         <div className="home-section-head">
           <div>
             <p className="section-kicker">Vekstoversikt</p>
-            <h2>{dashboardPlants.length === 1 ? "1 aktiv plante" : `${dashboardPlants.length} aktive planter`}</h2>
+            <Link className="home-section-title-link" to="/drivhus">
+              <h2>{dashboardPlants.length === 1 ? "1 aktiv plante" : `${dashboardPlants.length} aktive planter`}</h2>
+            </Link>
           </div>
-          <Link to="/drivhus">Mine planter</Link>
+          <Link className="home-section-action" to="/drivhus">Mine planter</Link>
         </div>
         <div className="growth-list">
           {dashboardPlants.length ? dashboardPlants.slice(0, 4).map((plant, index) => {
@@ -1545,21 +1563,35 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
             const timeline = plantTimeline(plant.profileId, progress, sowedAt, index, language);
             const stage = plantStage(plant.profileId, progress);
             const nextAction = plantNextAction(plant.profileId, progress, activeSample);
+            const location = dashboardPlantLocation(plant);
             return (
-              <article className="home-plant-row soft-card" key={plant.instanceId ?? `${plant.profileId}-${plant.nickname}`}>
-                <PlantAvatar
-                  tone={profile.tone}
-                  plantId={plant.catalogItemId ?? plant.profileId}
-                  name={plant.nickname || profile.name}
-                  className="home-plant-row__avatar"
-                />
-                <div>
-                  <strong>{plant.nickname || profile.name}</strong>
-                  <span>{stage} · {timeline.dayLabel}</span>
-                  <p>{nextAction}</p>
-                  <em>{timeline.daysLeftLabel}</em>
+              <Link
+                className="greenhouse-plant-card greenhouse-plant-card--compact home-plant-card soft-card"
+                key={plant.instanceId ?? `${plant.profileId}-${plant.nickname}`}
+                to="/drivhus"
+              >
+                <div className="greenhouse-plant-card__top">
+                  <PlantAvatar
+                    tone={profile.tone}
+                    plantId={plant.catalogItemId ?? plant.profileId}
+                    name={plant.nickname || profile.name}
+                  />
+                  <div>
+                    <strong>{plant.nickname || profile.name}</strong>
+                    <small>{profile.name.toLowerCase()} · {stage.toLowerCase()}</small>
+                  </div>
+                  <span className={`plant-status-pill plant-status-pill--${location === "outside" ? "watch" : "good"}`}>
+                    {dashboardPlantStatus(plant, language)}
+                  </span>
                 </div>
-              </article>
+                <p className="plant-card-next">Neste: {nextAction}</p>
+                <div className="plant-mini-metrics">
+                  <span>{timeline.dayLabel}</span>
+                  <span>{stage}</span>
+                  <span>{timeline.daysLeftLabel}</span>
+                  <span>{location === "greenhouse" ? (plant.hasSevenInOne ? "7-i-1" : "I drivhus") : "Før flytting"}</span>
+                </div>
+              </Link>
             );
           }) : (
             <article className="soft-card empty-state-card">
