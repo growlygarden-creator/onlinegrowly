@@ -5599,7 +5599,7 @@ def next_user_seed_code(connection: sqlite3.Connection, username: str, hub_id: s
         digits = "".join(character for character in str(row["code"] or "") if character.isdigit())
         if digits:
             highest = max(highest, int(digits))
-    return f"F-{highest + 1:03d}"
+    return f"#-{highest + 1:03d}"
 
 
 def seed_entry_payload(row: dict[str, Any]) -> dict[str, Any]:

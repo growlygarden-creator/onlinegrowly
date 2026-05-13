@@ -565,7 +565,7 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
             <div className="seed-vault-hero__copy">
               <p className="section-kicker">Frøbank</p>
               <h2>Nummer på posen, alt annet i Growly.</h2>
-              <span>Bruk små merkelapper som F-004, og la appen holde orden på sort, år, spireevne og notater.</span>
+              <span>Bruk små merkelapper som #-004, og la appen holde orden på sort, år, spireevne og notater.</span>
             </div>
             <div className="seed-vault-stats">
               <article>
@@ -616,7 +616,7 @@ export function PlantCatalogPage({ session }: PlantCatalogPageProps) {
                   <input
                     value={seedQuery}
                     onChange={(event) => setSeedQuery(event.target.value)}
-                    placeholder="F-004, sukkerert, blodbeger..."
+                    placeholder="#-004, sukkerert, blodbeger..."
                   />
                 </label>
 

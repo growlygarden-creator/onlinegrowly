@@ -1,5 +1,6 @@
 const SEED_CATALOG_STORAGE_PREFIX = "growly.seedCatalog.entries.v1";
 const SEED_ACTIVITY_STORAGE_PREFIX = "growly.seedCatalog.activities.v1";
+const SEED_CODE_PREFIX = "#";
 
 export type SeedCategory = "gronnsak" | "urt" | "blomst" | "frukt" | "bar" | "annet";
 export type SeedOrigin = "kjopt" | "egne" | "fatt" | "byttet";
@@ -117,7 +118,7 @@ function writeJsonArray<T>(key: string, entries: T[]): void {
 
 function normalizeSeedEntry(entry: Partial<SeedCatalogEntry>, index: number): SeedCatalogEntry {
   const now = new Date().toISOString();
-  const code = typeof entry.code === "string" && entry.code.trim() ? entry.code.trim() : `F-${String(index + 1).padStart(3, "0")}`;
+  const code = typeof entry.code === "string" && entry.code.trim() ? entry.code.trim() : formatSeedCode(index + 1);
   return {
     id: typeof entry.id === "string" && entry.id ? entry.id : `seed-${code.toLowerCase()}`,
     code,
@@ -135,6 +136,10 @@ function normalizeSeedEntry(entry: Partial<SeedCatalogEntry>, index: number): Se
     createdAt: typeof entry.createdAt === "string" ? entry.createdAt : now,
     updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : now,
   };
+}
+
+function formatSeedCode(number: number): string {
+  return `${SEED_CODE_PREFIX}-${String(number).padStart(3, "0")}`;
 }
 
 function normalizeSeedActivity(entry: Partial<SeedActivityEntry>, index: number): SeedActivityEntry {
@@ -203,5 +208,5 @@ export function nextSeedCode(entries: SeedCatalogEntry[]): string {
     const number = Number.parseInt(entry.code.replace(/\D+/g, ""), 10);
     return Number.isFinite(number) ? Math.max(max, number) : max;
   }, 0);
-  return `F-${String(highest + 1).padStart(3, "0")}`;
+  return formatSeedCode(highest + 1);
 }
