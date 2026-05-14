@@ -82,6 +82,31 @@ export type DailyWeatherReport = {
   generated_at?: string;
 };
 
+export type MemoryDebugItem = {
+  file: string;
+  line: number;
+  size_kb: number;
+  count: number;
+  size_diff_kb?: number;
+  count_diff?: number;
+};
+
+export type MemoryDebugReport = {
+  enabled: boolean;
+  tracing: boolean;
+  timestamp: string;
+  rss_mb: number | null;
+  python_traced_current_mb: number;
+  python_traced_peak_mb: number;
+  sensor_sample_writes: number;
+  gc_counts: number[];
+  gc_thresholds: number[];
+  tracked_objects: number | null;
+  cache_sizes: Record<string, number>;
+  top_current: MemoryDebugItem[];
+  top_growth_since_last_report: MemoryDebugItem[];
+};
+
 export type WeatherAddressMatch = {
   label: string;
   address: string;
@@ -523,6 +548,25 @@ export async function searchWeatherAddress(query: string): Promise<WeatherAddres
     return Array.isArray(result.matches) ? result.matches : [];
   } catch {
     return [];
+  }
+}
+
+export async function fetchMemoryDebug(resetBaseline = true): Promise<MemoryDebugReport | null> {
+  try {
+    const params = new URLSearchParams({ reset_baseline: resetBaseline ? "true" : "false" });
+    const response = await fetchWithTimeout(apiUrl(`/api/debug/memory?${params.toString()}`), {
+      credentials: "include",
+      cache: "no-store",
+      headers: authHeaders(),
+    }, 10000);
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; memory: MemoryDebugReport }>(response);
+    return result.memory;
+  } catch {
+    return null;
   }
 }
 

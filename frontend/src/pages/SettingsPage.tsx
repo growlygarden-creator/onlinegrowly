@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   createPairing,
   fetchActivePairing,
+  fetchMemoryDebug,
   fetchPlants,
   logout,
   saveHubSettings,
@@ -11,6 +12,7 @@ import {
   updateProfile,
   type AuthSession,
   type GrowlyPlant,
+  type MemoryDebugReport,
   type PairingInfo,
   type WeatherAddressMatch,
 } from "../lib/api";
@@ -94,6 +96,8 @@ export function SettingsPage({
   const [sensorPlants, setSensorPlants] = useState<GrowlyPlant[]>([]);
   const [sensorPlantsLoading, setSensorPlantsLoading] = useState(false);
   const [sensorAssigning, setSensorAssigning] = useState(false);
+  const [memoryDebug, setMemoryDebug] = useState<MemoryDebugReport | null>(null);
+  const [memoryDebugBusy, setMemoryDebugBusy] = useState(false);
 
   const themeModeOptions: Array<{ value: ThemeMode; label: string }> = [
     { value: "light", label: t("settings.themeLight") },
@@ -368,6 +372,22 @@ export function SettingsPage({
       setStatus(t("settings.status.notificationTimesSaved"));
     } finally {
       setNotificationBusy(false);
+    }
+  }
+
+  async function handleFetchMemoryDebug(resetBaseline: boolean) {
+    setMemoryDebugBusy(true);
+    setStatus(resetBaseline ? "Tar memory baseline..." : "Sjekker memory vekst...");
+    try {
+      const report = await fetchMemoryDebug(resetBaseline);
+      if (!report) {
+        setStatus("Kunne ikke hente memory debug. Sjekk at settings er låst opp.");
+        return;
+      }
+      setMemoryDebug(report);
+      setStatus(resetBaseline ? "Memory baseline er satt." : "Memory vekst er hentet.");
+    } finally {
+      setMemoryDebugBusy(false);
     }
   }
 
@@ -942,6 +962,64 @@ export function SettingsPage({
           </div>
         </Link>
       </section>
+
+      {session?.is_admin ? (
+        <section className="settings-section settings-section--compact">
+          <p className="section-kicker">Debug</p>
+          <article className="soft-card settings-card premium-section-card memory-debug-card">
+            <div className="settings-row">
+              <div className="icon-badge icon-badge--mint theme-icon-badge">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M7 4v16M17 4v16M4 8h16M4 16h16M9 8v8M15 8v8"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.7"
+                  />
+                </svg>
+              </div>
+              <div className="settings-row__content">
+                <strong>Memory debug</strong>
+                <span>
+                  {memoryDebug
+                    ? `RSS ${memoryDebug.rss_mb ?? "-"} MB · Python ${memoryDebug.python_traced_current_mb} MB`
+                    : "Ta baseline først, sjekk vekst etter at appen har kjørt litt."}
+                </span>
+              </div>
+            </div>
+            <div className="memory-debug-actions">
+              <button className="secondary-action" type="button" onClick={() => handleFetchMemoryDebug(true)} disabled={memoryDebugBusy}>
+                Ta baseline
+              </button>
+              <button className="secondary-action" type="button" onClick={() => handleFetchMemoryDebug(false)} disabled={memoryDebugBusy}>
+                Sjekk vekst
+              </button>
+            </div>
+            {memoryDebug ? (
+              <div className="memory-debug-result">
+                <div className="memory-debug-metrics">
+                  <span>RSS: <strong>{memoryDebug.rss_mb ?? "-"} MB</strong></span>
+                  <span>Python: <strong>{memoryDebug.python_traced_current_mb} MB</strong></span>
+                  <span>Peak: <strong>{memoryDebug.python_traced_peak_mb} MB</strong></span>
+                  <span>Samples: <strong>{memoryDebug.sensor_sample_writes}</strong></span>
+                </div>
+                <div className="memory-debug-list">
+                  {(memoryDebug.top_growth_since_last_report.length ? memoryDebug.top_growth_since_last_report : memoryDebug.top_current)
+                    .slice(0, 5)
+                    .map((item, index) => (
+                      <div className="memory-debug-line" key={`${item.file}-${item.line}-${index}`}>
+                        <strong>{item.size_diff_kb !== undefined ? `${item.size_diff_kb} KB` : `${item.size_kb} KB`}</strong>
+                        <span>{item.file.split("/").slice(-2).join("/")}:{item.line}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ) : null}
+          </article>
+        </section>
+      ) : null}
 
       <section className="settings-section">
         <p className="section-kicker">{t("settings.about")}</p>

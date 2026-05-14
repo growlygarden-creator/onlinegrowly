@@ -633,6 +633,42 @@ select {
     line-height: 1.2;
 }
 
+.memory-debug-card {
+    display: grid;
+    gap: 14px;
+}
+
+.memory-debug-grid {
+    margin-top: 0;
+}
+
+.memory-debug-list {
+    display: grid;
+    gap: 8px;
+}
+
+.memory-debug-line {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.memory-debug-line strong {
+    color: var(--accent);
+}
+
+.memory-debug-line span {
+    overflow: hidden;
+    color: var(--muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .config-ack-card small {
     color: var(--muted);
     line-height: 1.35;

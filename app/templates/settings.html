@@ -92,6 +92,39 @@
             </div>
         </section>
 
+        <section class="panel settings-card memory-debug-card">
+            <h2 class="settings-subtitle">Memory debug</h2>
+            <p class="helper-text">Bruk dette mens Render-grafen stiger. Ta baseline først, og sjekk vekst etter litt tid.</p>
+            <div class="actions">
+                <button id="memory-baseline-button" class="button secondary-button" type="button">Ta baseline</button>
+                <button id="memory-growth-button" class="button" type="button">Sjekk vekst</button>
+                <span id="memory-debug-status" class="status-pill">Ikke sjekket</span>
+            </div>
+            <div class="settings-grid config-ack-grid memory-debug-grid">
+                <div class="config-ack-card">
+                    <span>Render RSS</span>
+                    <strong id="memory-rss">-</strong>
+                    <small>Prosessminne</small>
+                </div>
+                <div class="config-ack-card">
+                    <span>Python traced</span>
+                    <strong id="memory-python">-</strong>
+                    <small id="memory-python-peak">Peak -</small>
+                </div>
+                <div class="config-ack-card">
+                    <span>Sensor writes</span>
+                    <strong id="memory-samples">-</strong>
+                    <small id="memory-cache-sizes">Cache -</small>
+                </div>
+                <div class="config-ack-card">
+                    <span>Tracemalloc</span>
+                    <strong id="memory-tracing">-</strong>
+                    <small id="memory-timestamp">-</small>
+                </div>
+            </div>
+            <div id="memory-debug-list" class="memory-debug-list"></div>
+        </section>
+
         <section class="panel settings-card">
             <h2 class="settings-subtitle">Samplingsintervall</h2>
             <p class="helper-text">Bestem hvor ofte alle hubber skal lese sensorene og sende data videre. Verdiene lagres globalt i backend og hentes automatisk av hver ESP32 når den er online.</p>
@@ -258,6 +291,17 @@
         const supabaseStatusPill = document.getElementById("supabase-status-pill");
         const refreshSupabaseButton = document.getElementById("refresh-supabase-button");
         const syncSupabaseButton = document.getElementById("sync-supabase-button");
+        const memoryBaselineButton = document.getElementById("memory-baseline-button");
+        const memoryGrowthButton = document.getElementById("memory-growth-button");
+        const memoryDebugStatus = document.getElementById("memory-debug-status");
+        const memoryRss = document.getElementById("memory-rss");
+        const memoryPython = document.getElementById("memory-python");
+        const memoryPythonPeak = document.getElementById("memory-python-peak");
+        const memorySamples = document.getElementById("memory-samples");
+        const memoryCacheSizes = document.getElementById("memory-cache-sizes");
+        const memoryTracing = document.getElementById("memory-tracing");
+        const memoryTimestamp = document.getElementById("memory-timestamp");
+        const memoryDebugList = document.getElementById("memory-debug-list");
 
         function setSaveStatus(text, mode = "") {
             settingsSaveStatus.textContent = text;
@@ -374,6 +418,53 @@
             }
         }
 
+        function setMemoryStatus(text, mode = "") {
+            memoryDebugStatus.textContent = text;
+            memoryDebugStatus.dataset.mode = mode;
+        }
+
+        function renderMemoryDebug(memory) {
+            memoryRss.textContent = memory.rss_mb == null ? "-" : `${memory.rss_mb} MB`;
+            memoryPython.textContent = `${memory.python_traced_current_mb} MB`;
+            memoryPythonPeak.textContent = `Peak ${memory.python_traced_peak_mb} MB`;
+            memorySamples.textContent = String(memory.sensor_sample_writes ?? "-");
+            const cacheSizes = memory.cache_sizes || {};
+            memoryCacheSizes.textContent = `Cache ${Object.values(cacheSizes).reduce((sum, value) => sum + Number(value || 0), 0)}`;
+            memoryTracing.textContent = memory.tracing ? "Aktiv" : "Av";
+            memoryTimestamp.textContent = formatTimestamp(memory.timestamp) || "-";
+
+            const rows = (memory.top_growth_since_last_report?.length ? memory.top_growth_since_last_report : memory.top_current || []).slice(0, 8);
+            memoryDebugList.innerHTML = "";
+            for (const row of rows) {
+                const item = document.createElement("div");
+                item.className = "memory-debug-line";
+                const value = row.size_diff_kb !== undefined ? row.size_diff_kb : row.size_kb;
+                const shortFile = String(row.file || "").split("/").slice(-2).join("/");
+                item.innerHTML = `<strong>${value} KB</strong><span>${shortFile}:${row.line || 0}</span>`;
+                memoryDebugList.appendChild(item);
+            }
+        }
+
+        async function fetchMemoryDebug(resetBaseline) {
+            setMemoryStatus(resetBaseline ? "Tar baseline..." : "Sjekker vekst...", "warning");
+            memoryBaselineButton.disabled = true;
+            memoryGrowthButton.disabled = true;
+            try {
+                const response = await fetch(`/api/debug/memory?reset_baseline=${resetBaseline ? "true" : "false"}`, { cache: "no-store" });
+                const result = await response.json();
+                if (!result.ok) {
+                    throw new Error(result.error || "memory_debug_failed");
+                }
+                renderMemoryDebug(result.memory);
+                setMemoryStatus(resetBaseline ? "Baseline satt" : "Vekst hentet", "online");
+            } catch (error) {
+                setMemoryStatus(error?.message || String(error), "offline");
+            } finally {
+                memoryBaselineButton.disabled = false;
+                memoryGrowthButton.disabled = false;
+            }
+        }
+
         async function saveSampleSettings() {
             setSaveStatus("Lagrer...", "warning");
 
@@ -417,6 +508,8 @@
         saveSettingsButton.addEventListener("click", saveSampleSettings);
         refreshSupabaseButton.addEventListener("click", refreshSupabaseStatus);
         syncSupabaseButton.addEventListener("click", syncSupabaseCore);
+        memoryBaselineButton.addEventListener("click", () => fetchMemoryDebug(true));
+        memoryGrowthButton.addEventListener("click", () => fetchMemoryDebug(false));
         refreshConfigAck();
         refreshSupabaseStatus();
         window.setInterval(refreshConfigAck, 15000);

@@ -4233,6 +4233,68 @@ b {
   opacity: 0.68;
 }
 
+.memory-debug-card {
+  display: grid;
+  gap: 16px;
+}
+
+.memory-debug-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.memory-debug-result {
+  display: grid;
+  gap: 12px;
+}
+
+.memory-debug-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.memory-debug-metrics span,
+.memory-debug-line {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding: 10px 12px;
+}
+
+.theme-dark .memory-debug-metrics span,
+.theme-dark .memory-debug-line {
+  background: rgba(238, 246, 235, 0.06);
+}
+
+.memory-debug-metrics strong,
+.memory-debug-line strong {
+  color: var(--accent-strong);
+  font-weight: 560;
+}
+
+.memory-debug-list {
+  display: grid;
+  gap: 8px;
+}
+
+.memory-debug-line {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-debug-line span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .primary-action__icon {
   font-size: 1.1rem;
 }
