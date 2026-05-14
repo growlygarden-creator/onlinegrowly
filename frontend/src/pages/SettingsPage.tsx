@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   createPairing,
   fetchActivePairing,
@@ -929,6 +930,17 @@ export function SettingsPage({
             ))}
           </div>
         </article>
+      </section>
+
+      <section className="settings-section settings-section--compact">
+        <p className="section-kicker">Eksperiment</p>
+        <Link className="soft-card version-card premium-section-card" to="/min-hage-test">
+          <span>Min hage testside</span>
+          <div className="version-card__value">
+            <strong>Åpne</strong>
+            <span className="chevron">›</span>
+          </div>
+        </Link>
       </section>
 
       <section className="settings-section">

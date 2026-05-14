@@ -11,7 +11,7 @@
     --warning: #a97916;
     --danger: #bd5548;
     --shadow: 0 18px 48px rgba(35, 76, 48, 0.12);
-    --font-sans: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --font-sans: "Avenir Next", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
 }
 
 * {
@@ -27,6 +27,9 @@ body {
     margin: 0;
     color: var(--text);
     font-family: var(--font-sans);
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     background:
         radial-gradient(circle at 12% 18%, rgba(52, 103, 62, 0.22), transparent 24%),
         radial-gradient(circle at 84% 78%, rgba(52, 103, 62, 0.16), transparent 22%),
@@ -4048,7 +4051,7 @@ select {
     border-color: rgba(210, 230, 212, 0.12);
     background:
         linear-gradient(180deg, rgba(18, 29, 22, 0.98), rgba(7, 12, 9, 0.99));
-    font-family: "Avenir Next", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: var(--font-sans);
 }
 
 .trend-modal-panel .trend-header {
@@ -4650,6 +4653,85 @@ select {
     border-radius: 8px;
     background: var(--accent-soft);
     color: #1f7d4e;
+}
+
+/* Match the app typography: same font stack, calmer weights, no tracked-out UI text. */
+body,
+button,
+input,
+select,
+textarea {
+    font-family: var(--font-sans);
+    letter-spacing: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+strong,
+b {
+    font-weight: 500;
+    letter-spacing: 0;
+}
+
+.landing-brand span,
+.brand-copy strong,
+.hero h1,
+.landing-hero-copy h1,
+.settings-title,
+.settings-subtitle,
+.zone-header h2,
+.greenhouse-trend-panel h2,
+.trend-title-row h2,
+.metric-card strong,
+.stat-card strong,
+.customer-summary-stat strong,
+.user-card strong,
+.detail-row strong,
+.config-ack-card strong,
+.version-card__value strong {
+    font-weight: 560;
+    letter-spacing: 0;
+}
+
+.eyebrow,
+.section-kicker,
+.zone-kicker,
+.trend-kicker,
+.page-nav a,
+.landing-nav a,
+.page-nav-button,
+.button,
+.status-pill,
+.span-button,
+.zoom-button,
+.customer-filter,
+.helper-text,
+.field label,
+.field span,
+.metric-range-label,
+.trend-control-label,
+.trend-quick-stats small {
+    font-weight: 500;
+    letter-spacing: 0;
+}
+
+.lead,
+.helper-text,
+.settings-subtitle + .helper-text,
+.settings-card p,
+.metric-card p,
+.detail-row span,
+.brand-copy small,
+.user-chip small,
+.trend-summary,
+.trend-labels,
+.zone-note {
+    font-weight: 400;
+    letter-spacing: 0;
 }
 
 @media (max-width: 760px) {

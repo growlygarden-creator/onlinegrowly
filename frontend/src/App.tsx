@@ -14,6 +14,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { GreenhousePage } from "./pages/GreenhousePage";
 import { LoginPage } from "./pages/LoginPage";
+import { MyGardenTestPage } from "./pages/MyGardenTestPage";
 import { PlantCatalogPage } from "./pages/PlantCatalogPage";
 import { PlantHistoryPage } from "./pages/PlantHistoryPage";
 import { RegisterPage } from "./pages/RegisterPage";
@@ -233,6 +234,10 @@ export function App() {
         <Route
           path="/varsler"
           element={isAuthenticated ? <NotificationsPage /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/min-hage-test"
+          element={<MyGardenTestPage />}
         />
         <Route
           path="/settings"
