@@ -94,6 +94,7 @@ MAX_AI_IMAGE_DATA_URL_LENGTH = int(os.getenv("MAX_AI_IMAGE_DATA_URL_LENGTH", "22
 SENSOR_INGEST_GC_INTERVAL = int(os.getenv("SENSOR_INGEST_GC_INTERVAL", "100").strip() or "100")
 MALLOC_TRIM_ENABLED = os.getenv("MALLOC_TRIM_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 DEBUG_MEMORY = os.getenv("DEBUG_MEMORY", "false").strip().lower() in {"1", "true", "yes", "on"}
+DEBUG_MEMORY_TOKEN = os.getenv("DEBUG_MEMORY_TOKEN", "").strip()
 DEBUG_MEMORY_TRACEBACK_LIMIT = int(os.getenv("DEBUG_MEMORY_TRACEBACK_LIMIT", "25").strip() or "25")
 DEBUG_MEMORY_TOP_N = int(os.getenv("DEBUG_MEMORY_TOP_N", "12").strip() or "12")
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
@@ -7095,6 +7096,13 @@ def require_settings_api(request: Request) -> JSONResponse | None:
     return JSONResponse(status_code=403, content={"ok": False, "error": "admin_required"})
 
 
+def require_memory_debug_access(request: Request) -> JSONResponse | None:
+    token = request.headers.get("X-Growly-Debug-Token", "").strip() or request.query_params.get("token", "").strip()
+    if DEBUG_MEMORY_TOKEN and hmac.compare_digest(token, DEBUG_MEMORY_TOKEN):
+        return None
+    return require_settings_api(request)
+
+
 def bearer_username(request: Request) -> str:
     authorization = request.headers.get("authorization", "").strip()
     if not authorization.lower().startswith("bearer "):
@@ -8396,7 +8404,7 @@ async def get_supabase_status(request: Request):
 
 @app.get("/api/debug/memory")
 async def debug_memory(request: Request, reset_baseline: bool = Query(True)):
-    auth_error = require_settings_api(request)
+    auth_error = require_memory_debug_access(request)
     if auth_error:
         return auth_error
     return {"ok": True, "memory": memory_debug_report(reset_baseline=reset_baseline)}
