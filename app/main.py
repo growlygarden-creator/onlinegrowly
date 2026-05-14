@@ -1,8 +1,11 @@
 from contextlib import asynccontextmanager
 import base64
 import csv
+import ctypes
+import ctypes.util
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+import gc
 import html
 import hashlib
 import hmac
@@ -14,6 +17,7 @@ import shutil
 import smtplib
 import ssl
 import sqlite3
+import tracemalloc
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
@@ -31,6 +35,11 @@ try:
     import certifi
 except ImportError:  # pragma: no cover - production environments may rely on system certs.
     certifi = None
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - resource is Unix-only.
+    resource = None
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -82,6 +91,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip()
 MAX_REQUEST_BODY_BYTES = int(os.getenv("MAX_REQUEST_BODY_BYTES", "2500000").strip() or "2500000")
 MAX_AI_IMAGE_DATA_URL_LENGTH = int(os.getenv("MAX_AI_IMAGE_DATA_URL_LENGTH", "2200000").strip() or "2200000")
+SENSOR_INGEST_GC_INTERVAL = int(os.getenv("SENSOR_INGEST_GC_INTERVAL", "100").strip() or "100")
+MALLOC_TRIM_ENABLED = os.getenv("MALLOC_TRIM_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+DEBUG_MEMORY = os.getenv("DEBUG_MEMORY", "false").strip().lower() in {"1", "true", "yes", "on"}
+DEBUG_MEMORY_TRACEBACK_LIMIT = int(os.getenv("DEBUG_MEMORY_TRACEBACK_LIMIT", "25").strip() or "25")
+DEBUG_MEMORY_TOP_N = int(os.getenv("DEBUG_MEMORY_TOP_N", "12").strip() or "12")
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587").strip() or "587")
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
@@ -122,6 +136,10 @@ WEATHER_REPORT_CACHE: dict[str, dict[str, Any]] = {}
 WEATHER_FORECAST_CACHE: dict[str, dict[str, Any]] = {}
 WEATHER_FORECAST_CACHE_TTL = timedelta(minutes=20)
 MAX_HISTORY_RAW_ROWS = int(os.getenv("MAX_HISTORY_RAW_ROWS", "3000").strip() or "3000")
+SHARED_SSL_CONTEXT: ssl.SSLContext | None = None
+SENSOR_SAMPLE_WRITE_COUNT = 0
+LIBC: Any | None | bool = None
+MEMORY_DEBUG_BASELINE: tracemalloc.Snapshot | None = None
 SUPABASE_CORE_TABLES = (
     "growly_users",
     "growly_hubs",
@@ -731,6 +749,152 @@ APP_TIMEZONE = ZoneInfo("Europe/Oslo")
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def shared_ssl_context() -> ssl.SSLContext | None:
+    global SHARED_SSL_CONTEXT
+    if certifi is None:
+        return None
+    if SHARED_SSL_CONTEXT is None:
+        SHARED_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+    return SHARED_SSL_CONTEXT
+
+
+def http_error_body(exc: HTTPError) -> str:
+    try:
+        return exc.read().decode("utf-8", errors="ignore")
+    finally:
+        exc.close()
+
+
+def trim_process_memory() -> None:
+    global LIBC
+    if not MALLOC_TRIM_ENABLED or LIBC is False:
+        return
+    if LIBC is None:
+        libc_name = ctypes.util.find_library("c")
+        if not libc_name:
+            LIBC = False
+            return
+        try:
+            candidate = ctypes.CDLL(libc_name)
+        except OSError:
+            LIBC = False
+            return
+        if not hasattr(candidate, "malloc_trim"):
+            LIBC = False
+            return
+        LIBC = candidate
+    try:
+        LIBC.malloc_trim(0)
+    except (AttributeError, OSError):
+        LIBC = False
+
+
+def ensure_memory_debug_started() -> bool:
+    if not DEBUG_MEMORY:
+        return False
+    if not tracemalloc.is_tracing():
+        tracemalloc.start(max(1, DEBUG_MEMORY_TRACEBACK_LIMIT))
+    return True
+
+
+def process_rss_mb() -> float | None:
+    status_path = Path("/proc/self/status")
+    if status_path.exists():
+        try:
+            for line in status_path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return round(float(parts[1]) / 1024, 2)
+        except OSError:
+            pass
+    if resource is None:
+        return None
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    # Linux reports kilobytes, macOS reports bytes. Render is Linux.
+    divisor = 1024 if usage.ru_maxrss < 10_000_000 else 1024 * 1024
+    return round(float(usage.ru_maxrss) / divisor, 2)
+
+
+def trace_stat_payload(stat: tracemalloc.Statistic | tracemalloc.StatisticDiff) -> dict[str, Any]:
+    frame = stat.traceback[0] if stat.traceback else None
+    payload = {
+        "file": frame.filename if frame else "",
+        "line": frame.lineno if frame else 0,
+        "size_kb": round(getattr(stat, "size", 0) / 1024, 1),
+        "count": getattr(stat, "count", 0),
+    }
+    size_diff = getattr(stat, "size_diff", None)
+    count_diff = getattr(stat, "count_diff", None)
+    if size_diff is not None:
+        payload["size_diff_kb"] = round(size_diff / 1024, 1)
+    if count_diff is not None:
+        payload["count_diff"] = count_diff
+    return payload
+
+
+def memory_debug_report(reset_baseline: bool = True) -> dict[str, Any]:
+    global MEMORY_DEBUG_BASELINE
+    gc.collect()
+    trim_process_memory()
+    current_traced = peak_traced = 0
+    top_current: list[dict[str, Any]] = []
+    top_growth: list[dict[str, Any]] = []
+    tracing = ensure_memory_debug_started()
+    if tracing:
+        current_traced, peak_traced = tracemalloc.get_traced_memory()
+        snapshot = tracemalloc.take_snapshot()
+        top_current = [
+            trace_stat_payload(stat)
+            for stat in snapshot.statistics("lineno")[: max(1, DEBUG_MEMORY_TOP_N)]
+        ]
+        if MEMORY_DEBUG_BASELINE is not None:
+            top_growth = [
+                trace_stat_payload(stat)
+                for stat in snapshot.compare_to(MEMORY_DEBUG_BASELINE, "lineno")[: max(1, DEBUG_MEMORY_TOP_N)]
+            ]
+        if reset_baseline or MEMORY_DEBUG_BASELINE is None:
+            MEMORY_DEBUG_BASELINE = snapshot
+
+    return {
+        "enabled": DEBUG_MEMORY,
+        "tracing": tracing,
+        "timestamp": utc_now_iso(),
+        "rss_mb": process_rss_mb(),
+        "python_traced_current_mb": round(current_traced / (1024 * 1024), 2),
+        "python_traced_peak_mb": round(peak_traced / (1024 * 1024), 2),
+        "sensor_sample_writes": SENSOR_SAMPLE_WRITE_COUNT,
+        "gc_counts": list(gc.get_count()),
+        "gc_thresholds": list(gc.get_threshold()),
+        "tracked_objects": len(gc.get_objects()) if DEBUG_MEMORY else None,
+        "cache_sizes": {
+            "weather_report": len(WEATHER_REPORT_CACHE),
+            "weather_forecast": len(WEATHER_FORECAST_CACHE),
+        },
+        "top_current": top_current,
+        "top_growth_since_last_report": top_growth,
+    }
+
+
+def log_memory_debug(reason: str) -> None:
+    if not DEBUG_MEMORY:
+        return
+    report = memory_debug_report(reset_baseline=True)
+    report["reason"] = reason
+    print("MEMORY_DEBUG " + json.dumps(report, ensure_ascii=False), flush=True)
+
+
+def maybe_collect_after_sensor_write() -> None:
+    global SENSOR_SAMPLE_WRITE_COUNT
+    if SENSOR_INGEST_GC_INTERVAL <= 0:
+        return
+    SENSOR_SAMPLE_WRITE_COUNT += 1
+    if SENSOR_SAMPLE_WRITE_COUNT % SENSOR_INGEST_GC_INTERVAL == 0:
+        gc.collect()
+        trim_process_memory()
+        log_memory_debug("sensor_ingest_interval")
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -4085,7 +4249,7 @@ def best_effort_store_sensor_sample_supabase(normalized: dict[str, Any], hub_id:
             prefer="return=minimal",
         )
     except HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="ignore")
+        body = http_error_body(exc)
         return {"ok": False, "error": f"HTTP {exc.code}: {body or exc.reason}"}
     except (URLError, json.JSONDecodeError) as exc:
         return {"ok": False, "error": str(exc)}
@@ -4128,6 +4292,7 @@ def store_sensor_sample(payload: dict[str, Any], hub_id: str) -> dict[str, Any]:
         normalized["id"] = cursor.lastrowid
         normalized["hub_id"] = hub_id
     normalized["supabase"] = best_effort_store_sensor_sample_supabase(normalized, hub_id)
+    maybe_collect_after_sensor_write()
     return normalized
 
 
@@ -4325,7 +4490,7 @@ def ask_openai_growly(question: str, context: dict[str, Any], image: dict[str, s
         },
         method="POST",
     )
-    request_ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    request_ssl_context = shared_ssl_context()
     with urlopen(request, timeout=25, context=request_ssl_context) as response:
         response_payload = json.loads(response.read().decode("utf-8"))
 
@@ -4537,7 +4702,7 @@ def fetch_supabase_rows(params: dict[str, str]) -> list[dict[str, Any]]:
         headers=supabase_auth_headers(),
         method="GET",
     )
-    ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    ssl_context = shared_ssl_context()
     with urlopen(request, timeout=8, context=ssl_context) as response:
         payload = response.read().decode("utf-8")
         data = json.loads(payload)
@@ -4564,7 +4729,7 @@ def supabase_request(
         headers=headers,
         method=method,
     )
-    request_ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    request_ssl_context = shared_ssl_context()
     with urlopen(request, timeout=10, context=request_ssl_context) as response:
         body = response.read().decode("utf-8")
     if not body:
@@ -4606,7 +4771,7 @@ def fetch_supabase_rows_for_hub(hub_id: str, params: dict[str, str]) -> list[dic
     except HTTPError as exc:
         # Older Supabase tables did not include hub_id. Keep the app usable
         # until the migration is applied, but never hide other Supabase errors.
-        body = exc.read().decode("utf-8", errors="ignore")
+        body = http_error_body(exc)
         if exc.code == 400 and "hub_id" in body and "does not exist" in body:
             return fetch_supabase_rows(params)
         raise
@@ -4854,7 +5019,7 @@ def supabase_core_readiness() -> dict[str, Any]:
             supabase_fetch_table(table_name, {"select": "*", "limit": "1"})
             status["tables"][table_name] = {"ok": True, "error": ""}
         except HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="ignore")
+            body = http_error_body(exc)
             status["tables"][table_name] = {"ok": False, "error": body or f"http_{exc.code}"}
         except (URLError, TimeoutError, OSError) as exc:
             status["tables"][table_name] = {"ok": False, "error": str(exc)}
@@ -6538,7 +6703,7 @@ def fetch_address_matches(query: str) -> list[dict[str, Any]]:
         },
         method="GET",
     )
-    ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    ssl_context = shared_ssl_context()
     with urlopen(request, timeout=8, context=ssl_context) as response:
         payload = response.read().decode("utf-8")
     data = json.loads(payload)
@@ -6602,7 +6767,7 @@ def fetch_met_weather_forecast(lat: float, lon: float) -> dict[str, Any]:
         },
         method="GET",
     )
-    ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    ssl_context = shared_ssl_context()
     with urlopen(request, timeout=8, context=ssl_context) as response:
         payload = response.read().decode("utf-8")
     data = json.loads(payload)
@@ -6834,7 +6999,7 @@ def ask_openai_weather_report(forecast: dict[str, Any], hub: dict[str, Any], sam
         },
         method="POST",
     )
-    request_ssl_context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
+    request_ssl_context = shared_ssl_context()
     with urlopen(request, timeout=20, context=request_ssl_context) as response:
         response_payload = json.loads(response.read().decode("utf-8"))
 
@@ -7031,6 +7196,7 @@ def session_auth_payload(request: Request) -> dict[str, Any]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    ensure_memory_debug_started()
     init_db()
     yield
 
@@ -8228,6 +8394,14 @@ async def get_supabase_status(request: Request):
     return {"ok": True, "status": supabase_core_readiness()}
 
 
+@app.get("/api/debug/memory")
+async def debug_memory(request: Request, reset_baseline: bool = Query(True)):
+    auth_error = require_settings_api(request)
+    if auth_error:
+        return auth_error
+    return {"ok": True, "memory": memory_debug_report(reset_baseline=reset_baseline)}
+
+
 @app.post("/api/supabase/sync-core")
 async def sync_supabase_core(request: Request):
     auth_error = require_settings_api(request)
@@ -8236,7 +8410,7 @@ async def sync_supabase_core(request: Request):
     try:
         result = sync_core_to_supabase()
     except HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="ignore")
+        body = http_error_body(exc)
         return JSONResponse(status_code=400, content={"ok": False, "error": body or f"http_{exc.code}"})
     except (URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
