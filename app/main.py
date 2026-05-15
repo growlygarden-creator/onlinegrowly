@@ -12,6 +12,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import smtplib
@@ -53,7 +54,13 @@ FRONTEND_DIST_CANDIDATES = (
 
 def resolve_frontend_dist_dir() -> Path | None:
     for frontend_dist_dir in FRONTEND_DIST_CANDIDATES:
-        if (frontend_dist_dir / "index.html").exists() and (frontend_dist_dir / "assets").exists():
+        frontend_index = frontend_dist_dir / "index.html"
+        frontend_assets_dir = frontend_dist_dir / "assets"
+        if not frontend_index.exists() or not frontend_assets_dir.exists():
+            continue
+        index_html = frontend_index.read_text(encoding="utf-8")
+        referenced_assets = re.findall(r'["\']/assets/([^"\']+)["\']', index_html)
+        if referenced_assets and all((frontend_assets_dir / asset_path).exists() for asset_path in referenced_assets):
             return frontend_dist_dir
     return None
 
