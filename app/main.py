@@ -51,6 +51,13 @@ FRONTEND_DIST_CANDIDATES = (
 )
 
 
+def resolve_frontend_dist_dir() -> Path | None:
+    for frontend_dist_dir in FRONTEND_DIST_CANDIDATES:
+        if (frontend_dist_dir / "index.html").exists() and (frontend_dist_dir / "assets").exists():
+            return frontend_dist_dir
+    return None
+
+
 def load_local_env(path: Path) -> None:
     if not path.exists():
         return
@@ -7244,18 +7251,15 @@ app.add_middleware(
 )
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-for frontend_dist_dir in FRONTEND_DIST_CANDIDATES:
-    if (frontend_dist_dir / "assets").exists():
-        app.mount("/assets", StaticFiles(directory=frontend_dist_dir / "assets"), name="frontend-assets")
-        break
+FRONTEND_DIST_DIR = resolve_frontend_dist_dir()
+if FRONTEND_DIST_DIR:
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST_DIR / "assets"), name="frontend-assets")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 def app_entry_response() -> FileResponse | JSONResponse:
-    for frontend_dist_dir in FRONTEND_DIST_CANDIDATES:
-        frontend_index = frontend_dist_dir / "index.html"
-        if frontend_index.exists():
-            return FileResponse(frontend_index)
+    if FRONTEND_DIST_DIR:
+        return FileResponse(FRONTEND_DIST_DIR / "index.html")
     return JSONResponse(status_code=503, content={"ok": False, "error": "frontend_not_built"})
 
 
