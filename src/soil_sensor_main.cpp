@@ -13,7 +13,7 @@
 #include "soil_now_protocol.h"
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.1.2-ota";
+constexpr char kFirmwareVersion[] = "0.1.3-startup-window";
 constexpr char kPrefsNamespace[] = "growly_soil";
 constexpr char kPrefsSsidKey[] = "ssid";
 constexpr char kPrefsPasswordKey[] = "password";
@@ -39,6 +39,8 @@ constexpr unsigned long kPairingAttemptMs = 4UL * 60UL * 1000UL;
 constexpr unsigned long kPairingPerChannelMs = 1200;
 constexpr unsigned long kSampleAckTimeoutMs = 15000;
 constexpr unsigned long kWifiConnectTimeoutMs = 15000;
+constexpr unsigned long kStartupConfirmWindowMs = 3UL * 60UL * 1000UL;
+constexpr unsigned long kStartupConfirmSampleIntervalMs = 15UL * 1000UL;
 
 Preferences preferences;
 DHT dht(kDhtPin, kDhtType);
@@ -782,6 +784,33 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
     return true;
 }
 
+bool deliverSample(const SoilSample& sample) {
+    const bool espNowDelivered = sendSampleEspNow(sample);
+    if (!espNowDelivered) {
+        return uploadSampleViaWifi(sample);
+    }
+    return true;
+}
+
+void runStartupConfirmWindow() {
+    Serial.printf(
+        "Startup confirmation window active for %lu seconds; sampling every %lu seconds.\n",
+        kStartupConfirmWindowMs / 1000UL,
+        kStartupConfirmSampleIntervalMs / 1000UL);
+    setStatusLed(true);
+    const unsigned long startedAt = millis();
+    unsigned long nextSampleAt = 0;
+    while (millis() - startedAt < kStartupConfirmWindowMs) {
+        if (millis() >= nextSampleAt) {
+            const SoilSample sample = readSample();
+            deliverSample(sample);
+            nextSampleAt = millis() + kStartupConfirmSampleIntervalMs;
+        }
+        delay(50);
+    }
+    setStatusLed(false);
+}
+
 void sleepFor(uint64_t sleepUs) {
     Serial.printf("Sleeping for %llu seconds.\n", sleepUs / 1000000ULL);
     setStatusLed(false);
@@ -802,6 +831,8 @@ void setup() {
 
     Serial.println();
     Serial.println("Booting Growly DIY MORE soil sensor");
+    const esp_sleep_wakeup_cause_t wakeupCause = esp_sleep_get_wakeup_cause();
+    Serial.printf("Wakeup cause=%d\n", static_cast<int>(wakeupCause));
     loadConfig();
     if (digitalRead(kBootButtonPin) == LOW) {
         Serial.println("BOOT held at startup. Clearing soil sensor pairing.");
@@ -816,10 +847,11 @@ void setup() {
         sleepFor(paired ? configuredSleepSeconds * 1000000ULL : kPairingRetrySleepUs);
     }
 
-    const SoilSample sample = readSample();
-    const bool espNowDelivered = sendSampleEspNow(sample);
-    if (!espNowDelivered) {
-        uploadSampleViaWifi(sample);
+    if (wakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
+        const SoilSample sample = readSample();
+        deliverSample(sample);
+    } else {
+        runStartupConfirmWindow();
     }
     stopEspNow();
     performPendingFirmwareUpdate();
