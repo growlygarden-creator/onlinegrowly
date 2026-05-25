@@ -36,8 +36,7 @@ type DashboardPageProps = {
   theme: "light" | "dark";
 };
 
-type SoilMetricKey = "humidity" | "temperature" | "ph" | "conductivity" | "nitrogen" | "phosphorus" | "potassium" | "salinity" | "tds";
-type TrendMetricKey = SoilMetricKey | "air_temperature" | "air_humidity" | "air_pressure" | "lux";
+type TrendMetricKey = "humidity" | "temperature" | "ph" | "conductivity" | "nitrogen" | "phosphorus" | "potassium" | "salinity" | "tds" | "air_temperature" | "air_humidity" | "air_pressure" | "lux";
 type TrendRange = "24h" | "3d" | "7d" | "all";
 type ClimateReportMetric = "temperature" | "humidity" | "lux";
 type DashboardSensorSource = "hub" | `soil:${string}`;
@@ -255,9 +254,8 @@ const trendMetricConfigs: TrendMetricConfig[] = [
   { key: "tds", label: "TDS", unit: "", digits: 0 },
 ];
 
-const soilMetricConfigs = trendMetricConfigs.filter((metric): metric is TrendMetricConfig & { key: SoilMetricKey } =>
-  !["air_temperature", "air_humidity", "air_pressure", "lux"].includes(metric.key),
-);
+const diySoilSensorMetricKeys: TrendMetricKey[] = ["humidity", "air_temperature", "air_humidity"];
+const diySoilSensorMetricConfigs = trendMetricConfigs.filter((metric) => diySoilSensorMetricKeys.includes(metric.key));
 
 const trendRangeOptions: Array<{ key: TrendRange; label: string }> = [
   { key: "24h", label: "24t" },
@@ -1421,11 +1419,12 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   const selectedSoilSensorIndex = selectedSoilSensor ? soilSensors.findIndex((sensor) => sensor.sensor_id === selectedSoilSensor.sensor_id) : -1;
   const sensorSourceLabel = selectedSoilSensor ? soilSensorDisplayName(selectedSoilSensor, Math.max(0, selectedSoilSensorIndex)) : "Jordsensor";
   const status = growthStatus(activeSample);
-  const temperature = metricText(isSoilSensorSource ? activeSample?.temperature : activeSample?.air_temperature ?? activeSample?.temperature, "°C", 0);
+  const temperature = metricText(activeSample?.air_temperature ?? activeSample?.temperature, "°C", 0);
   const humidity = metricText(isSoilSensorSource ? activeSample?.humidity : activeSample?.air_humidity, "%", 0);
+  const soilAirHumidity = metricText(activeSample?.air_humidity, "%", 0);
   const pressure = metricText(activeSample?.air_pressure, " hPa", 0);
   const thirdMetric = isSoilSensorSource
-    ? metricText(activeSample?.ph, " pH", 1)
+    ? soilAirHumidity
     : metricText(activeSample?.lux, " lx", 0);
   const weatherTemperature = metricText(weatherNow?.air_temperature, "°C", 0);
   const weatherHumidity = metricText(weatherNow?.relative_humidity, "%", 0);
@@ -1460,7 +1459,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   const dailyAdvice = buildDailyAdvice(weather, dailyWeatherReport, primaryTask, dashboardPlants.length);
   const activeReportLabel = reportMetric ? climateLabel(reportMetric) : null;
   const activeReportValue = reportMetric ? climateValue(activeSample, reportMetric) : null;
-  const soilMetrics = soilMetricConfigs.map((metric) => ({
+  const soilMetrics = diySoilSensorMetricConfigs.map((metric) => ({
     ...metric,
     value: formatTrendValue(sampleValue(activeSample, metric.key), metric.unit, metric.digits),
   }));
@@ -1611,16 +1610,16 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                 </span>
               ) : null}
               <div className="home-sensor-summary" aria-label="Drivhusverdier">
-                <button className="home-sensor-tile" type="button" onClick={() => (isSoilSensorSource ? openTrend("temperature") : setReportMetric("temperature"))}>
-                  <span><img src={tempDot} alt="" aria-hidden="true" /> {isSoilSensorSource ? "Jordtemp" : "Temperatur"}</span>
+                <button className="home-sensor-tile" type="button" onClick={() => (isSoilSensorSource ? openTrend("air_temperature") : setReportMetric("temperature"))}>
+                  <span><img src={tempDot} alt="" aria-hidden="true" /> {isSoilSensorSource ? "Lufttemp" : "Temperatur"}</span>
                   <strong>{temperature}</strong>
                 </button>
                 <button className="home-sensor-tile" type="button" onClick={() => (isSoilSensorSource ? openTrend("humidity") : setReportMetric("humidity"))}>
                   <span><img src={humidityDot} alt="" aria-hidden="true" /> {isSoilSensorSource ? "Jordfukt" : "Luftfukt"}</span>
                   <strong>{humidity}</strong>
                 </button>
-                <button className="home-sensor-tile" type="button" onClick={() => (isSoilSensorSource ? openTrend("ph") : setReportMetric("lux"))}>
-                  <span><i className="metric-strip__sun-dot" aria-hidden="true" /> {isSoilSensorSource ? "pH" : "Lys"}</span>
+                <button className="home-sensor-tile" type="button" onClick={() => (isSoilSensorSource ? openTrend("air_humidity") : setReportMetric("lux"))}>
+                  <span><i className="metric-strip__sun-dot" aria-hidden="true" /> {isSoilSensorSource ? "Luftfukt" : "Lys"}</span>
                   <strong>{thirdMetric}</strong>
                 </button>
               </div>

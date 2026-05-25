@@ -888,12 +888,12 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                     <strong>{metricText(selectedSoilSample?.humidity, "%", 0)}</strong>
                   </span>
                   <span>
-                    <small>Jordtemp</small>
-                    <strong>{metricText(selectedSoilSample?.temperature, "°C", 1)}</strong>
+                    <small>Lufttemp</small>
+                    <strong>{metricText(selectedSoilSample?.air_temperature, "°C", 1)}</strong>
                   </span>
                   <span>
-                    <small>pH</small>
-                    <strong>{metricText(selectedSoilSample?.ph, "", 1)}</strong>
+                    <small>Luftfukt</small>
+                    <strong>{metricText(selectedSoilSample?.air_humidity, "%", 0)}</strong>
                   </span>
                 </div>
                 {typeof selectedSoilSensor.battery_percent === "number" ? (
