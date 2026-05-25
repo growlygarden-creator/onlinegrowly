@@ -974,7 +974,10 @@ def public_base_url() -> str:
 def bundled_firmware_info() -> tuple[str, str]:
     if not BUNDLED_FIRMWARE_DIR.exists():
         return "", ""
-    candidates = sorted(BUNDLED_FIRMWARE_DIR.glob("growly-*.bin"), key=lambda path: path.stat().st_mtime)
+    candidates = sorted(
+        BUNDLED_FIRMWARE_DIR.glob("growly-*.bin"),
+        key=lambda path: firmware_version_parts(path.stem.removeprefix("growly-")),
+    )
     if not candidates:
         return "", ""
     firmware_path = candidates[-1]
