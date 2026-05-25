@@ -864,6 +864,46 @@ b {
   gap: 8px;
 }
 
+.home-sensor-source {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0;
+  scrollbar-width: none;
+}
+
+.home-sensor-source::-webkit-scrollbar {
+  display: none;
+}
+
+.home-sensor-source button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  max-width: 190px;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 1px solid rgba(38, 98, 65, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-sensor-source button.is-selected {
+  background: rgba(237, 245, 235, 0.95);
+  color: var(--accent-strong);
+  box-shadow: inset 0 0 0 1px rgba(38, 98, 65, 0.12);
+}
+
+.home-sensor-source-note {
+  display: block;
+  margin-top: -4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
 .home-sensor-tile,
 .home-detail-grid button,
 .home-shortcut {

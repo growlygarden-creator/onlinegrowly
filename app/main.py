@@ -4928,17 +4928,35 @@ def store_sensor_sample(payload: dict[str, Any], hub_id: str) -> dict[str, Any]:
     return normalized
 
 
-def latest_sample(hub_id: str) -> dict[str, Any] | None:
+def normalize_sensor_sample_filter(sensor_id: str | None) -> str | None:
+    text = str(sensor_id or "").strip()
+    if not text:
+        return None
+    if text.lower() in {"__hub__", "hub", "7i1", "7-i-1"}:
+        return ""
+    return text
+
+
+def latest_sample(hub_id: str, sensor_id: str | None = None) -> dict[str, Any] | None:
+    sensor_filter = normalize_sensor_sample_filter(sensor_id)
+    sensor_clause = ""
+    values: list[Any] = [hub_id]
+    if sensor_filter == "":
+        sensor_clause = "AND (sensor_id IS NULL OR sensor_id = '')"
+    elif sensor_filter is not None:
+        sensor_clause = "AND sensor_id = ?"
+        values.append(sensor_filter)
     with db_connection() as connection:
         row = connection.execute(
-            """
+            f"""
             SELECT *
             FROM sensor_samples
             WHERE hub_id = ?
+              {sensor_clause}
             ORDER BY id DESC
             LIMIT 1
             """,
-            (hub_id,),
+            tuple(values),
         ).fetchone()
     return dict(row) if row else None
 
@@ -5207,6 +5225,7 @@ def metric_history_by_span(
     limit: int,
     date_from: str | None = None,
     date_to: str | None = None,
+    sensor_id: str | None = None,
 ) -> list[dict[str, Any]]:
     if metric not in METRIC_KEYS:
         raise ValueError("unsupported_metric")
@@ -5220,6 +5239,16 @@ def metric_history_by_span(
     bucket_seconds = config["bucket_seconds"]
     custom_window = bool(date_from or date_to)
     raw_limit = min(limit * 3, MAX_HISTORY_RAW_ROWS)
+    sensor_filter = normalize_sensor_sample_filter(sensor_id)
+    sensor_clause = ""
+    values: list[Any] = [hub_id, since_dt.isoformat(), until_dt.isoformat(), raw_limit]
+    latest_values: list[Any] = [hub_id]
+    if sensor_filter == "":
+        sensor_clause = "AND (sensor_id IS NULL OR sensor_id = '')"
+    elif sensor_filter is not None:
+        sensor_clause = "AND sensor_id = ?"
+        values.insert(1, sensor_filter)
+        latest_values.append(sensor_filter)
 
     with db_connection() as connection:
         rows = connection.execute(
@@ -5228,12 +5257,13 @@ def metric_history_by_span(
             FROM sensor_samples
             WHERE {metric} IS NOT NULL
               AND hub_id = ?
+              {sensor_clause}
               AND recorded_at >= ?
               AND recorded_at < ?
             ORDER BY recorded_at ASC
             LIMIT ?
             """,
-            (hub_id, since_dt.isoformat(), until_dt.isoformat(), raw_limit),
+            tuple(values),
         ).fetchall()
         if not rows and not custom_window:
             latest_row = connection.execute(
@@ -5242,10 +5272,11 @@ def metric_history_by_span(
                 FROM sensor_samples
                 WHERE {metric} IS NOT NULL
                   AND hub_id = ?
+                  {sensor_clause}
                 ORDER BY recorded_at DESC
                 LIMIT 1
                 """,
-                (hub_id,),
+                tuple(latest_values),
             ).fetchone()
             if latest_row and latest_row["recorded_at"]:
                 latest_dt = parse_iso_datetime(str(latest_row["recorded_at"]))
@@ -5255,18 +5286,22 @@ def metric_history_by_span(
                     global_start = parse_iso_datetime(history_start_iso(hub_id))
                     if global_start and since_dt < global_start:
                         since_dt = global_start
+                    fallback_values: list[Any] = [hub_id, since_dt.isoformat(), until_dt.isoformat(), raw_limit]
+                    if sensor_filter is not None and sensor_filter != "":
+                        fallback_values.insert(1, sensor_filter)
                     rows = connection.execute(
                         f"""
                         SELECT recorded_at, {metric} AS value, valid
                         FROM sensor_samples
                         WHERE {metric} IS NOT NULL
                           AND hub_id = ?
+                          {sensor_clause}
                           AND recorded_at >= ?
                           AND recorded_at < ?
                         ORDER BY recorded_at ASC
                         LIMIT ?
                         """,
-                        (hub_id, since_dt.isoformat(), until_dt.isoformat(), raw_limit),
+                        tuple(fallback_values),
                     ).fetchall()
 
     buckets: dict[str, list[float]] = {}
@@ -5409,12 +5444,23 @@ def fetch_supabase_rows_for_hub(hub_id: str, params: dict[str, str]) -> list[dic
         raise
 
 
-def supabase_latest_sample(hub_id: str) -> dict[str, Any] | None:
+def apply_supabase_sensor_sample_filter(params: dict[str, str], sensor_id: str | None) -> None:
+    sensor_filter = normalize_sensor_sample_filter(sensor_id)
+    if sensor_filter is None:
+        return
+    if sensor_filter == "":
+        params["sensor_id"] = "is.null"
+        return
+    params["sensor_id"] = f"eq.{sensor_filter}"
+
+
+def supabase_latest_sample(hub_id: str, sensor_id: str | None = None) -> dict[str, Any] | None:
     params = {
-        "select": "created_at,temperature,humidity,ph,conductivity,nitrogen,phosphorus,potassium,salinity,tds,lux,air_temperature,air_humidity,air_pressure",
+        "select": "created_at,sensor_id,temperature,humidity,ph,conductivity,nitrogen,phosphorus,potassium,salinity,tds,lux,air_temperature,air_humidity,air_pressure",
         "order": "created_at.desc",
         "limit": "1",
     }
+    apply_supabase_sensor_sample_filter(params, sensor_id)
     global_start = history_start_iso(hub_id)
     if global_start:
         params["created_at"] = f"gte.{global_start}"
@@ -5425,6 +5471,7 @@ def supabase_latest_sample(hub_id: str) -> dict[str, Any] | None:
     row = rows[0]
     sample = {
         "recorded_at": row.get("created_at"),
+        "sensor_id": row.get("sensor_id") or "",
         "source": "supabase",
         "valid": 1,
         "error": "",
@@ -5453,6 +5500,7 @@ def supabase_metric_history_by_span(
     limit: int,
     date_from: str | None = None,
     date_to: str | None = None,
+    sensor_id: str | None = None,
 ) -> list[dict[str, Any]]:
     if metric not in METRIC_KEYS:
         raise ValueError("unsupported_metric")
@@ -5465,17 +5513,16 @@ def supabase_metric_history_by_span(
     since_dt, until_dt = clamp_history_window(hub_id, requested_since, requested_until)
     custom_window = bool(date_from or date_to)
     raw_limit = min(limit * 3, MAX_HISTORY_RAW_ROWS)
-    rows = fetch_supabase_rows_for_hub(
-        hub_id,
-        {
-            "select": f"created_at,{metric}",
-            "created_at": f"gte.{since_dt.isoformat()}",
-            f"{metric}": "not.is.null",
-            "and": f"(created_at.lt.{until_dt.isoformat()})",
-            "order": "created_at.asc",
-            "limit": str(raw_limit),
-        },
-    )
+    params = {
+        "select": f"created_at,{metric}",
+        "created_at": f"gte.{since_dt.isoformat()}",
+        f"{metric}": "not.is.null",
+        "and": f"(created_at.lt.{until_dt.isoformat()})",
+        "order": "created_at.asc",
+        "limit": str(raw_limit),
+    }
+    apply_supabase_sensor_sample_filter(params, sensor_id)
+    rows = fetch_supabase_rows_for_hub(hub_id, params)
 
     if not rows and not custom_window:
         latest_params = {
@@ -5484,6 +5531,7 @@ def supabase_metric_history_by_span(
             "order": "created_at.desc",
             "limit": "1",
         }
+        apply_supabase_sensor_sample_filter(latest_params, sensor_id)
         global_start = history_start_iso(hub_id)
         if global_start:
             latest_params["created_at"] = f"gte.{global_start}"
@@ -5497,16 +5545,18 @@ def supabase_metric_history_by_span(
                 global_start_dt = parse_iso_datetime(history_start_iso(hub_id))
                 if global_start_dt and since_dt < global_start_dt:
                     since_dt = global_start_dt
+                history_params = {
+                    "select": f"created_at,{metric}",
+                    "created_at": f"gte.{since_dt.isoformat()}",
+                    f"{metric}": "not.is.null",
+                    "and": f"(created_at.lt.{until_dt.isoformat()})",
+                    "order": "created_at.asc",
+                    "limit": str(raw_limit),
+                }
+                apply_supabase_sensor_sample_filter(history_params, sensor_id)
                 rows = fetch_supabase_rows_for_hub(
                     hub_id,
-                    {
-                        "select": f"created_at,{metric}",
-                        "created_at": f"gte.{since_dt.isoformat()}",
-                        f"{metric}": "not.is.null",
-                        "and": f"(created_at.lt.{until_dt.isoformat()})",
-                        "order": "created_at.asc",
-                        "limit": str(raw_limit),
-                    },
+                    history_params,
                 )
 
     if not rows:
@@ -8446,6 +8496,7 @@ async def history(
     span: str = Query(default="hours"),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
+    sensor_id: str | None = Query(default=None),
     limit: int = Query(default=240, ge=10, le=2000),
 ):
     auth_error = require_viewer_api(request)
@@ -8460,17 +8511,17 @@ async def history(
     fallback_reason: str | None = None
     try:
         if supabase_enabled():
-            history_rows = supabase_metric_history_by_span(hub_id, metric, span, limit, date_from=date_from, date_to=date_to)
+            history_rows = supabase_metric_history_by_span(hub_id, metric, span, limit, date_from=date_from, date_to=date_to, sensor_id=sensor_id)
             source = "supabase"
         else:
-            history_rows = metric_history_by_span(hub_id, metric, span, limit, date_from=date_from, date_to=date_to)
+            history_rows = metric_history_by_span(hub_id, metric, span, limit, date_from=date_from, date_to=date_to, sensor_id=sensor_id)
     except ValueError:
         return JSONResponse(
             status_code=400,
             content={"ok": False, "error": "unsupported_history_request", "metric": metric, "span": span},
         )
     except (HTTPError, URLError, json.JSONDecodeError) as exc:
-        history_rows = metric_history_by_span(hub_id, metric, span, limit, date_from=date_from, date_to=date_to)
+        history_rows = metric_history_by_span(hub_id, metric, span, limit, date_from=date_from, date_to=date_to, sensor_id=sensor_id)
         source = "local_fallback"
         fallback_reason = str(exc)
 
@@ -8481,6 +8532,7 @@ async def history(
         "span": span,
         "date_from": date_from,
         "date_to": date_to,
+        "sensor_id": normalize_sensor_sample_filter(sensor_id) or "",
         "source": source,
         "fallback_reason": fallback_reason,
         "points": history_rows,
@@ -8526,7 +8578,7 @@ async def history_start(request: Request, metric: str):
 
 
 @app.get("/api/latest")
-async def latest(request: Request):
+async def latest(request: Request, sensor_id: str | None = Query(default=None)):
     auth_error = require_viewer_api(request)
     if auth_error:
         return auth_error
@@ -8539,15 +8591,15 @@ async def latest(request: Request):
     fallback_reason: str | None = None
     try:
         if supabase_enabled():
-            sample = supabase_latest_sample(hub_id)
+            sample = supabase_latest_sample(hub_id, sensor_id=sensor_id)
             source = "supabase"
         else:
-            sample = latest_sample(hub_id)
+            sample = latest_sample(hub_id, sensor_id=sensor_id)
     except (HTTPError, URLError, json.JSONDecodeError) as exc:
-        sample = latest_sample(hub_id)
+        sample = latest_sample(hub_id, sensor_id=sensor_id)
         source = "local_fallback"
         fallback_reason = str(exc)
-    return {"ok": True, "hub_id": hub_id, "sample": sample, "source": source, "fallback_reason": fallback_reason}
+    return {"ok": True, "hub_id": hub_id, "sensor_id": normalize_sensor_sample_filter(sensor_id) or "", "sample": sample, "source": source, "fallback_reason": fallback_reason}
 
 
 @app.get("/api/day-summary")

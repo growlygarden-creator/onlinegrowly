@@ -36,6 +36,7 @@ export type SoilSensorPairing = {
 
 export type LatestSample = {
   recorded_at?: string | null;
+  sensor_id?: string | null;
   air_temperature?: number | null;
   air_humidity?: number | null;
   air_pressure?: number | null;
@@ -579,9 +580,10 @@ export async function updateSoilSensor(sensorId: string, payload: { plant_id?: s
   }
 }
 
-export async function fetchLatestSample(hubId = ""): Promise<LatestSample | null> {
+export async function fetchLatestSample(hubId = "", sensorId = ""): Promise<LatestSample | null> {
   try {
-    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/latest", hubId)), {
+    const path = sensorId ? `/api/latest?sensor_id=${encodeURIComponent(sensorId)}` : "/api/latest";
+    const response = await fetchWithTimeout(apiUrl(appendHubId(path, hubId)), {
       credentials: "include",
       cache: "no-store",
       headers: authHeaders(),
@@ -753,6 +755,7 @@ export async function fetchMetricHistory(params: {
   dateFrom?: string;
   dateTo?: string;
   hubId?: string;
+  sensorId?: string;
 }): Promise<HistoryResponse | null> {
   try {
     const search = new URLSearchParams({
@@ -771,6 +774,10 @@ export async function fetchMetricHistory(params: {
 
     if (params.hubId) {
       search.set("hub_id", params.hubId);
+    }
+
+    if (params.sensorId) {
+      search.set("sensor_id", params.sensorId);
     }
 
     const response = await fetchWithTimeout(apiUrl(`/api/history?${search.toString()}`), {

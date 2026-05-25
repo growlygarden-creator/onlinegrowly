@@ -5,12 +5,14 @@ import {
   fetchLatestSample,
   fetchMetricHistory,
   fetchPlants,
+  fetchSoilSensors,
   fetchWeatherForecast,
   type AuthSession,
   type DailyWeatherReport,
   type GrowlyPlant,
   type HistoryPoint,
   type LatestSample,
+  type SoilSensor,
   type WeatherForecast,
   type WeatherHour,
 } from "../lib/api";
@@ -37,6 +39,7 @@ type SoilMetricKey = "humidity" | "temperature" | "ph" | "conductivity" | "nitro
 type TrendMetricKey = SoilMetricKey | "air_temperature" | "air_humidity" | "air_pressure" | "lux";
 type TrendRange = "24h" | "3d" | "7d" | "all";
 type ClimateReportMetric = "temperature" | "humidity" | "lux";
+type DashboardSensorSource = "hub" | `soil:${string}`;
 type TrendMetricConfig = {
   key: TrendMetricKey;
   label: string;
@@ -257,6 +260,32 @@ const trendRangeOptions: Array<{ key: TrendRange; label: string }> = [
   { key: "7d", label: "7 dager" },
   { key: "all", label: "Alt" },
 ];
+const HUB_SENSOR_FILTER = "__hub__";
+const dashboardSourceStoragePrefix = "growly.dashboardSensorSource";
+
+function dashboardSourceStorageKey(hubId: string): string {
+  return `${dashboardSourceStoragePrefix}.${hubId || "default"}`;
+}
+
+function loadDashboardSensorSource(hubId: string): DashboardSensorSource {
+  try {
+    const value = window.localStorage.getItem(dashboardSourceStorageKey(hubId));
+    if (value === "hub" || value?.startsWith("soil:")) {
+      return value as DashboardSensorSource;
+    }
+  } catch {
+    // Keep the dashboard usable when storage is unavailable.
+  }
+  return "hub";
+}
+
+function saveDashboardSensorSource(hubId: string, source: DashboardSensorSource): void {
+  try {
+    window.localStorage.setItem(dashboardSourceStorageKey(hubId), source);
+  } catch {
+    // Non-critical preference.
+  }
+}
 
 function metricText(value: number | null | undefined, suffix: string, digits = 0): string {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -1213,13 +1242,40 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   const [weatherHourlyOpen, setWeatherHourlyOpen] = useState(false);
   const [sensorDetailsOpen, setSensorDetailsOpen] = useState(false);
   const [latestNotification, setLatestNotification] = useState<GrowlyNotificationHistoryItem | null>(null);
+  const [soilSensors, setSoilSensors] = useState<SoilSensor[]>([]);
+  const [sensorSource, setSensorSource] = useState<DashboardSensorSource>(() => loadDashboardSensorSource(selectedHubId));
   const weatherGraphRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    fetchLatestSample(selectedHubId).then((result) => {
+    setSensorSource(loadDashboardSensorSource(selectedHubId));
+  }, [selectedHubId]);
+
+  useEffect(() => {
+    const sensorFilter = sensorSource === "hub" ? HUB_SENSOR_FILTER : sensorSource.replace("soil:", "");
+    fetchLatestSample(selectedHubId, sensorFilter).then((result) => {
       setSample(result);
     });
+  }, [selectedHubId, sensorSource]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSoilSensors(selectedHubId).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      setSoilSensors(result?.sensors ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedHubId]);
+
+  useEffect(() => {
+    if (sensorSource !== "hub" && !soilSensors.some((sensor) => sensorSource === `soil:${sensor.sensor_id}`)) {
+      setSensorSource("hub");
+      saveDashboardSensorSource(selectedHubId, "hub");
+    }
+  }, [selectedHubId, sensorSource, soilSensors]);
 
   useEffect(() => {
     fetchWeatherForecast(selectedHubId).then((result) => {
@@ -1325,6 +1381,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
       dateFrom: windowConfig.dateFrom,
       dateTo: windowConfig.dateTo,
       hubId: selectedHubId,
+      sensorId: sensorSource === "hub" ? HUB_SENSOR_FILTER : sensorSource.replace("soil:", ""),
     }).then((result) => {
       if (!result) {
         setTrendPoints([]);
@@ -1336,18 +1393,25 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
       setTrendPoints(result.points);
       setTrendLoading(false);
     });
-  }, [trendMetric, trendRange, selectedHubId]);
+  }, [trendMetric, trendRange, selectedHubId, sensorSource]);
 
   const firstName = session?.user?.full_name?.split(" ")[0] || session?.username || "Growly";
   const scene = greenhouseScene(theme);
   const weatherNow = weather?.forecast.now;
   const hasActiveHub = isHubActive(session?.hub?.is_active);
   const activeSample = hasActiveHub ? sample : null;
+  const selectedSoilSensor = sensorSource.startsWith("soil:")
+    ? soilSensors.find((sensor) => sensorSource === `soil:${sensor.sensor_id}`) ?? null
+    : null;
+  const isSoilSensorSource = Boolean(selectedSoilSensor);
+  const sensorSourceLabel = selectedSoilSensor?.sensor_name || selectedSoilSensor?.sensor_id || "Jordsensor";
   const status = growthStatus(activeSample);
-  const temperature = metricText(activeSample?.air_temperature ?? activeSample?.temperature, "°C", 0);
-  const humidity = metricText(activeSample?.air_humidity, "%", 0);
+  const temperature = metricText(isSoilSensorSource ? activeSample?.temperature : activeSample?.air_temperature ?? activeSample?.temperature, "°C", 0);
+  const humidity = metricText(isSoilSensorSource ? activeSample?.humidity : activeSample?.air_humidity, "%", 0);
   const pressure = metricText(activeSample?.air_pressure, " hPa", 0);
-  const lux = metricText(activeSample?.lux, " lx", 0);
+  const thirdMetric = isSoilSensorSource
+    ? metricText(activeSample?.ph, " pH", 1)
+    : metricText(activeSample?.lux, " lx", 0);
   const weatherTemperature = metricText(weatherNow?.air_temperature, "°C", 0);
   const weatherHumidity = metricText(weatherNow?.relative_humidity, "%", 0);
   const weatherWind = metricText(weatherNow?.wind_speed, " m/s", 1);
@@ -1395,6 +1459,13 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   const trendChart = chartPath(trendPoints, activeTrendConfig, trendRange, language);
   const trendStatus = trendReferenceStatus(latestTrendValue, activeTrendConfig);
   const hoverPoint = hoverIndex !== null ? trendChart.coords[hoverIndex] : null;
+  function selectSensorSource(nextSource: DashboardSensorSource) {
+    setSensorSource(nextSource);
+    saveDashboardSensorSource(selectedHubId, nextSource);
+    setReportMetric(null);
+    setTrendMetric(null);
+    setSoilPanelOpen(false);
+  }
   function openTrend(metric: TrendMetricKey) {
     setSoilPanelOpen(false);
     setReportMetric(null);
@@ -1491,18 +1562,49 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
 
           {hasActiveHub ? (
             <>
+              <div className="home-sensor-source" role="radiogroup" aria-label="Velg sensorkilde">
+                <button
+                  className={sensorSource === "hub" ? "is-selected" : ""}
+                  type="button"
+                  role="radio"
+                  aria-checked={sensorSource === "hub"}
+                  onClick={() => selectSensorSource("hub")}
+                >
+                  7-i-1 diagnose
+                </button>
+                {soilSensors.map((sensor) => {
+                  const source = `soil:${sensor.sensor_id}` as DashboardSensorSource;
+                  return (
+                    <button
+                      className={sensorSource === source ? "is-selected" : ""}
+                      type="button"
+                      role="radio"
+                      aria-checked={sensorSource === source}
+                      onClick={() => selectSensorSource(source)}
+                      key={sensor.sensor_id}
+                    >
+                      {sensor.sensor_name || sensor.sensor_id}
+                    </button>
+                  );
+                })}
+              </div>
+              {isSoilSensorSource ? (
+                <span className="home-sensor-source-note">
+                  Viser jordsensorverdier fra {sensorSourceLabel}.
+                </span>
+              ) : null}
               <div className="home-sensor-summary" aria-label="Drivhusverdier">
-                <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("temperature")}>
-                  <span><img src={tempDot} alt="" aria-hidden="true" /> Temperatur</span>
+                <button className="home-sensor-tile" type="button" onClick={() => (isSoilSensorSource ? openTrend("temperature") : setReportMetric("temperature"))}>
+                  <span><img src={tempDot} alt="" aria-hidden="true" /> {isSoilSensorSource ? "Jordtemp" : "Temperatur"}</span>
                   <strong>{temperature}</strong>
                 </button>
-                <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("humidity")}>
-                  <span><img src={humidityDot} alt="" aria-hidden="true" /> Luftfukt</span>
+                <button className="home-sensor-tile" type="button" onClick={() => (isSoilSensorSource ? openTrend("humidity") : setReportMetric("humidity"))}>
+                  <span><img src={humidityDot} alt="" aria-hidden="true" /> {isSoilSensorSource ? "Jordfukt" : "Luftfukt"}</span>
                   <strong>{humidity}</strong>
                 </button>
-                <button className="home-sensor-tile" type="button" onClick={() => setReportMetric("lux")}>
-                  <span><i className="metric-strip__sun-dot" aria-hidden="true" /> Lys</span>
-                  <strong>{lux}</strong>
+                <button className="home-sensor-tile" type="button" onClick={() => (isSoilSensorSource ? openTrend("ph") : setReportMetric("lux"))}>
+                  <span><i className="metric-strip__sun-dot" aria-hidden="true" /> {isSoilSensorSource ? "pH" : "Lys"}</span>
+                  <strong>{thirdMetric}</strong>
                 </button>
               </div>
               <button className="home-details-toggle" type="button" onClick={() => setSensorDetailsOpen((open) => !open)}>
@@ -1510,14 +1612,16 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
               </button>
               {sensorDetailsOpen ? (
                 <div className="home-detail-grid">
-                  <button type="button" onClick={() => openTrend("air_pressure")}>
-                    <span className="metric-strip__pressure-dot" aria-hidden="true" />
-                    <small>Lufttrykk</small>
-                    <strong>{pressure}</strong>
-                  </button>
+                  {!isSoilSensorSource ? (
+                    <button type="button" onClick={() => openTrend("air_pressure")}>
+                      <span className="metric-strip__pressure-dot" aria-hidden="true" />
+                      <small>Lufttrykk</small>
+                      <strong>{pressure}</strong>
+                    </button>
+                  ) : null}
                   <button type="button" onClick={() => setSoilPanelOpen(true)}>
                     <img src={soilDot} alt="" aria-hidden="true" />
-                    <small>Jorddata</small>
+                    <small>{isSoilSensorSource ? sensorSourceLabel : "Jorddata"}</small>
                     <strong>{status.soil}</strong>
                   </button>
                 </div>
