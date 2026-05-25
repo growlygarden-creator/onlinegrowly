@@ -3614,6 +3614,45 @@ b {
   overflow-wrap: anywhere;
 }
 
+.soil-battery-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.soil-battery-summary > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(38, 98, 65, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.soil-battery-summary span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.soil-battery-summary strong {
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.soil-battery-summary--warning > div {
+  border-color: rgba(219, 151, 55, 0.28);
+  background: rgba(255, 248, 232, 0.8);
+}
+
+.soil-battery-summary--critical > div {
+  border-color: rgba(228, 98, 79, 0.28);
+  background: rgba(255, 241, 238, 0.82);
+}
+
 .sensor-inline-select {
   margin-top: 2px;
 }

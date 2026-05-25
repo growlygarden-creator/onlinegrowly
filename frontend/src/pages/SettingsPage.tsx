@@ -78,6 +78,48 @@ function msToMinutes(value: unknown, fallback: number): string {
   return Math.round(numeric / 60_000).toString();
 }
 
+function batteryPercent(sensor: SoilSensor): number | null {
+  if (typeof sensor.battery_percent !== "number" || Number.isNaN(sensor.battery_percent)) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, sensor.battery_percent));
+}
+
+function batteryState(percent: number | null, warning: number, critical: number): "unknown" | "ok" | "warning" | "critical" {
+  if (percent === null) {
+    return "unknown";
+  }
+  if (percent <= critical) {
+    return "critical";
+  }
+  if (percent <= warning) {
+    return "warning";
+  }
+  return "ok";
+}
+
+function estimatedBatteryRemaining(percent: number | null, dayIntervalMinutes: string, nightIntervalMinutes: string, language: string): string {
+  const english = language === "en";
+  if (percent === null) {
+    return english ? "Waiting for data" : "Venter på data";
+  }
+  if (percent <= 3) {
+    return english ? "Under 1 day" : "Under 1 dag";
+  }
+  const dayInterval = Math.max(1, Number(dayIntervalMinutes) || 30);
+  const nightInterval = Math.max(1, Number(nightIntervalMinutes) || 60);
+  const weightedInterval = ((dayInterval * 15) + (nightInterval * 9)) / 24;
+  const defaultWeightedInterval = ((30 * 15) + (60 * 9)) / 24;
+  const estimatedFullDays = 90 * (weightedInterval / defaultWeightedInterval);
+  const remainingDays = Math.max(0.25, (percent / 100) * estimatedFullDays);
+  if (remainingDays < 2) {
+    const hours = Math.max(1, Math.round(remainingDays * 24));
+    return english ? `about ${hours} h` : `ca. ${hours} timer`;
+  }
+  const days = Math.round(remainingDays);
+  return english ? `about ${days} days` : `ca. ${days} dager`;
+}
+
 export function SettingsPage({
   session,
   setSession,
@@ -774,6 +816,10 @@ export function SettingsPage({
                       const assignedPlant = sensor.plant_id
                         ? sensorPlants.find((plant) => plantInstanceId(plant) === sensor.plant_id)
                         : null;
+                      const percent = batteryPercent(sensor);
+                      const warning = Math.max(1, Math.min(100, Number(soilBatteryWarning) || 30));
+                      const critical = Math.max(1, Math.min(warning - 1, Number(soilBatteryCritical) || 15));
+                      const state = batteryState(percent, warning, critical);
                       return (
                         <div className="sensor-detail-row sensor-detail-row--stacked" key={sensor.sensor_id}>
                           <div className="sensor-detail-heading">
@@ -781,6 +827,16 @@ export function SettingsPage({
                             <strong>{assignedPlant ? plantDisplayName(assignedPlant, t("settings.defaultPlant")) : t("settings.sensorUnassigned")}</strong>
                           </div>
                           <small>{soilSensorTechnicalLabel(sensor)}</small>
+                          <div className={`soil-battery-summary soil-battery-summary--${state}`}>
+                            <div>
+                              <span>{t("settings.soilBatteryLevel")}</span>
+                              <strong>{percent === null ? "–" : `${Math.round(percent)}%`}</strong>
+                            </div>
+                            <div>
+                              <span>{t("settings.soilBatteryRemaining")}</span>
+                              <strong>{estimatedBatteryRemaining(percent, soilDayIntervalMinutes, soilNightIntervalMinutes, language)}</strong>
+                            </div>
+                          </div>
                           <label className="settings-field sensor-select-field sensor-inline-select">
                             <span>{t("settings.soilSensorPlant")}</span>
                             <select
