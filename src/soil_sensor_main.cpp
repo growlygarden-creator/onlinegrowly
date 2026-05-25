@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <Update.h>
 #include <esp_now.h>
 #include <esp_sleep.h>
 #include <esp_wifi.h>
@@ -12,13 +13,16 @@
 #include "soil_now_protocol.h"
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.1.0-soil";
+constexpr char kFirmwareVersion[] = "0.1.2-ota";
 constexpr char kPrefsNamespace[] = "growly_soil";
 constexpr char kPrefsSsidKey[] = "ssid";
 constexpr char kPrefsPasswordKey[] = "password";
 constexpr char kPrefsHubIdKey[] = "hub_id";
 constexpr char kPrefsSensorIdKey[] = "sensor_id";
 constexpr char kPrefsChannelKey[] = "channel";
+constexpr char kPrefsSleepSecondsKey[] = "sleep_s";
+constexpr char kPrefsBatteryWarnKey[] = "bat_warn";
+constexpr char kPrefsBatteryCritKey[] = "bat_crit";
 constexpr uint8_t kBroadcastMac[ESP_NOW_ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 constexpr int kBootButtonPin = 0;
 constexpr int kDhtPin = 22;
@@ -29,11 +33,11 @@ constexpr int kDhtType = DHT11;
 constexpr uint16_t kSoilRawWet = 1300;
 constexpr uint16_t kSoilRawDry = 3200;
 constexpr float kBatteryDividerRatio = 2.0f;
-constexpr uint64_t kConfiguredSleepUs = 5ULL * 60ULL * 1000000ULL;
+constexpr uint32_t kDefaultSleepSeconds = 30UL * 60UL;
 constexpr uint64_t kPairingRetrySleepUs = 30ULL * 1000000ULL;
 constexpr unsigned long kPairingAttemptMs = 4UL * 60UL * 1000UL;
 constexpr unsigned long kPairingPerChannelMs = 1200;
-constexpr unsigned long kSampleAckTimeoutMs = 2200;
+constexpr unsigned long kSampleAckTimeoutMs = 15000;
 constexpr unsigned long kWifiConnectTimeoutMs = 15000;
 
 Preferences preferences;
@@ -45,6 +49,12 @@ String pairedHubId;
 String sensorId;
 uint8_t pairedWifiChannel = 0;
 bool espNowReady = false;
+uint32_t configuredSleepSeconds = kDefaultSleepSeconds;
+uint8_t batteryWarningPercent = 30;
+uint8_t batteryCriticalPercent = 15;
+bool pendingFirmwareUpdateAvailable = false;
+char pendingFirmwareVersion[SoilNow::FIRMWARE_VERSION_LENGTH] = {0};
+char pendingFirmwareUrl[SoilNow::FIRMWARE_URL_LENGTH] = {0};
 
 portMUX_TYPE nowMux = portMUX_INITIALIZER_UNLOCKED;
 volatile bool pairConfigReceived = false;
@@ -99,6 +109,187 @@ String jsonEscape(const String& value) {
     return escaped;
 }
 
+long extractJsonLongValue(const String& payload, const char* key, long fallback) {
+    const String quotedKey = String("\"") + key + "\":";
+    const int keyIndex = payload.indexOf(quotedKey);
+    if (keyIndex < 0) {
+        return fallback;
+    }
+    int valueIndex = keyIndex + quotedKey.length();
+    while (valueIndex < payload.length() && isspace(static_cast<unsigned char>(payload[valueIndex]))) {
+        ++valueIndex;
+    }
+    bool negative = false;
+    if (valueIndex < payload.length() && payload[valueIndex] == '-') {
+        negative = true;
+        ++valueIndex;
+    }
+    long value = 0;
+    bool foundDigit = false;
+    while (valueIndex < payload.length() && isdigit(static_cast<unsigned char>(payload[valueIndex]))) {
+        foundDigit = true;
+        value = value * 10 + (payload[valueIndex] - '0');
+        ++valueIndex;
+    }
+    return foundDigit ? (negative ? -value : value) : fallback;
+}
+
+String extractJsonStringValue(const String& payload, const char* key) {
+    const String quotedKey = String("\"") + key + "\":";
+    const int keyIndex = payload.indexOf(quotedKey);
+    if (keyIndex < 0) {
+        return "";
+    }
+    int valueIndex = keyIndex + quotedKey.length();
+    while (valueIndex < payload.length() && isspace(static_cast<unsigned char>(payload[valueIndex]))) {
+        ++valueIndex;
+    }
+    if (valueIndex >= payload.length() || payload[valueIndex] != '"') {
+        return "";
+    }
+    ++valueIndex;
+    String value;
+    bool escaped = false;
+    while (valueIndex < payload.length()) {
+        const char ch = payload[valueIndex++];
+        if (escaped) {
+            value += ch;
+            escaped = false;
+            continue;
+        }
+        if (ch == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (ch == '"') {
+            break;
+        }
+        value += ch;
+    }
+    return value;
+}
+
+bool extractJsonBoolValue(const String& payload, const char* key, bool fallback) {
+    const String quotedKey = String("\"") + key + "\":";
+    const int keyIndex = payload.indexOf(quotedKey);
+    if (keyIndex < 0) {
+        return fallback;
+    }
+    int valueIndex = keyIndex + quotedKey.length();
+    while (valueIndex < payload.length() && isspace(static_cast<unsigned char>(payload[valueIndex]))) {
+        ++valueIndex;
+    }
+    if (payload.substring(valueIndex, valueIndex + 4) == "true") {
+        return true;
+    }
+    if (payload.substring(valueIndex, valueIndex + 5) == "false") {
+        return false;
+    }
+    return fallback;
+}
+
+String extractJsonObjectValue(const String& payload, const char* key) {
+    const String quotedKey = String("\"") + key + "\":";
+    const int keyIndex = payload.indexOf(quotedKey);
+    if (keyIndex < 0) {
+        return "";
+    }
+    int valueIndex = keyIndex + quotedKey.length();
+    while (valueIndex < payload.length() && isspace(static_cast<unsigned char>(payload[valueIndex]))) {
+        ++valueIndex;
+    }
+    if (valueIndex >= payload.length() || payload[valueIndex] != '{') {
+        return "";
+    }
+
+    int depth = 0;
+    bool inString = false;
+    bool escaped = false;
+    for (int index = valueIndex; index < static_cast<int>(payload.length()); ++index) {
+        const char ch = payload[index];
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (ch == '\\') {
+                escaped = true;
+            } else if (ch == '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (ch == '"') {
+            inString = true;
+        } else if (ch == '{') {
+            ++depth;
+        } else if (ch == '}') {
+            --depth;
+            if (depth == 0) {
+                return payload.substring(valueIndex, index + 1);
+            }
+        }
+    }
+    return "";
+}
+
+int firstDigitIndex(const String& version) {
+    for (int index = 0; index < static_cast<int>(version.length()); ++index) {
+        if (isdigit(static_cast<unsigned char>(version[index]))) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+String firmwareCoreVersion(const String& version) {
+    const int start = firstDigitIndex(version);
+    if (start < 0) {
+        return "";
+    }
+    String core;
+    for (int index = start; index < static_cast<int>(version.length()); ++index) {
+        const char ch = version[index];
+        if (!isdigit(static_cast<unsigned char>(ch)) && ch != '.') {
+            break;
+        }
+        core += ch;
+    }
+    return core;
+}
+
+bool isFirmwareCandidateNewer(const String& candidate, const String& current) {
+    const String candidateCore = firmwareCoreVersion(candidate);
+    const String currentCore = firmwareCoreVersion(current);
+    if (candidateCore.length() == 0) {
+        return false;
+    }
+    if (currentCore.length() == 0) {
+        return true;
+    }
+
+    int candidateIndex = 0;
+    int currentIndex = 0;
+    while (candidateIndex < static_cast<int>(candidateCore.length()) || currentIndex < static_cast<int>(currentCore.length())) {
+        long candidatePart = 0;
+        while (candidateIndex < static_cast<int>(candidateCore.length()) && candidateCore[candidateIndex] != '.') {
+            candidatePart = candidatePart * 10 + (candidateCore[candidateIndex++] - '0');
+        }
+        long currentPart = 0;
+        while (currentIndex < static_cast<int>(currentCore.length()) && currentCore[currentIndex] != '.') {
+            currentPart = currentPart * 10 + (currentCore[currentIndex++] - '0');
+        }
+        if (candidatePart != currentPart) {
+            return candidatePart > currentPart;
+        }
+        if (candidateIndex < static_cast<int>(candidateCore.length()) && candidateCore[candidateIndex] == '.') {
+            ++candidateIndex;
+        }
+        if (currentIndex < static_cast<int>(currentCore.length()) && currentCore[currentIndex] == '.') {
+            ++currentIndex;
+        }
+    }
+    return false;
+}
+
 bool beginHttpClient(HTTPClient& http, WiFiClient& plainClient, WiFiClientSecure& secureClient, const String& url) {
     if (url.startsWith("https://")) {
         secureClient.setInsecure();
@@ -126,6 +317,9 @@ void loadConfig() {
     pairedHubId = preferences.getString(kPrefsHubIdKey, "");
     sensorId = preferences.getString(kPrefsSensorIdKey, "");
     pairedWifiChannel = preferences.getUChar(kPrefsChannelKey, 0);
+    configuredSleepSeconds = preferences.getUInt(kPrefsSleepSecondsKey, kDefaultSleepSeconds);
+    batteryWarningPercent = preferences.getUChar(kPrefsBatteryWarnKey, 30);
+    batteryCriticalPercent = preferences.getUChar(kPrefsBatteryCritKey, 15);
     preferences.end();
 
     configuredWifiSsid.trim();
@@ -135,6 +329,43 @@ void loadConfig() {
     if (sensorId.length() == 0) {
         sensorId = compactMacId();
     }
+    configuredSleepSeconds = min<uint32_t>(7200, max<uint32_t>(300, configuredSleepSeconds));
+    batteryWarningPercent = min<uint8_t>(100, max<uint8_t>(2, batteryWarningPercent));
+    batteryCriticalPercent = min<uint8_t>(batteryWarningPercent - 1, max<uint8_t>(1, batteryCriticalPercent));
+}
+
+void saveSleepPlan(uint32_t sleepSeconds, uint8_t warningPercent, uint8_t criticalPercent) {
+    configuredSleepSeconds = min<uint32_t>(7200, max<uint32_t>(300, sleepSeconds));
+    batteryWarningPercent = min<uint8_t>(100, max<uint8_t>(2, warningPercent));
+    batteryCriticalPercent = min<uint8_t>(batteryWarningPercent - 1, max<uint8_t>(1, criticalPercent));
+    preferences.begin(kPrefsNamespace, false);
+    preferences.putUInt(kPrefsSleepSecondsKey, configuredSleepSeconds);
+    preferences.putUChar(kPrefsBatteryWarnKey, batteryWarningPercent);
+    preferences.putUChar(kPrefsBatteryCritKey, batteryCriticalPercent);
+    preferences.end();
+}
+
+void rememberFirmwareUpdate(const String& version, const String& url, bool updateAvailable) {
+    pendingFirmwareUpdateAvailable =
+        updateAvailable &&
+        version.length() > 0 &&
+        url.length() > 0 &&
+        isFirmwareCandidateNewer(version, kFirmwareVersion);
+    memset(pendingFirmwareVersion, 0, sizeof(pendingFirmwareVersion));
+    memset(pendingFirmwareUrl, 0, sizeof(pendingFirmwareUrl));
+    if (pendingFirmwareUpdateAvailable) {
+        SoilNow::copyCString(pendingFirmwareVersion, sizeof(pendingFirmwareVersion), version);
+        SoilNow::copyCString(pendingFirmwareUrl, sizeof(pendingFirmwareUrl), url);
+    }
+}
+
+void rememberFirmwareUpdateFromResponse(const String& responseBody) {
+    const String firmwareObject = extractJsonObjectValue(responseBody, "firmware");
+    const String source = firmwareObject.length() > 0 ? firmwareObject : responseBody;
+    rememberFirmwareUpdate(
+        extractJsonStringValue(source, "latest_version"),
+        extractJsonStringValue(source, "url"),
+        extractJsonBoolValue(source, "update_available", false));
 }
 
 void savePairConfig(const SoilNow::PairConfigPacket& config) {
@@ -151,6 +382,7 @@ void savePairConfig(const SoilNow::PairConfigPacket& config) {
     preferences.putString(kPrefsPasswordKey, configuredWifiPassword);
     preferences.putUChar(kPrefsChannelKey, pairedWifiChannel);
     preferences.end();
+    saveSleepPlan(config.defaultSleepSeconds, config.batteryWarningPercent, config.batteryCriticalPercent);
 }
 
 void clearConfig() {
@@ -223,6 +455,10 @@ void onEspNowReceive(const uint8_t*, const uint8_t* data, int length) {
         SoilNow::SampleAckPacket ack = {};
         memcpy(&ack, data, sizeof(ack));
         if (ack.sequence == expectedSampleAckSequence) {
+            saveSleepPlan(ack.nextSleepSeconds, ack.batteryWarningPercent, ack.batteryCriticalPercent);
+            memcpy(pendingFirmwareVersion, ack.firmwareVersion, sizeof(pendingFirmwareVersion));
+            memcpy(pendingFirmwareUrl, ack.firmwareUrl, sizeof(pendingFirmwareUrl));
+            pendingFirmwareUpdateAvailable = ack.firmwareUpdateAvailable == 1;
             sampleAckReceived = true;
         }
     }
@@ -385,6 +621,7 @@ bool sendSampleEspNow(const SoilSample& sample) {
     packet.airHumidityCenti = sample.airHumidityCenti;
     packet.batteryMillivolts = sample.batteryMillivolts;
     packet.batteryPercent = sample.batteryPercent;
+    SoilNow::copyCString(packet.firmwareVersion, sizeof(packet.firmwareVersion), kFirmwareVersion);
 
     expectedSampleAckSequence = packet.sequence;
     sampleAckReceived = false;
@@ -430,6 +667,66 @@ bool connectWifiForBackup() {
     return false;
 }
 
+bool performPendingFirmwareUpdate() {
+    if (!pendingFirmwareUpdateAvailable) {
+        return false;
+    }
+    const String version = SoilNow::packetString(pendingFirmwareVersion, sizeof(pendingFirmwareVersion));
+    const String firmwareUrl = SoilNow::packetString(pendingFirmwareUrl, sizeof(pendingFirmwareUrl));
+    if (!isFirmwareCandidateNewer(version, kFirmwareVersion) || firmwareUrl.length() == 0) {
+        pendingFirmwareUpdateAvailable = false;
+        return false;
+    }
+    if (WiFi.status() != WL_CONNECTED && !connectWifiForBackup()) {
+        return false;
+    }
+
+    Serial.printf("Soil OTA update available: %s -> %s\n", kFirmwareVersion, version.c_str());
+    HTTPClient http;
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
+    http.setTimeout(30000);
+    if (!beginHttpClient(http, plainClient, secureClient, firmwareUrl)) {
+        Serial.println("Soil OTA failed: invalid URL.");
+        return false;
+    }
+    const int statusCode = http.GET();
+    if (statusCode != HTTP_CODE_OK) {
+        Serial.printf("Soil OTA failed HTTP %d\n", statusCode);
+        http.end();
+        return false;
+    }
+    const int contentLength = http.getSize();
+    if (contentLength <= 0) {
+        Serial.println("Soil OTA failed: missing content length.");
+        http.end();
+        return false;
+    }
+    if (!Update.begin(contentLength)) {
+        Serial.println("Soil OTA failed: not enough OTA space.");
+        http.end();
+        return false;
+    }
+    WiFiClient* stream = http.getStreamPtr();
+    const size_t written = Update.writeStream(*stream);
+    if (written != static_cast<size_t>(contentLength)) {
+        Serial.println("Soil OTA failed: short write.");
+        Update.abort();
+        http.end();
+        return false;
+    }
+    if (!Update.end() || !Update.isFinished()) {
+        Serial.println("Soil OTA failed: update did not finish.");
+        http.end();
+        return false;
+    }
+    http.end();
+    Serial.println("Soil OTA complete. Restarting.");
+    delay(800);
+    ESP.restart();
+    return true;
+}
+
 bool uploadSampleViaWifi(const SoilSample& sample) {
     if (pairedHubId.length() == 0 || sensorId.length() == 0) {
         return false;
@@ -450,6 +747,7 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
     String body = String("{\"hub_id\":\"") + jsonEscape(pairedHubId) + "\"";
     body += ",\"sensor_id\":\"" + jsonEscape(sensorId) + "\"";
     body += ",\"source\":\"soil_sensor_wifi_backup\"";
+    body += ",\"firmware_version\":\"" + jsonEscape(String(kFirmwareVersion)) + "\"";
     body += ",\"valid\":true";
     body += ",\"humidity\":" + String(sample.soilPercent);
     body += ",\"soil_raw\":" + String(sample.soilRaw);
@@ -476,6 +774,11 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
         Serial.println(responseBody);
         return false;
     }
+    saveSleepPlan(
+        static_cast<uint32_t>(extractJsonLongValue(responseBody, "next_sleep_seconds", configuredSleepSeconds)),
+        static_cast<uint8_t>(extractJsonLongValue(responseBody, "battery_warning_percent", batteryWarningPercent)),
+        static_cast<uint8_t>(extractJsonLongValue(responseBody, "battery_critical_percent", batteryCriticalPercent)));
+    rememberFirmwareUpdateFromResponse(responseBody);
     return true;
 }
 
@@ -510,7 +813,7 @@ void setup() {
     if (!configured) {
         const bool paired = pairWithHub();
         stopEspNow();
-        sleepFor(paired ? kConfiguredSleepUs : kPairingRetrySleepUs);
+        sleepFor(paired ? configuredSleepSeconds * 1000000ULL : kPairingRetrySleepUs);
     }
 
     const SoilSample sample = readSample();
@@ -519,7 +822,8 @@ void setup() {
         uploadSampleViaWifi(sample);
     }
     stopEspNow();
-    sleepFor(kConfiguredSleepUs);
+    performPendingFirmwareUpdate();
+    sleepFor(configuredSleepSeconds * 1000000ULL);
 }
 
 void loop() {

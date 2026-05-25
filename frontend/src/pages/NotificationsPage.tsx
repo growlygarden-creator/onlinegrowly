@@ -18,6 +18,7 @@ const notificationTypeLabels: Record<string, TranslationKey> = {
   "weather-frost": "notifications.type.weatherFrost",
   "weather-heat": "notifications.type.weatherHeat",
   "weather-wind": "notifications.type.weatherWind",
+  "soil-battery": "notifications.type.soilBattery",
 };
 
 const notificationSourceLabels: Record<string, TranslationKey> = {

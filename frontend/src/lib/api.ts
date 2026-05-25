@@ -249,6 +249,12 @@ export type AuthSession = {
     is_active?: boolean | number;
     sensor_url: string;
     local_ip: string;
+    soil_sensor_day_interval_ms?: number;
+    soil_sensor_night_interval_ms?: number;
+    soil_sensor_day_start?: string;
+    soil_sensor_night_start?: string;
+    soil_sensor_battery_warning_percent?: number;
+    soil_sensor_battery_critical_percent?: number;
   } | null;
   hubs?: Array<{
     hub_id: string;
@@ -262,6 +268,12 @@ export type AuthSession = {
     sensor_url: string;
     local_ip: string;
     member_role?: string;
+    soil_sensor_day_interval_ms?: number;
+    soil_sensor_night_interval_ms?: number;
+    soil_sensor_day_start?: string;
+    soil_sensor_night_start?: string;
+    soil_sensor_battery_warning_percent?: number;
+    soil_sensor_battery_critical_percent?: number;
   }>;
 };
 
@@ -493,6 +505,8 @@ export async function createPairing(): Promise<PairingInfo | null> {
 export async function fetchSoilSensors(hubId = ""): Promise<{
   sensors: SoilSensor[];
   pairing: SoilSensorPairing | null;
+  max_sensors: number;
+  slots_remaining: number;
 } | null> {
   try {
     const response = await fetchWithTimeout(apiUrl(appendHubId("/api/soil-sensors", hubId)), {
@@ -508,10 +522,14 @@ export async function fetchSoilSensors(hubId = ""): Promise<{
       ok: true;
       sensors: SoilSensor[];
       pairing: SoilSensorPairing | null;
+      max_sensors?: number;
+      slots_remaining?: number;
     }>(response);
     return {
       sensors: Array.isArray(result.sensors) ? result.sensors : [],
       pairing: result.pairing ?? null,
+      max_sensors: Number(result.max_sensors ?? 10),
+      slots_remaining: Number(result.slots_remaining ?? Math.max(0, 10 - (Array.isArray(result.sensors) ? result.sensors.length : 0))),
     };
   } catch {
     return null;
@@ -536,6 +554,28 @@ export async function createSoilSensorPairing(hubId = ""): Promise<SoilSensorPai
     return result.pairing ?? null;
   } catch {
     return null;
+  }
+}
+
+export async function updateSoilSensor(sensorId: string, payload: { plant_id?: string; plantId?: string }, hubId = ""): Promise<SoilSensor | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId(`/api/soil-sensors/${encodeURIComponent(sensorId)}`, hubId)), {
+      method: "PATCH",
+      credentials: "include",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const error = await parseJson<ApiError>(response).catch(() => null);
+      throw new Error(error?.error || `HTTP ${response.status}`);
+    }
+
+    const result = await parseJson<{ ok: true; sensor: SoilSensor }>(response);
+    return result.sensor ?? null;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("soil_sensor_update_failed");
   }
 }
 
@@ -653,6 +693,12 @@ export async function saveHubSettings(payload: {
   weather_latitude?: number | string | null;
   weather_longitude?: number | string | null;
   is_active?: boolean;
+  soil_sensor_day_interval_ms?: number;
+  soil_sensor_night_interval_ms?: number;
+  soil_sensor_day_start?: string;
+  soil_sensor_night_start?: string;
+  soil_sensor_battery_warning_percent?: number;
+  soil_sensor_battery_critical_percent?: number;
 }): Promise<AuthSession["hub"] | null> {
   try {
     const response = await fetchWithTimeout(apiUrl("/api/settings"), {

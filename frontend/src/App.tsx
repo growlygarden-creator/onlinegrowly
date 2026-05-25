@@ -4,7 +4,7 @@ import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
-import { fetchSession, type AuthSession } from "./lib/api";
+import { fetchSession, fetchSoilSensors, type AuthSession, type SoilSensor } from "./lib/api";
 import { useI18n } from "./lib/i18n";
 import { BottomNav } from "./components/BottomNav";
 import { GrowlyAssistantDock } from "./components/GrowlyAssistantDock";
@@ -32,8 +32,39 @@ import {
 } from "./lib/notifications";
 
 const THEME_STORAGE_KEY = "growly.theme";
+const SOIL_BATTERY_ALERT_STORAGE_KEY = "growly.soilBatteryAlerts.v1";
 type AppTheme = "light" | "dark";
 type ThemeMode = AppTheme | "auto";
+
+function notificationIdForSoilBattery(sensorId: string, level: "warning" | "critical"): number {
+  const seed = `${sensorId}:${level}`;
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = ((hash << 5) - hash + seed.charCodeAt(index)) | 0;
+  }
+  return 15000 + Math.abs(hash % 3000);
+}
+
+function readSoilBatteryAlertTimes(): Record<string, number> {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SOIL_BATTERY_ALERT_STORAGE_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed as Record<string, number> : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeSoilBatteryAlertTimes(alerts: Record<string, number>): void {
+  try {
+    window.localStorage.setItem(SOIL_BATTERY_ALERT_STORAGE_KEY, JSON.stringify(alerts));
+  } catch {
+    // Local notification throttling should never block the app.
+  }
+}
+
+function soilSensorDisplayName(sensor: SoilSensor): string {
+  return sensor.sensor_name || sensor.sensor_id || "jordsensor";
+}
 
 function readSystemTheme(): AppTheme {
   if (typeof window === "undefined" || !window.matchMedia) {
@@ -167,6 +198,80 @@ export function App() {
       });
     };
   }, [isAuthenticated, navigate, selectedHubId]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !selectedHubId || notificationStatus !== "granted" || !growlyNotificationsEnabled() || !Capacitor.isNativePlatform()) {
+      return;
+    }
+
+    let cancelled = false;
+    const warningThreshold = Number(authenticatedSession?.hub?.soil_sensor_battery_warning_percent ?? 30);
+    const criticalThreshold = Number(authenticatedSession?.hub?.soil_sensor_battery_critical_percent ?? 15);
+
+    const checkSoilBattery = async () => {
+      const result = await fetchSoilSensors(selectedHubId);
+      if (cancelled || !result?.sensors?.length) {
+        return;
+      }
+
+      const now = Date.now();
+      const alertTimes = readSoilBatteryAlertTimes();
+      let changed = false;
+      const notifications = result.sensors.flatMap((sensor) => {
+        if (typeof sensor.battery_percent !== "number") {
+          return [];
+        }
+        const level = sensor.battery_percent <= criticalThreshold ? "critical" : sensor.battery_percent <= warningThreshold ? "warning" : null;
+        if (!level) {
+          return [];
+        }
+        const throttleMs = level === "critical" ? 6 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+        const alertKey = `${sensor.sensor_id}:${level}`;
+        if (now - (alertTimes[alertKey] ?? 0) < throttleMs) {
+          return [];
+        }
+
+        alertTimes[alertKey] = now;
+        changed = true;
+        const notification = {
+          id: notificationIdForSoilBattery(sensor.sensor_id, level),
+          title: t(level === "critical" ? "notifications.generated.soilBatteryCriticalTitle" : "notifications.generated.soilBatteryWarningTitle"),
+          body: t(level === "critical" ? "notifications.generated.soilBatteryCriticalBody" : "notifications.generated.soilBatteryWarningBody", {
+            sensor: soilSensorDisplayName(sensor),
+            percent: Math.round(sensor.battery_percent).toString(),
+          }),
+          schedule: { at: new Date(now + 1000) },
+          extra: { type: "soil-battery", route: "/settings" },
+        };
+        recordGrowlyNotificationDelivery(notification, "scheduled");
+        return [notification];
+      });
+
+      if (changed) {
+        writeSoilBatteryAlertTimes(alertTimes);
+      }
+      if (notifications.length) {
+        await LocalNotifications.schedule({ notifications });
+      }
+    };
+
+    checkSoilBattery().catch(() => undefined);
+    const intervalId = window.setInterval(() => {
+      checkSoilBattery().catch(() => undefined);
+    }, 15 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    authenticatedSession?.hub?.soil_sensor_battery_critical_percent,
+    authenticatedSession?.hub?.soil_sensor_battery_warning_percent,
+    isAuthenticated,
+    notificationStatus,
+    selectedHubId,
+    t,
+  ]);
 
   if (session === undefined) {
     return (

@@ -57,6 +57,12 @@ unsigned long soilSampleIntervalMs = DeviceConfig::SENSOR_POLL_INTERVAL_MS;
 unsigned long lightSampleIntervalMs = DeviceConfig::SENSOR_POLL_INTERVAL_MS;
 unsigned long airSampleIntervalMs = DeviceConfig::SENSOR_POLL_INTERVAL_MS;
 unsigned long cloudSampleIntervalMs = DeviceConfig::BACKEND_UPLOAD_INTERVAL_MS;
+uint32_t soilSensorNextSleepSeconds = 1800;
+uint8_t soilSensorBatteryWarningPercent = 30;
+uint8_t soilSensorBatteryCriticalPercent = 15;
+bool soilSensorFirmwareUpdateAvailable = false;
+String soilSensorFirmwareLatestVersion;
+String soilSensorFirmwareUrl;
 
 constexpr uint8_t kBh1750PrimaryAddress = 0x23;
 constexpr uint8_t kBh1750SecondaryAddress = 0x5C;
@@ -118,9 +124,16 @@ struct PendingSoilSample {
     SoilNow::SamplePacket packet = {};
 };
 
+constexpr size_t kSoilNowQueueSize = 10;
 portMUX_TYPE soilNowMux = portMUX_INITIALIZER_UNLOCKED;
-PendingSoilPairRequest pendingSoilPairRequest;
-PendingSoilSample pendingSoilSample;
+PendingSoilPairRequest pendingSoilPairQueue[kSoilNowQueueSize];
+PendingSoilSample pendingSoilSampleQueue[kSoilNowQueueSize];
+size_t pendingSoilPairHead = 0;
+size_t pendingSoilPairTail = 0;
+size_t pendingSoilPairCount = 0;
+size_t pendingSoilSampleHead = 0;
+size_t pendingSoilSampleTail = 0;
+size_t pendingSoilSampleCount = 0;
 
 struct VisibleNetwork {
     String ssid;
@@ -1095,6 +1108,30 @@ void updateSoilPairingFromConfig(const String& responseBody) {
     }
 }
 
+void updateSoilScheduleFromConfig(const String& responseBody) {
+    const String scheduleObject = extractJsonObjectValue(responseBody, "soil_sensor_schedule");
+    if (scheduleObject.length() == 0) {
+        return;
+    }
+    soilSensorNextSleepSeconds = static_cast<uint32_t>(min<long>(7200, max<long>(300, extractJsonLongValue(scheduleObject, "next_sleep_seconds", soilSensorNextSleepSeconds))));
+    soilSensorBatteryWarningPercent = static_cast<uint8_t>(min<long>(100, max<long>(2, extractJsonLongValue(scheduleObject, "battery_warning_percent", soilSensorBatteryWarningPercent))));
+    soilSensorBatteryCriticalPercent = static_cast<uint8_t>(min<long>(soilSensorBatteryWarningPercent - 1, max<long>(1, extractJsonLongValue(scheduleObject, "battery_critical_percent", soilSensorBatteryCriticalPercent))));
+}
+
+void updateSoilFirmwareFromConfig(const String& responseBody) {
+    const String firmwareObject = extractJsonObjectValue(responseBody, "soil_sensor_firmware");
+    if (firmwareObject.length() == 0) {
+        soilSensorFirmwareUpdateAvailable = false;
+        return;
+    }
+    soilSensorFirmwareLatestVersion = extractJsonStringValue(firmwareObject, "latest_version");
+    soilSensorFirmwareUrl = extractJsonStringValue(firmwareObject, "url");
+    soilSensorFirmwareUpdateAvailable =
+        extractJsonBoolValue(firmwareObject, "update_available", false) &&
+        soilSensorFirmwareLatestVersion.length() > 0 &&
+        soilSensorFirmwareUrl.length() > 0;
+}
+
 bool completeSoilPairingWithBackend(const SoilNow::PairRequestPacket& packet, const String& macAddress) {
     if (pairedHubId.length() == 0 || soilPairingSessionId.length() == 0) {
         return false;
@@ -1154,13 +1191,16 @@ bool sendSoilPairConfig(const uint8_t* mac, const SoilNow::PairRequestPacket& re
     SoilNow::copyCString(config.ssid, sizeof(config.ssid), configuredWifiSsid);
     SoilNow::copyCString(config.password, sizeof(config.password), configuredWifiPassword);
     config.wifiChannel = currentWifiChannel();
+    config.defaultSleepSeconds = soilSensorNextSleepSeconds;
+    config.batteryWarningPercent = soilSensorBatteryWarningPercent;
+    config.batteryCriticalPercent = soilSensorBatteryCriticalPercent;
 
     const esp_err_t result = esp_now_send(mac, reinterpret_cast<const uint8_t*>(&config), sizeof(config));
     Serial.printf("ESP-NOW soil config sent to %s result=%d\n", macAddressString(mac).c_str(), result);
     return result == ESP_OK;
 }
 
-void sendSoilSampleAck(const uint8_t* mac, const SoilNow::SamplePacket& sample) {
+void sendSoilSampleAck(const uint8_t* mac, const SoilNow::SamplePacket& sample, uint32_t nextSleepSeconds) {
     if (!ensureSoilPeer(mac)) {
         return;
     }
@@ -1169,22 +1209,28 @@ void sendSoilSampleAck(const uint8_t* mac, const SoilNow::SamplePacket& sample) 
     ack.type = SoilNow::SampleAck;
     ack.sequence = sample.sequence;
     SoilNow::copyCString(ack.sensorId, sizeof(ack.sensorId), SoilNow::packetString(sample.sensorId, sizeof(sample.sensorId)));
+    ack.nextSleepSeconds = nextSleepSeconds;
+    ack.batteryWarningPercent = soilSensorBatteryWarningPercent;
+    ack.batteryCriticalPercent = soilSensorBatteryCriticalPercent;
+    ack.firmwareUpdateAvailable = soilSensorFirmwareUpdateAvailable ? 1 : 0;
+    SoilNow::copyCString(ack.firmwareVersion, sizeof(ack.firmwareVersion), soilSensorFirmwareLatestVersion);
+    SoilNow::copyCString(ack.firmwareUrl, sizeof(ack.firmwareUrl), soilSensorFirmwareUrl);
     esp_now_send(mac, reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
 }
 
-void uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample) {
+uint32_t uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample) {
     if (WiFi.status() != WL_CONNECTED || captivePortalActive || pairedHubId.length() == 0) {
-        return;
+        return soilSensorNextSleepSeconds;
     }
 
     const String ingestUrl = backendUrl(DeviceConfig::SOIL_SENSOR_INGEST_PATH);
     if (ingestUrl.length() == 0) {
-        return;
+        return soilSensorNextSleepSeconds;
     }
 
     const String sensorId = SoilNow::packetString(sample.sensorId, sizeof(sample.sensorId));
     if (sensorId.length() == 0) {
-        return;
+        return soilSensorNextSleepSeconds;
     }
 
     String body = String("{\"hub_id\":\"") + jsonEscape(pairedHubId) + "\"";
@@ -1205,6 +1251,10 @@ void uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample) {
     if (sample.batteryPercent <= 100) {
         body += ",\"battery_percent\":" + String(sample.batteryPercent);
     }
+    const String firmwareVersion = SoilNow::packetString(sample.firmwareVersion, sizeof(sample.firmwareVersion));
+    if (firmwareVersion.length() > 0) {
+        body += ",\"firmware_version\":\"" + jsonEscape(firmwareVersion) + "\"";
+    }
     body += "}";
 
     HTTPClient http;
@@ -1213,7 +1263,7 @@ void uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample) {
     http.setTimeout(5000);
     if (!beginHttpClient(http, plainClient, secureClient, ingestUrl)) {
         Serial.println("Soil sample upload skipped: invalid URL");
-        return;
+        return soilSensorNextSleepSeconds;
     }
 
     http.addHeader("Content-Type", "application/json");
@@ -1229,7 +1279,21 @@ void uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample) {
         statusCode);
     if (statusCode < 200 || statusCode >= 300) {
         Serial.println(responseBody);
+        return soilSensorNextSleepSeconds;
     }
+    soilSensorNextSleepSeconds = static_cast<uint32_t>(min<long>(7200, max<long>(300, extractJsonLongValue(responseBody, "next_sleep_seconds", soilSensorNextSleepSeconds))));
+    soilSensorBatteryWarningPercent = static_cast<uint8_t>(min<long>(100, max<long>(2, extractJsonLongValue(responseBody, "battery_warning_percent", soilSensorBatteryWarningPercent))));
+    soilSensorBatteryCriticalPercent = static_cast<uint8_t>(min<long>(soilSensorBatteryWarningPercent - 1, max<long>(1, extractJsonLongValue(responseBody, "battery_critical_percent", soilSensorBatteryCriticalPercent))));
+    const String firmwareObject = extractJsonObjectValue(responseBody, "firmware");
+    if (firmwareObject.length() > 0) {
+        soilSensorFirmwareLatestVersion = extractJsonStringValue(firmwareObject, "latest_version");
+        soilSensorFirmwareUrl = extractJsonStringValue(firmwareObject, "url");
+        soilSensorFirmwareUpdateAvailable =
+            extractJsonBoolValue(firmwareObject, "update_available", false) &&
+            soilSensorFirmwareLatestVersion.length() > 0 &&
+            soilSensorFirmwareUrl.length() > 0;
+    }
+    return soilSensorNextSleepSeconds;
 }
 
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
@@ -1250,18 +1314,28 @@ void onSoilNowReceive(const uint8_t* mac, const uint8_t* data, int length) {
 
     if (data[1] == SoilNow::PairRequest && length == static_cast<int>(sizeof(SoilNow::PairRequestPacket))) {
         portENTER_CRITICAL_ISR(&soilNowMux);
-        memcpy(pendingSoilPairRequest.mac, mac, ESP_NOW_ETH_ALEN);
-        memcpy(&pendingSoilPairRequest.packet, data, sizeof(SoilNow::PairRequestPacket));
-        pendingSoilPairRequest.pending = true;
+        if (pendingSoilPairCount < kSoilNowQueueSize) {
+            PendingSoilPairRequest& entry = pendingSoilPairQueue[pendingSoilPairTail];
+            memcpy(entry.mac, mac, ESP_NOW_ETH_ALEN);
+            memcpy(&entry.packet, data, sizeof(SoilNow::PairRequestPacket));
+            entry.pending = true;
+            pendingSoilPairTail = (pendingSoilPairTail + 1) % kSoilNowQueueSize;
+            ++pendingSoilPairCount;
+        }
         portEXIT_CRITICAL_ISR(&soilNowMux);
         return;
     }
 
     if (data[1] == SoilNow::Sample && length == static_cast<int>(sizeof(SoilNow::SamplePacket))) {
         portENTER_CRITICAL_ISR(&soilNowMux);
-        memcpy(pendingSoilSample.mac, mac, ESP_NOW_ETH_ALEN);
-        memcpy(&pendingSoilSample.packet, data, sizeof(SoilNow::SamplePacket));
-        pendingSoilSample.pending = true;
+        if (pendingSoilSampleCount < kSoilNowQueueSize) {
+            PendingSoilSample& entry = pendingSoilSampleQueue[pendingSoilSampleTail];
+            memcpy(entry.mac, mac, ESP_NOW_ETH_ALEN);
+            memcpy(&entry.packet, data, sizeof(SoilNow::SamplePacket));
+            entry.pending = true;
+            pendingSoilSampleTail = (pendingSoilSampleTail + 1) % kSoilNowQueueSize;
+            ++pendingSoilSampleCount;
+        }
         portEXIT_CRITICAL_ISR(&soilNowMux);
     }
 }
@@ -1281,21 +1355,41 @@ void setupSoilEspNow() {
     Serial.printf("ESP-NOW ready for soil sensors on Wi-Fi channel %u\n", currentWifiChannel());
 }
 
+bool dequeueSoilPairRequest(PendingSoilPairRequest& pairRequest) {
+    portENTER_CRITICAL(&soilNowMux);
+    if (pendingSoilPairCount == 0) {
+        portEXIT_CRITICAL(&soilNowMux);
+        return false;
+    }
+    pairRequest = pendingSoilPairQueue[pendingSoilPairHead];
+    pendingSoilPairQueue[pendingSoilPairHead].pending = false;
+    pendingSoilPairHead = (pendingSoilPairHead + 1) % kSoilNowQueueSize;
+    --pendingSoilPairCount;
+    portEXIT_CRITICAL(&soilNowMux);
+    return pairRequest.pending;
+}
+
+bool dequeueSoilSample(PendingSoilSample& sample) {
+    portENTER_CRITICAL(&soilNowMux);
+    if (pendingSoilSampleCount == 0) {
+        portEXIT_CRITICAL(&soilNowMux);
+        return false;
+    }
+    sample = pendingSoilSampleQueue[pendingSoilSampleHead];
+    pendingSoilSampleQueue[pendingSoilSampleHead].pending = false;
+    pendingSoilSampleHead = (pendingSoilSampleHead + 1) % kSoilNowQueueSize;
+    --pendingSoilSampleCount;
+    portEXIT_CRITICAL(&soilNowMux);
+    return sample.pending;
+}
+
 void handlePendingSoilNowWork() {
     if (!soilEspNowReady) {
         setupSoilEspNow();
     }
 
     PendingSoilPairRequest pairRequest;
-    PendingSoilSample sample;
-    portENTER_CRITICAL(&soilNowMux);
-    pairRequest = pendingSoilPairRequest;
-    pendingSoilPairRequest.pending = false;
-    sample = pendingSoilSample;
-    pendingSoilSample.pending = false;
-    portEXIT_CRITICAL(&soilNowMux);
-
-    if (pairRequest.pending) {
+    while (dequeueSoilPairRequest(pairRequest)) {
         const String macString = macAddressString(pairRequest.mac);
         if (!soilPairingWindowOpen()) {
             Serial.printf("Ignoring soil pair request from %s; no active pairing window.\n", macString.c_str());
@@ -1304,9 +1398,10 @@ void handlePendingSoilNowWork() {
         }
     }
 
-    if (sample.pending) {
-        sendSoilSampleAck(sample.mac, sample.packet);
-        uploadSoilSampleToBackend(sample.packet);
+    PendingSoilSample sample;
+    while (dequeueSoilSample(sample)) {
+        const uint32_t nextSleepSeconds = uploadSoilSampleToBackend(sample.packet);
+        sendSoilSampleAck(sample.mac, sample.packet, nextSleepSeconds);
     }
 }
 
@@ -1626,6 +1721,8 @@ void pollDeviceConfig(bool force) {
     }
 
     updateSoilPairingFromConfig(responseBody);
+    updateSoilScheduleFromConfig(responseBody);
+    updateSoilFirmwareFromConfig(responseBody);
     const bool intervalsChanged = applyRemoteSampleIntervals(responseBody);
     const unsigned long configRevision = extractJsonLongValue(responseBody, "revision", 0);
     if (configRevision > 0) {

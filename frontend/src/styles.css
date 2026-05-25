@@ -3556,6 +3556,28 @@ b {
   text-align: right;
 }
 
+.sensor-detail-row--stacked {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.sensor-detail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sensor-detail-row small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.sensor-inline-select {
+  margin-top: 2px;
+}
+
 .address-match-list {
   display: grid;
   gap: 8px;

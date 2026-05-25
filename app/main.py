@@ -100,6 +100,8 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "Growly@Admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", APP_PASSWORD)
 ACTIVE_FIRMWARE_VERSION = os.getenv("ACTIVE_FIRMWARE_VERSION", "").strip()
 ACTIVE_FIRMWARE_URL = os.getenv("ACTIVE_FIRMWARE_URL", "").strip()
+ACTIVE_SOIL_FIRMWARE_VERSION = os.getenv("ACTIVE_SOIL_FIRMWARE_VERSION", "").strip()
+ACTIVE_SOIL_FIRMWARE_URL = os.getenv("ACTIVE_SOIL_FIRMWARE_URL", "").strip()
 BUNDLED_FIRMWARE_DIR = BASE_DIR / "static" / "firmware"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip()
@@ -138,6 +140,7 @@ PAIRING_TOKEN_ALPHABET = "0123456789"
 PAIRING_TOKEN_TTL = timedelta(minutes=10)
 SOIL_PAIRING_SESSION_TTL = timedelta(minutes=5)
 SOIL_SENSOR_DEFAULT_TYPE = "diymore_012592"
+MAX_SOIL_SENSORS_PER_HUB = 10
 SUPABASE_REST_ENDPOINT = os.getenv(
     "SUPABASE_REST_ENDPOINT",
     "https://ffxkxsclgiojrzmxvyuk.supabase.co/rest/v1/sensor_data",
@@ -180,6 +183,12 @@ DEFAULT_APP_SETTINGS: dict[str, Any] = {
     "sample_time_light_ms": 60000,
     "sample_time_air_ms": 60000,
     "sample_time_cloud_ms": 60000,
+    "soil_sensor_day_interval_ms": 1800000,
+    "soil_sensor_night_interval_ms": 3600000,
+    "soil_sensor_day_start": "07:00",
+    "soil_sensor_night_start": "22:00",
+    "soil_sensor_battery_warning_percent": 30,
+    "soil_sensor_battery_critical_percent": 15,
     "history_start_at": "",
 }
 GLOBAL_CONFIG_KEYS = {
@@ -187,6 +196,12 @@ GLOBAL_CONFIG_KEYS = {
     "sample_time_light_ms",
     "sample_time_air_ms",
     "sample_time_cloud_ms",
+    "soil_sensor_day_interval_ms",
+    "soil_sensor_night_interval_ms",
+    "soil_sensor_day_start",
+    "soil_sensor_night_start",
+    "soil_sensor_battery_warning_percent",
+    "soil_sensor_battery_critical_percent",
 }
 DEFAULT_PLANT_PROFILES: tuple[dict[str, Any], ...] = (
     {
@@ -971,17 +986,18 @@ def public_base_url() -> str:
     return APP_PUBLIC_URL.removesuffix("/app").rstrip("/")
 
 
-def bundled_firmware_info() -> tuple[str, str]:
+def bundled_firmware_info(prefix: str = "growly-") -> tuple[str, str]:
     if not BUNDLED_FIRMWARE_DIR.exists():
         return "", ""
-    candidates = sorted(
-        BUNDLED_FIRMWARE_DIR.glob("growly-*.bin"),
-        key=lambda path: firmware_version_parts(path.stem.removeprefix("growly-")),
-    )
+    candidates = [
+        path for path in BUNDLED_FIRMWARE_DIR.glob(f"{prefix}*.bin")
+        if not (prefix == "growly-" and path.stem.startswith("growly-soil-"))
+    ]
+    candidates = sorted(candidates, key=lambda path: firmware_version_parts(path.stem.removeprefix(prefix)))
     if not candidates:
         return "", ""
     firmware_path = candidates[-1]
-    version = firmware_path.stem.removeprefix("growly-")
+    version = firmware_path.stem.removeprefix(prefix)
     url = f"{public_base_url()}/static/firmware/{firmware_path.name}"
     return version, url
 
@@ -1018,7 +1034,7 @@ def is_newer_firmware_version(candidate_version: str, current_version: str) -> b
 
 
 def latest_firmware_info() -> tuple[str, str]:
-    bundled_version, bundled_url = bundled_firmware_info()
+    bundled_version, bundled_url = bundled_firmware_info("growly-")
     active_version = ACTIVE_FIRMWARE_VERSION
     active_url = ACTIVE_FIRMWARE_URL
     if active_version and active_url and (
@@ -1028,6 +1044,34 @@ def latest_firmware_info() -> tuple[str, str]:
     if bundled_version and bundled_url:
         return bundled_version, bundled_url
     return active_version, active_url
+
+
+def latest_soil_firmware_info() -> tuple[str, str]:
+    bundled_version, bundled_url = bundled_firmware_info("growly-soil-")
+    active_version = ACTIVE_SOIL_FIRMWARE_VERSION
+    active_url = ACTIVE_SOIL_FIRMWARE_URL
+    if active_version and active_url and (
+        not bundled_version or is_newer_firmware_version(active_version, bundled_version)
+    ):
+        return active_version, active_url
+    if bundled_version and bundled_url:
+        return bundled_version, bundled_url
+    return active_version, active_url
+
+
+def soil_firmware_response(current_version: str = "") -> dict[str, Any]:
+    latest_version, firmware_url = latest_soil_firmware_info()
+    update_available = (
+        bool(latest_version)
+        and bool(firmware_url)
+        and is_newer_firmware_version(latest_version, current_version)
+    )
+    return {
+        "current_version": str(current_version or "").strip(),
+        "latest_version": latest_version,
+        "url": firmware_url,
+        "update_available": update_available,
+    }
 
 
 def build_email_shell(title: str, intro: str, body: str, next_label: str, next_text: str, button_label: str, button_url: str, footer: str) -> str:
@@ -1566,6 +1610,12 @@ def rebuild_hubs_without_owner_unique(connection: sqlite3.Connection) -> None:
             sample_time_light_ms INTEGER NOT NULL,
             sample_time_air_ms INTEGER NOT NULL,
             sample_time_cloud_ms INTEGER NOT NULL,
+            soil_sensor_day_interval_ms INTEGER NOT NULL DEFAULT 1800000,
+            soil_sensor_night_interval_ms INTEGER NOT NULL DEFAULT 3600000,
+            soil_sensor_day_start TEXT NOT NULL DEFAULT '07:00',
+            soil_sensor_night_start TEXT NOT NULL DEFAULT '22:00',
+            soil_sensor_battery_warning_percent INTEGER NOT NULL DEFAULT 30,
+            soil_sensor_battery_critical_percent INTEGER NOT NULL DEFAULT 15,
             history_start_at TEXT NOT NULL DEFAULT '',
             config_revision INTEGER NOT NULL DEFAULT 1,
             config_updated_at TEXT NOT NULL DEFAULT '',
@@ -1587,14 +1637,14 @@ def rebuild_hubs_without_owner_unique(connection: sqlite3.Connection) -> None:
             hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
             owner_username, is_active, sensor_url, local_ip,
             sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-            sample_time_cloud_ms, history_start_at, config_revision,
+            sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, config_revision,
             config_updated_at, config_applied_revision, config_applied_at,
             config_applied_settings_json, device_status_at, device_status_message,
             device_firmware_version, created_at, updated_at
         )
         SELECT hub_id, hub_name, '', '', NULL, NULL, owner_username, is_active, sensor_url, local_ip,
                sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-               sample_time_cloud_ms, history_start_at, config_revision,
+               sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, config_revision,
                config_updated_at, config_applied_revision, config_applied_at,
                config_applied_settings_json, device_status_at, device_status_message,
                device_firmware_version, created_at, updated_at
@@ -1695,6 +1745,12 @@ def init_db() -> None:
                 sample_time_light_ms INTEGER NOT NULL,
                 sample_time_air_ms INTEGER NOT NULL,
                 sample_time_cloud_ms INTEGER NOT NULL,
+                soil_sensor_day_interval_ms INTEGER NOT NULL DEFAULT 1800000,
+                soil_sensor_night_interval_ms INTEGER NOT NULL DEFAULT 3600000,
+                soil_sensor_day_start TEXT NOT NULL DEFAULT '07:00',
+                soil_sensor_night_start TEXT NOT NULL DEFAULT '22:00',
+                soil_sensor_battery_warning_percent INTEGER NOT NULL DEFAULT 30,
+                soil_sensor_battery_critical_percent INTEGER NOT NULL DEFAULT 15,
                 history_start_at TEXT NOT NULL DEFAULT '',
                 config_revision INTEGER NOT NULL DEFAULT 1,
                 config_updated_at TEXT NOT NULL DEFAULT '',
@@ -2206,6 +2262,12 @@ def init_db() -> None:
             "device_status_at": "TEXT NOT NULL DEFAULT ''",
             "device_status_message": "TEXT NOT NULL DEFAULT ''",
             "device_firmware_version": "TEXT NOT NULL DEFAULT ''",
+            "soil_sensor_day_interval_ms": "INTEGER NOT NULL DEFAULT 1800000",
+            "soil_sensor_night_interval_ms": "INTEGER NOT NULL DEFAULT 3600000",
+            "soil_sensor_day_start": "TEXT NOT NULL DEFAULT '07:00'",
+            "soil_sensor_night_start": "TEXT NOT NULL DEFAULT '22:00'",
+            "soil_sensor_battery_warning_percent": "INTEGER NOT NULL DEFAULT 30",
+            "soil_sensor_battery_critical_percent": "INTEGER NOT NULL DEFAULT 15",
         }
         for column_name, column_definition in hub_column_defaults.items():
             if column_name not in existing_hub_columns:
@@ -2396,8 +2458,8 @@ def init_db() -> None:
                 INSERT INTO hubs (
                     hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
                     sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                    sample_time_cloud_ms, history_start_at, created_at, updated_at
-                ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, created_at, updated_at
+                ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     DEFAULT_PRIMARY_HUB_ID,
@@ -2409,6 +2471,12 @@ def init_db() -> None:
                     legacy_settings["sample_time_light_ms"],
                     legacy_settings["sample_time_air_ms"],
                     legacy_settings["sample_time_cloud_ms"],
+                    DEFAULT_APP_SETTINGS["soil_sensor_day_interval_ms"],
+                    DEFAULT_APP_SETTINGS["soil_sensor_night_interval_ms"],
+                    DEFAULT_APP_SETTINGS["soil_sensor_day_start"],
+                    DEFAULT_APP_SETTINGS["soil_sensor_night_start"],
+                    DEFAULT_APP_SETTINGS["soil_sensor_battery_warning_percent"],
+                    DEFAULT_APP_SETTINGS["soil_sensor_battery_critical_percent"],
                     legacy_settings["history_start_at"],
                     now,
                     now,
@@ -2441,6 +2509,15 @@ def normalize_history_start_at(value: Any) -> str:
     if "T" in text:
         return parsed.strftime("%Y-%m-%dT%H:%M")
     return parsed.strftime("%Y-%m-%dT00:00")
+
+
+def normalize_time_of_day(value: Any, fallback: str) -> str:
+    text = str(value or "").strip()
+    try:
+        parsed = datetime.strptime(text, "%H:%M")
+    except ValueError:
+        return fallback
+    return parsed.strftime("%H:%M")
 
 
 def normalize_sensor_url(value: Any) -> str:
@@ -2513,7 +2590,7 @@ def list_hubs() -> list[dict[str, Any]]:
             SELECT hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
                    owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                   sample_time_cloud_ms, history_start_at, config_revision,
+                   sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
                    config_applied_settings_json, device_status_at, device_status_message,
                    device_firmware_version, created_at, updated_at
@@ -2531,7 +2608,7 @@ def find_hub(hub_id: str) -> dict[str, Any] | None:
             SELECT hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
                    owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                   sample_time_cloud_ms, history_start_at, config_revision,
+                   sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
                    config_applied_settings_json, device_status_at, device_status_message,
                    device_firmware_version, created_at, updated_at
@@ -2550,7 +2627,7 @@ def find_hub_by_owner(username: str) -> dict[str, Any] | None:
             SELECT hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
                    owner_username, is_active, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                   sample_time_cloud_ms, history_start_at, config_revision,
+                   sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
                    config_applied_settings_json, device_status_at, device_status_message,
                    device_firmware_version, created_at, updated_at
@@ -2655,6 +2732,9 @@ def global_app_settings() -> dict[str, Any]:
             continue
         if key == "history_start_at":
             settings[key] = normalize_history_start_at(value)
+            continue
+        if key in {"soil_sensor_day_start", "soil_sensor_night_start"}:
+            settings[key] = normalize_time_of_day(value, str(DEFAULT_APP_SETTINGS[key]))
             continue
         try:
             settings[key] = int(value)
@@ -3022,8 +3102,8 @@ def complete_pairing_token(
                     INSERT INTO hubs (
                         hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
                         sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                        sample_time_cloud_ms, history_start_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         hub_id,
@@ -3035,6 +3115,12 @@ def complete_pairing_token(
                         global_settings["sample_time_light_ms"],
                         global_settings["sample_time_air_ms"],
                         global_settings["sample_time_cloud_ms"],
+                        global_settings["soil_sensor_day_interval_ms"],
+                        global_settings["soil_sensor_night_interval_ms"],
+                        global_settings["soil_sensor_day_start"],
+                        global_settings["soil_sensor_night_start"],
+                        global_settings["soil_sensor_battery_warning_percent"],
+                        global_settings["soil_sensor_battery_critical_percent"],
                         global_settings["history_start_at"],
                         now,
                         now,
@@ -3067,8 +3153,8 @@ def complete_pairing_token(
                 INSERT INTO hubs (
                     hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
                     sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                    sample_time_cloud_ms, history_start_at, created_at, updated_at
-                ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, created_at, updated_at
+                ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     hub_id,
@@ -3080,6 +3166,12 @@ def complete_pairing_token(
                     global_settings["sample_time_light_ms"],
                     global_settings["sample_time_air_ms"],
                     global_settings["sample_time_cloud_ms"],
+                    global_settings["soil_sensor_day_interval_ms"],
+                    global_settings["soil_sensor_night_interval_ms"],
+                    global_settings["soil_sensor_day_start"],
+                    global_settings["soil_sensor_night_start"],
+                    global_settings["soil_sensor_battery_warning_percent"],
+                    global_settings["soil_sensor_battery_critical_percent"],
                     global_settings["history_start_at"],
                     now,
                     now,
@@ -3185,6 +3277,24 @@ def list_soil_sensors(hub_id: str) -> list[dict[str, Any]]:
     return [soil_sensor_from_row(row) for row in rows]
 
 
+def soil_sensor_count_for_hub(hub_id: str) -> int:
+    with db_connection() as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) AS sensor_count FROM soil_sensors WHERE hub_id = ?",
+            (hub_id,),
+        ).fetchone()
+    return int(row["sensor_count"] if row else 0)
+
+
+def soil_sensor_exists(hub_id: str, sensor_id: str) -> bool:
+    with db_connection() as connection:
+        row = connection.execute(
+            "SELECT 1 FROM soil_sensors WHERE hub_id = ? AND sensor_id = ?",
+            (hub_id, sensor_id),
+        ).fetchone()
+    return bool(row)
+
+
 def list_all_soil_sensors() -> list[dict[str, Any]]:
     with db_connection() as connection:
         rows = connection.execute(
@@ -3197,6 +3307,42 @@ def list_all_soil_sensors() -> list[dict[str, Any]]:
             """
         ).fetchall()
     return [soil_sensor_from_row(row) for row in rows]
+
+
+def update_soil_sensor_assignment(username: str, hub_id: str, sensor_id: str, plant_id: str) -> dict[str, Any]:
+    sensor_id = sensor_id.strip()
+    plant_id = plant_id.strip()
+    if not sensor_id:
+        raise ValueError("missing_sensor_id")
+
+    hub = find_hub_for_user(username, hub_id)
+    if not hub:
+        raise ValueError("hub_not_found")
+    if plant_id and not local_plant_by_id(username, hub_id, plant_id):
+        raise ValueError("plant_not_found")
+
+    now = utc_now_iso()
+    with db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE soil_sensors
+            SET plant_id = ?,
+                updated_at = ?
+            WHERE sensor_id = ?
+              AND hub_id = ?
+            """,
+            (plant_id, now, sensor_id, hub_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("soil_sensor_not_found")
+        connection.commit()
+
+    sensors = list_soil_sensors(hub_id)
+    sensor = next((item for item in sensors if item["sensor_id"] == sensor_id), None)
+    if not sensor:
+        raise ValueError("soil_sensor_not_found")
+    best_effort_sync_core_to_supabase("soil sensor assignment")
+    return sensor
 
 
 def list_soil_pairing_sessions_for_sync() -> list[dict[str, Any]]:
@@ -3220,6 +3366,8 @@ def create_soil_pairing_session(username: str, hub_id: str) -> dict[str, Any]:
         raise ValueError("hub_not_found")
 
     cleanup_soil_pairing_sessions()
+    if soil_sensor_count_for_hub(hub_id) >= MAX_SOIL_SENSORS_PER_HUB:
+        raise ValueError("soil_sensor_limit_reached")
     now_dt = utc_now()
     now = now_dt.isoformat()
     expires_at = (now_dt + SOIL_PAIRING_SESSION_TTL).isoformat()
@@ -3282,8 +3430,11 @@ def complete_soil_sensor_pairing(payload: dict[str, Any]) -> dict[str, Any]:
 
     mac_address = normalize_mac_address(payload.get("mac_address") or payload.get("mac"))
     sensor_id = normalize_soil_sensor_id(payload.get("sensor_id"), mac_address)
+    if not soil_sensor_exists(hub_id, sensor_id) and soil_sensor_count_for_hub(hub_id) >= MAX_SOIL_SENSORS_PER_HUB:
+        raise ValueError("soil_sensor_limit_reached")
     sensor_type = str(payload.get("sensor_type") or SOIL_SENSOR_DEFAULT_TYPE).strip()[:64] or SOIL_SENSOR_DEFAULT_TYPE
-    sensor_name = str(payload.get("sensor_name") or payload.get("name") or "Soil sensor").strip()[:80] or "Soil sensor"
+    default_sensor_name = f"Soil sensor {min(MAX_SOIL_SENSORS_PER_HUB, soil_sensor_count_for_hub(hub_id) + 1)}"
+    sensor_name = str(payload.get("sensor_name") or payload.get("name") or default_sensor_name).strip()[:80] or default_sensor_name
     firmware_version = str(payload.get("firmware_version") or payload.get("version") or "").strip()[:80]
     now = utc_now_iso()
     last_payload = {
@@ -3406,8 +3557,8 @@ def create_hub_for_user(username: str) -> dict[str, Any]:
             INSERT INTO hubs (
                 hub_id, hub_name, owner_username, is_active, sensor_url, local_ip,
                 sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
-                sample_time_cloud_ms, history_start_at, created_at, updated_at
-            ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, created_at, updated_at
+            ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 hub_id,
@@ -3419,6 +3570,12 @@ def create_hub_for_user(username: str) -> dict[str, Any]:
                 global_settings["sample_time_light_ms"],
                 global_settings["sample_time_air_ms"],
                 global_settings["sample_time_cloud_ms"],
+                global_settings["soil_sensor_day_interval_ms"],
+                global_settings["soil_sensor_night_interval_ms"],
+                global_settings["soil_sensor_day_start"],
+                global_settings["soil_sensor_night_start"],
+                global_settings["soil_sensor_battery_warning_percent"],
+                global_settings["soil_sensor_battery_critical_percent"],
                 global_settings["history_start_at"],
                 now,
                 now,
@@ -3697,6 +3854,12 @@ def hub_settings(hub_id: str) -> dict[str, Any]:
         "sample_time_light_ms": int(hub["sample_time_light_ms"]),
         "sample_time_air_ms": int(hub["sample_time_air_ms"]),
         "sample_time_cloud_ms": int(hub["sample_time_cloud_ms"]),
+        "soil_sensor_day_interval_ms": int(hub.get("soil_sensor_day_interval_ms") or DEFAULT_APP_SETTINGS["soil_sensor_day_interval_ms"]),
+        "soil_sensor_night_interval_ms": int(hub.get("soil_sensor_night_interval_ms") or DEFAULT_APP_SETTINGS["soil_sensor_night_interval_ms"]),
+        "soil_sensor_day_start": normalize_time_of_day(hub.get("soil_sensor_day_start"), str(DEFAULT_APP_SETTINGS["soil_sensor_day_start"])),
+        "soil_sensor_night_start": normalize_time_of_day(hub.get("soil_sensor_night_start"), str(DEFAULT_APP_SETTINGS["soil_sensor_night_start"])),
+        "soil_sensor_battery_warning_percent": int(hub.get("soil_sensor_battery_warning_percent") or DEFAULT_APP_SETTINGS["soil_sensor_battery_warning_percent"]),
+        "soil_sensor_battery_critical_percent": int(hub.get("soil_sensor_battery_critical_percent") or DEFAULT_APP_SETTINGS["soil_sensor_battery_critical_percent"]),
         "history_start_at": normalize_history_start_at(hub["history_start_at"]),
         "config_revision": int(hub.get("config_revision") or 1),
         "config_updated_at": str(hub.get("config_updated_at") or ""),
@@ -3735,12 +3898,22 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if key == "history_start_at":
             updated[key] = normalize_history_start_at(value)
             continue
+        if key in {"soil_sensor_day_start", "soil_sensor_night_start"}:
+            updated[key] = normalize_time_of_day(value, str(DEFAULT_APP_SETTINGS[key]))
+            continue
         value_int = int(value)
-        if value_int < 5000:
-            value_int = 5000
-        if value_int > 3600000:
-            value_int = 3600000
+        if key in {"soil_sensor_battery_warning_percent", "soil_sensor_battery_critical_percent"}:
+            value_int = min(100, max(1, value_int))
+        elif key in {"soil_sensor_day_interval_ms", "soil_sensor_night_interval_ms"}:
+            value_int = min(7200000, max(300000, value_int))
+        else:
+            if value_int < 5000:
+                value_int = 5000
+            if value_int > 3600000:
+                value_int = 3600000
         updated[key] = value_int
+    if int(updated["soil_sensor_battery_critical_percent"]) >= int(updated["soil_sensor_battery_warning_percent"]):
+        updated["soil_sensor_battery_critical_percent"] = max(1, int(updated["soil_sensor_battery_warning_percent"]) - 1)
     config_payload = any(key in payload for key in GLOBAL_CONFIG_KEYS)
     config_changed = config_payload
     now = utc_now_iso()
@@ -3787,6 +3960,12 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                     sample_time_light_ms = ?,
                     sample_time_air_ms = ?,
                     sample_time_cloud_ms = ?,
+                    soil_sensor_day_interval_ms = ?,
+                    soil_sensor_night_interval_ms = ?,
+                    soil_sensor_day_start = ?,
+                    soil_sensor_night_start = ?,
+                    soil_sensor_battery_warning_percent = ?,
+                    soil_sensor_battery_critical_percent = ?,
                     config_revision = config_revision + 1,
                     config_updated_at = ?,
                     updated_at = ?
@@ -3796,6 +3975,12 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                     updated["sample_time_light_ms"],
                     updated["sample_time_air_ms"],
                     updated["sample_time_cloud_ms"],
+                    updated["soil_sensor_day_interval_ms"],
+                    updated["soil_sensor_night_interval_ms"],
+                    updated["soil_sensor_day_start"],
+                    updated["soil_sensor_night_start"],
+                    updated["soil_sensor_battery_warning_percent"],
+                    updated["soil_sensor_battery_critical_percent"],
                     now,
                     now,
                 ),
@@ -3878,10 +4063,40 @@ def update_hub_device_status(hub_id: str, payload: dict[str, Any]) -> dict[str, 
     return settings
 
 
+def minutes_from_time(value: str) -> int:
+    parsed = datetime.strptime(normalize_time_of_day(value, "00:00"), "%H:%M")
+    return parsed.hour * 60 + parsed.minute
+
+
+def soil_sensor_schedule(settings: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "day_interval_ms": int(settings["soil_sensor_day_interval_ms"]),
+        "night_interval_ms": int(settings["soil_sensor_night_interval_ms"]),
+        "day_start": settings["soil_sensor_day_start"],
+        "night_start": settings["soil_sensor_night_start"],
+        "battery_warning_percent": int(settings["soil_sensor_battery_warning_percent"]),
+        "battery_critical_percent": int(settings["soil_sensor_battery_critical_percent"]),
+    }
+
+
+def next_soil_sensor_sleep_seconds(settings: dict[str, Any], now: datetime | None = None) -> int:
+    local_now = (now or utc_now()).astimezone(ZoneInfo("Europe/Oslo"))
+    current_minutes = local_now.hour * 60 + local_now.minute
+    day_start = minutes_from_time(str(settings["soil_sensor_day_start"]))
+    night_start = minutes_from_time(str(settings["soil_sensor_night_start"]))
+    if day_start <= night_start:
+        is_day = day_start <= current_minutes < night_start
+    else:
+        is_day = current_minutes >= day_start or current_minutes < night_start
+    interval_ms = int(settings["soil_sensor_day_interval_ms"] if is_day else settings["soil_sensor_night_interval_ms"])
+    return max(300, min(7200, round(interval_ms / 1000)))
+
+
 def device_config_response(hub_id: str, current_version: str = "") -> dict[str, Any]:
     settings = hub_settings(hub_id)
     soil_pairing = active_soil_pairing_session_for_hub(hub_id)
     latest_version, firmware_url = latest_firmware_info()
+    soil_firmware = soil_firmware_response()
     update_available = (
         bool(latest_version)
         and bool(firmware_url)
@@ -3908,12 +4123,17 @@ def device_config_response(hub_id: str, current_version: str = "") -> dict[str, 
             "expires_at": soil_pairing["expires_at"] if soil_pairing else "",
             "sensor_type": SOIL_SENSOR_DEFAULT_TYPE,
         },
+        "soil_sensor_schedule": {
+            **soil_sensor_schedule(settings),
+            "next_sleep_seconds": next_soil_sensor_sleep_seconds(settings),
+        },
         "firmware": {
             "current_version": str(current_version or "").strip(),
             "latest_version": latest_version,
             "url": firmware_url,
             "update_available": update_available,
         },
+        "soil_sensor_firmware": soil_firmware,
     }
 
 
@@ -5477,6 +5697,12 @@ def sync_core_to_supabase() -> dict[str, Any]:
             "sample_time_light_ms": int(hub.get("sample_time_light_ms") or DEFAULT_APP_SETTINGS["sample_time_light_ms"]),
             "sample_time_air_ms": int(hub.get("sample_time_air_ms") or DEFAULT_APP_SETTINGS["sample_time_air_ms"]),
             "sample_time_cloud_ms": int(hub.get("sample_time_cloud_ms") or DEFAULT_APP_SETTINGS["sample_time_cloud_ms"]),
+            "soil_sensor_day_interval_ms": int(hub.get("soil_sensor_day_interval_ms") or DEFAULT_APP_SETTINGS["soil_sensor_day_interval_ms"]),
+            "soil_sensor_night_interval_ms": int(hub.get("soil_sensor_night_interval_ms") or DEFAULT_APP_SETTINGS["soil_sensor_night_interval_ms"]),
+            "soil_sensor_day_start": normalize_time_of_day(hub.get("soil_sensor_day_start"), str(DEFAULT_APP_SETTINGS["soil_sensor_day_start"])),
+            "soil_sensor_night_start": normalize_time_of_day(hub.get("soil_sensor_night_start"), str(DEFAULT_APP_SETTINGS["soil_sensor_night_start"])),
+            "soil_sensor_battery_warning_percent": int(hub.get("soil_sensor_battery_warning_percent") or DEFAULT_APP_SETTINGS["soil_sensor_battery_warning_percent"]),
+            "soil_sensor_battery_critical_percent": int(hub.get("soil_sensor_battery_critical_percent") or DEFAULT_APP_SETTINGS["soil_sensor_battery_critical_percent"]),
             "history_start_at": iso_or_none(history_start_iso(str(hub["hub_id"]))),
             "config_revision": int(hub.get("config_revision") or 1),
             "config_updated_at": iso_or_none(hub.get("config_updated_at")),
@@ -8965,7 +9191,14 @@ async def get_soil_sensors(request: Request):
         return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
     sensors = list_soil_sensors(str(hub["hub_id"]))
     pairing = active_soil_pairing_session_for_hub(str(hub["hub_id"]))
-    return {"ok": True, "hub_id": hub["hub_id"], "sensors": sensors, "pairing": pairing}
+    return {
+        "ok": True,
+        "hub_id": hub["hub_id"],
+        "sensors": sensors,
+        "pairing": pairing,
+        "max_sensors": MAX_SOIL_SENSORS_PER_HUB,
+        "slots_remaining": max(0, MAX_SOIL_SENSORS_PER_HUB - len(sensors)),
+    }
 
 
 @app.post("/api/soil-sensors/pairing-session")
@@ -8979,6 +9212,24 @@ async def create_soil_sensor_pairing_session(request: Request):
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
     return {"ok": True, "hub_id": hub["hub_id"], "pairing": pairing}
+
+
+@app.patch("/api/soil-sensors/{sensor_id}")
+async def update_soil_sensor(request: Request, sensor_id: str, payload: dict[str, Any]):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        sensor = update_soil_sensor_assignment(
+            current_username(request),
+            str(hub["hub_id"]),
+            sensor_id,
+            str(payload.get("plant_id") or payload.get("plantId") or ""),
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "hub_id": hub["hub_id"], "sensor": sensor}
 
 
 @app.post("/api/soil-sensors/pair")
@@ -9012,7 +9263,29 @@ async def ingest_soil_sensor(payload: dict[str, Any]):
     }
     stored = store_sensor_sample(normalized_payload, hub_id)
     update_soil_sensor_last_seen(hub_id, sensor_id, payload)
-    return {"ok": True, "hub_id": hub_id, "sensor_id": sensor_id, "stored": stored}
+    settings = hub_settings(hub_id)
+    firmware = soil_firmware_response(str(payload.get("firmware_version") or payload.get("version") or ""))
+    battery_percent = payload.get("battery_percent")
+    battery_alert = ""
+    try:
+        battery_value = float(battery_percent)
+        if battery_value <= float(settings["soil_sensor_battery_critical_percent"]):
+            battery_alert = "critical"
+        elif battery_value <= float(settings["soil_sensor_battery_warning_percent"]):
+            battery_alert = "warning"
+    except (TypeError, ValueError):
+        pass
+    return {
+        "ok": True,
+        "hub_id": hub_id,
+        "sensor_id": sensor_id,
+        "stored": stored,
+        "next_sleep_seconds": next_soil_sensor_sleep_seconds(settings),
+        "battery_alert": battery_alert,
+        "battery_warning_percent": settings["soil_sensor_battery_warning_percent"],
+        "battery_critical_percent": settings["soil_sensor_battery_critical_percent"],
+        "firmware": firmware,
+    }
 
 
 @app.get("/api/device/config")

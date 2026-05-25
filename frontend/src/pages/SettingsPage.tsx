@@ -12,6 +12,7 @@ import {
   searchWeatherAddress,
   updatePlant,
   updateProfile,
+  updateSoilSensor,
   type AuthSession,
   type GrowlyPlant,
   type MemoryDebugReport,
@@ -67,6 +68,16 @@ function plantUsesSevenInOne(plant: GrowlyPlant): boolean {
   return Boolean(plant.hasSevenInOne ?? plant.has_seven_in_one);
 }
 
+function minutesToMs(minutes: string): number {
+  const value = Number(minutes);
+  return Math.max(5, Math.min(120, Number.isFinite(value) ? value : 30)) * 60_000;
+}
+
+function msToMinutes(value: unknown, fallback: number): string {
+  const numeric = typeof value === "number" ? value : fallback;
+  return Math.round(numeric / 60_000).toString();
+}
+
 export function SettingsPage({
   session,
   setSession,
@@ -102,7 +113,17 @@ export function SettingsPage({
   const [sensorAssigning, setSensorAssigning] = useState(false);
   const [soilSensors, setSoilSensors] = useState<SoilSensor[]>([]);
   const [soilPairing, setSoilPairing] = useState<SoilSensorPairing | null>(null);
+  const [soilSensorLimit, setSoilSensorLimit] = useState(10);
+  const [soilSensorSlotsRemaining, setSoilSensorSlotsRemaining] = useState(10);
   const [soilPairingBusy, setSoilPairingBusy] = useState(false);
+  const [soilAssigningId, setSoilAssigningId] = useState("");
+  const [soilDayIntervalMinutes, setSoilDayIntervalMinutes] = useState(() => msToMinutes(session?.hub?.soil_sensor_day_interval_ms, 1_800_000));
+  const [soilNightIntervalMinutes, setSoilNightIntervalMinutes] = useState(() => msToMinutes(session?.hub?.soil_sensor_night_interval_ms, 3_600_000));
+  const [soilDayStart, setSoilDayStart] = useState(session?.hub?.soil_sensor_day_start || "07:00");
+  const [soilNightStart, setSoilNightStart] = useState(session?.hub?.soil_sensor_night_start || "22:00");
+  const [soilBatteryWarning, setSoilBatteryWarning] = useState(String(session?.hub?.soil_sensor_battery_warning_percent ?? 30));
+  const [soilBatteryCritical, setSoilBatteryCritical] = useState(String(session?.hub?.soil_sensor_battery_critical_percent ?? 15));
+  const [soilScheduleSaving, setSoilScheduleSaving] = useState(false);
   const [memoryDebug, setMemoryDebug] = useState<MemoryDebugReport | null>(null);
   const [memoryDebugBusy, setMemoryDebugBusy] = useState(false);
 
@@ -142,10 +163,29 @@ export function SettingsPage({
   }, [session?.user?.username, session?.user?.full_name, session?.user?.phone, session?.user?.email]);
 
   useEffect(() => {
+    setSoilDayIntervalMinutes(msToMinutes(session?.hub?.soil_sensor_day_interval_ms, 1_800_000));
+    setSoilNightIntervalMinutes(msToMinutes(session?.hub?.soil_sensor_night_interval_ms, 3_600_000));
+    setSoilDayStart(session?.hub?.soil_sensor_day_start || "07:00");
+    setSoilNightStart(session?.hub?.soil_sensor_night_start || "22:00");
+    setSoilBatteryWarning(String(session?.hub?.soil_sensor_battery_warning_percent ?? 30));
+    setSoilBatteryCritical(String(session?.hub?.soil_sensor_battery_critical_percent ?? 15));
+  }, [
+    session?.hub?.hub_id,
+    session?.hub?.soil_sensor_day_interval_ms,
+    session?.hub?.soil_sensor_night_interval_ms,
+    session?.hub?.soil_sensor_day_start,
+    session?.hub?.soil_sensor_night_start,
+    session?.hub?.soil_sensor_battery_warning_percent,
+    session?.hub?.soil_sensor_battery_critical_percent,
+  ]);
+
+  useEffect(() => {
     let cancelled = false;
     setSensorPlants([]);
     setSoilSensors([]);
     setSoilPairing(null);
+    setSoilSensorLimit(10);
+    setSoilSensorSlotsRemaining(10);
 
     if (!activeHubId) {
       setSensorPlantsLoading(false);
@@ -168,6 +208,8 @@ export function SettingsPage({
       }
       setSoilSensors(result.sensors);
       setSoilPairing(result.pairing);
+      setSoilSensorLimit(result.max_sensors);
+      setSoilSensorSlotsRemaining(result.slots_remaining);
     });
 
     return () => {
@@ -282,6 +324,10 @@ export function SettingsPage({
     if (soilPairingBusy) {
       return;
     }
+    if (soilSensors.length >= soilSensorLimit) {
+      setStatus(t("settings.status.soilSensorLimitReached", { count: soilSensorLimit.toString() }));
+      return;
+    }
 
     setSoilPairingBusy(true);
     setStatus(t("settings.status.creatingSoilPairing"));
@@ -295,6 +341,83 @@ export function SettingsPage({
       setStatus(t("settings.status.soilPairingReady"));
     } finally {
       setSoilPairingBusy(false);
+    }
+  }
+
+  async function handleAssignSoilSensor(sensor: SoilSensor, nextPlantId: string) {
+    if (!hasPairedHub) {
+      setStatus(t("settings.status.pairHubBeforeSoilSensor"));
+      return;
+    }
+    if (soilAssigningId) {
+      return;
+    }
+    if ((sensor.plant_id || "") === nextPlantId) {
+      return;
+    }
+    if (nextPlantId && !sensorPlants.some((plant) => plantInstanceId(plant) === nextPlantId)) {
+      setStatus(t("settings.status.plantNotFound"));
+      return;
+    }
+
+    setSoilAssigningId(sensor.sensor_id);
+    setStatus(nextPlantId ? t("settings.status.assigningSoilSensor") : t("settings.status.removingSoilSensor"));
+    try {
+      const updated = await updateSoilSensor(sensor.sensor_id, { plant_id: nextPlantId }, activeHubId);
+      if (!updated) {
+        setStatus(t("settings.status.soilSensorAssignFailed"));
+        return;
+      }
+      setSoilSensors((current) => current.map((item) => (item.sensor_id === updated.sensor_id ? updated : item)));
+      const plant = nextPlantId ? sensorPlants.find((item) => plantInstanceId(item) === nextPlantId) : null;
+      setStatus(
+        plant
+          ? t("settings.status.soilSensorAssigned", { plant: plantDisplayName(plant, t("settings.defaultPlant")) })
+          : t("settings.status.soilSensorUnassigned"),
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown";
+      setStatus(`${t("settings.status.soilSensorAssignFailed")} (${detail})`);
+    } finally {
+      setSoilAssigningId("");
+    }
+  }
+
+  async function handleSaveSoilSchedule() {
+    if (!hasPairedHub) {
+      setStatus(t("settings.status.pairHubBeforeSoilSensor"));
+      return;
+    }
+    setSoilScheduleSaving(true);
+    setStatus(t("settings.status.savingSoilSchedule"));
+    const warning = Math.max(1, Math.min(100, Number(soilBatteryWarning) || 30));
+    const critical = Math.max(1, Math.min(warning - 1, Number(soilBatteryCritical) || 15));
+    try {
+      const settings = await saveHubSettings({
+        soil_sensor_day_interval_ms: minutesToMs(soilDayIntervalMinutes),
+        soil_sensor_night_interval_ms: minutesToMs(soilNightIntervalMinutes),
+        soil_sensor_day_start: soilDayStart,
+        soil_sensor_night_start: soilNightStart,
+        soil_sensor_battery_warning_percent: warning,
+        soil_sensor_battery_critical_percent: critical,
+      });
+      if (!settings) {
+        setStatus(t("settings.status.soilScheduleFailed"));
+        return;
+      }
+      if (session) {
+        const updatedHubs = (session.hubs ?? []).map((hub) => (
+          hub.hub_id === settings.hub_id ? { ...hub, ...settings } : hub
+        ));
+        setSession({
+          ...session,
+          hub: session.hub?.hub_id === settings.hub_id ? { ...session.hub, ...settings } : session.hub,
+          hubs: updatedHubs.length ? updatedHubs : session.hubs,
+        });
+      }
+      setStatus(t("settings.status.soilScheduleSaved"));
+    } finally {
+      setSoilScheduleSaving(false);
     }
   }
 
@@ -695,7 +818,11 @@ export function SettingsPage({
                   <div className="sensor-detail-list">
                     <div className="sensor-detail-row">
                       <span>{t("settings.pairedSoilSensors")}</span>
-                      <strong>{soilSensors.length}</strong>
+                      <strong>{soilSensors.length}/{soilSensorLimit}</strong>
+                    </div>
+                    <div className="sensor-detail-row">
+                      <span>{t("settings.soilSensorSlotsRemaining")}</span>
+                      <strong>{soilSensorSlotsRemaining}</strong>
                     </div>
                     {soilPairing && soilPairing.status === "active" ? (
                       <div className="sensor-detail-row">
@@ -703,14 +830,88 @@ export function SettingsPage({
                         <strong>{soilPairing.expires_at}</strong>
                       </div>
                     ) : null}
+                    {soilSensors.map((sensor) => {
+                      const assignedPlant = sensor.plant_id
+                        ? sensorPlants.find((plant) => plantInstanceId(plant) === sensor.plant_id)
+                        : null;
+                      return (
+                        <div className="sensor-detail-row sensor-detail-row--stacked" key={sensor.sensor_id}>
+                          <div className="sensor-detail-heading">
+                            <span>{sensor.sensor_name || t("settings.soilSensor")}</span>
+                            <strong>{assignedPlant ? plantDisplayName(assignedPlant, t("settings.defaultPlant")) : t("settings.sensorUnassigned")}</strong>
+                          </div>
+                          <small>{sensor.mac_address || sensor.sensor_id}</small>
+                          <label className="settings-field sensor-select-field sensor-inline-select">
+                            <span>{t("settings.soilSensorPlant")}</span>
+                            <select
+                              value={sensor.plant_id || ""}
+                              onChange={(event) => handleAssignSoilSensor(sensor, event.target.value)}
+                              disabled={sensorPlantsLoading || soilAssigningId === sensor.sensor_id || !sensorPlants.length}
+                            >
+                              <option value="">
+                                {sensorPlantsLoading
+                                  ? t("settings.fetchingPlants")
+                                  : sensorPlants.length
+                                    ? t("settings.sensorUnassigned")
+                                    : t("settings.noPlantsOnHub")}
+                              </option>
+                              {sensorPlants.map((plant) => {
+                                const instanceId = plantInstanceId(plant);
+                                return (
+                                  <option key={instanceId} value={instanceId}>
+                                    {plantDisplayName(plant, t("settings.defaultPlant"))}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </label>
+                        </div>
+                      );
+                    })}
                   </div>
                   <button
                     className="secondary-action"
                     type="button"
                     onClick={handleCreateSoilPairing}
-                    disabled={!hasPairedHub || soilPairingBusy}
+                    disabled={!hasPairedHub || soilPairingBusy || soilSensors.length >= soilSensorLimit}
                   >
                     {soilPairingBusy ? t("settings.pairingSoilSensor") : t("settings.pairSoilSensor")}
+                  </button>
+                </div>
+                <div className="settings-field soil-schedule-panel">
+                  <span>{t("settings.soilSensorSchedule")}</span>
+                  <div className="settings-field-grid">
+                    <label className="settings-field">
+                      <span>{t("settings.soilDayStart")}</span>
+                      <input type="time" value={soilDayStart} onChange={(event) => setSoilDayStart(event.target.value)} />
+                    </label>
+                    <label className="settings-field">
+                      <span>{t("settings.soilNightStart")}</span>
+                      <input type="time" value={soilNightStart} onChange={(event) => setSoilNightStart(event.target.value)} />
+                    </label>
+                  </div>
+                  <div className="settings-field-grid">
+                    <label className="settings-field">
+                      <span>{t("settings.soilDayInterval")}</span>
+                      <input inputMode="numeric" value={soilDayIntervalMinutes} onChange={(event) => setSoilDayIntervalMinutes(event.target.value)} />
+                    </label>
+                    <label className="settings-field">
+                      <span>{t("settings.soilNightInterval")}</span>
+                      <input inputMode="numeric" value={soilNightIntervalMinutes} onChange={(event) => setSoilNightIntervalMinutes(event.target.value)} />
+                    </label>
+                  </div>
+                  <div className="settings-field-grid">
+                    <label className="settings-field">
+                      <span>{t("settings.soilBatteryWarning")}</span>
+                      <input inputMode="numeric" value={soilBatteryWarning} onChange={(event) => setSoilBatteryWarning(event.target.value)} />
+                    </label>
+                    <label className="settings-field">
+                      <span>{t("settings.soilBatteryCritical")}</span>
+                      <input inputMode="numeric" value={soilBatteryCritical} onChange={(event) => setSoilBatteryCritical(event.target.value)} />
+                    </label>
+                  </div>
+                  <button className="secondary-action" type="button" onClick={handleSaveSoilSchedule} disabled={!hasPairedHub || soilScheduleSaving}>
+                    {soilScheduleSaving ? t("settings.saving") : t("settings.saveSoilSchedule")}
                   </button>
                 </div>
               </div>
