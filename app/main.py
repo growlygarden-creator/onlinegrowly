@@ -3905,7 +3905,7 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if key in {"soil_sensor_battery_warning_percent", "soil_sensor_battery_critical_percent"}:
             value_int = min(100, max(1, value_int))
         elif key in {"soil_sensor_day_interval_ms", "soil_sensor_night_interval_ms"}:
-            value_int = min(7200000, max(300000, value_int))
+            value_int = min(7200000, max(60000, value_int))
         else:
             if value_int < 5000:
                 value_int = 5000

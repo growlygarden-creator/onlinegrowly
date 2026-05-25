@@ -70,7 +70,7 @@ function plantUsesSevenInOne(plant: GrowlyPlant): boolean {
 
 function minutesToMs(minutes: string): number {
   const value = Number(minutes);
-  return Math.max(5, Math.min(120, Number.isFinite(value) ? value : 30)) * 60_000;
+  return Math.max(1, Math.min(120, Number.isFinite(value) ? value : 30)) * 60_000;
 }
 
 function msToMinutes(value: unknown, fallback: number): string {
