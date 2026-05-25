@@ -13,7 +13,7 @@
 #include "soil_now_protocol.h"
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.1.3-startup-window";
+constexpr char kFirmwareVersion[] = "0.1.4-startup-led";
 constexpr char kPrefsNamespace[] = "growly_soil";
 constexpr char kPrefsSsidKey[] = "ssid";
 constexpr char kPrefsPasswordKey[] = "password";
@@ -28,7 +28,7 @@ constexpr int kBootButtonPin = 0;
 constexpr int kDhtPin = 22;
 constexpr int kSoilAdcPin = 32;
 constexpr int kBatteryAdcPin = 34;
-constexpr int kStatusLedPin = 33;
+constexpr int kStatusLedPins[] = {2, 33};
 constexpr int kDhtType = DHT11;
 constexpr uint16_t kSoilRawWet = 1300;
 constexpr uint16_t kSoilRawDry = 3200;
@@ -41,6 +41,7 @@ constexpr unsigned long kSampleAckTimeoutMs = 15000;
 constexpr unsigned long kWifiConnectTimeoutMs = 15000;
 constexpr unsigned long kStartupConfirmWindowMs = 3UL * 60UL * 1000UL;
 constexpr unsigned long kStartupConfirmSampleIntervalMs = 15UL * 1000UL;
+constexpr unsigned long kStartupConfirmLedBlinkMs = 700;
 
 Preferences preferences;
 DHT dht(kDhtPin, kDhtType);
@@ -399,7 +400,9 @@ void clearConfig() {
 }
 
 void setStatusLed(bool on) {
-    digitalWrite(kStatusLedPin, on ? HIGH : LOW);
+    for (int pin : kStatusLedPins) {
+        digitalWrite(pin, on ? HIGH : LOW);
+    }
 }
 
 void blinkStatusLed(unsigned count, unsigned delayMs) {
@@ -800,11 +803,18 @@ void runStartupConfirmWindow() {
     setStatusLed(true);
     const unsigned long startedAt = millis();
     unsigned long nextSampleAt = 0;
+    unsigned long nextLedToggleAt = millis() + kStartupConfirmLedBlinkMs;
+    bool ledOn = true;
     while (millis() - startedAt < kStartupConfirmWindowMs) {
         if (millis() >= nextSampleAt) {
             const SoilSample sample = readSample();
             deliverSample(sample);
             nextSampleAt = millis() + kStartupConfirmSampleIntervalMs;
+        }
+        if (millis() >= nextLedToggleAt) {
+            ledOn = !ledOn;
+            setStatusLed(ledOn);
+            nextLedToggleAt = millis() + kStartupConfirmLedBlinkMs;
         }
         delay(50);
     }
@@ -824,7 +834,9 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
     pinMode(kBootButtonPin, INPUT_PULLUP);
-    pinMode(kStatusLedPin, OUTPUT);
+    for (int pin : kStatusLedPins) {
+        pinMode(pin, OUTPUT);
+    }
     setStatusLed(false);
     dht.begin();
     WiFi.mode(WIFI_STA);
