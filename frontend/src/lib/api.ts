@@ -6,6 +6,34 @@ export type PairingInfo = {
   expires_at: string;
 };
 
+export type SoilSensor = {
+  sensor_id: string;
+  hub_id: string;
+  owner_username?: string;
+  sensor_name: string;
+  sensor_type: string;
+  mac_address?: string;
+  plant_id?: string;
+  firmware_version?: string;
+  battery_percent?: number | null;
+  battery_voltage?: number | null;
+  last_seen_at?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type SoilSensorPairing = {
+  session_id: string;
+  hub_id: string;
+  owner_username?: string;
+  created_at: string;
+  expires_at: string;
+  completed_at?: string | null;
+  status: "active" | "completed" | "expired" | "superseded" | string;
+  paired_sensor_id?: string | null;
+  last_error?: string;
+};
+
 export type LatestSample = {
   recorded_at?: string | null;
   air_temperature?: number | null;
@@ -456,6 +484,55 @@ export async function createPairing(): Promise<PairingInfo | null> {
     }
 
     const result = await response.json();
+    return result.pairing ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchSoilSensors(hubId = ""): Promise<{
+  sensors: SoilSensor[];
+  pairing: SoilSensorPairing | null;
+} | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/soil-sensors", hubId)), {
+      credentials: "include",
+      cache: "no-store",
+      headers: authHeaders(),
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{
+      ok: true;
+      sensors: SoilSensor[];
+      pairing: SoilSensorPairing | null;
+    }>(response);
+    return {
+      sensors: Array.isArray(result.sensors) ? result.sensors : [],
+      pairing: result.pairing ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function createSoilSensorPairing(hubId = ""): Promise<SoilSensorPairing | null> {
+  try {
+    const response = await fetchWithTimeout(apiUrl(appendHubId("/api/soil-sensors/pairing-session", hubId)), {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        ...authHeaders({ "Content-Type": "application/json" }),
+      },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await parseJson<{ ok: true; pairing: SoilSensorPairing }>(response);
     return result.pairing ?? null;
   } catch {
     return null;

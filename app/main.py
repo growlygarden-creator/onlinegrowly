@@ -136,6 +136,8 @@ DEFAULT_PRIMARY_HUB_ID = "growly-hub-001"
 PAIRING_TOKEN_LENGTH = 6
 PAIRING_TOKEN_ALPHABET = "0123456789"
 PAIRING_TOKEN_TTL = timedelta(minutes=10)
+SOIL_PAIRING_SESSION_TTL = timedelta(minutes=5)
+SOIL_SENSOR_DEFAULT_TYPE = "diymore_012592"
 SUPABASE_REST_ENDPOINT = os.getenv(
     "SUPABASE_REST_ENDPOINT",
     "https://ffxkxsclgiojrzmxvyuk.supabase.co/rest/v1/sensor_data",
@@ -160,6 +162,8 @@ SUPABASE_CORE_TABLES = (
     "growly_hubs",
     "growly_hub_members",
     "growly_pairing_tokens",
+    "growly_soil_sensors",
+    "growly_soil_sensor_pairing_sessions",
     "growly_seed_entries",
     "growly_seed_activities",
 )
@@ -1010,6 +1014,19 @@ def is_newer_firmware_version(candidate_version: str, current_version: str) -> b
     return padded_candidate > padded_current
 
 
+def latest_firmware_info() -> tuple[str, str]:
+    bundled_version, bundled_url = bundled_firmware_info()
+    active_version = ACTIVE_FIRMWARE_VERSION
+    active_url = ACTIVE_FIRMWARE_URL
+    if active_version and active_url and (
+        not bundled_version or is_newer_firmware_version(active_version, bundled_version)
+    ):
+        return active_version, active_url
+    if bundled_version and bundled_url:
+        return bundled_version, bundled_url
+    return active_version, active_url
+
+
 def build_email_shell(title: str, intro: str, body: str, next_label: str, next_text: str, button_label: str, button_url: str, footer: str) -> str:
     safe_title = html.escape(title)
     safe_intro = html.escape(intro)
@@ -1719,6 +1736,57 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS soil_sensors (
+                sensor_id TEXT PRIMARY KEY,
+                hub_id TEXT NOT NULL,
+                owner_username TEXT NOT NULL,
+                sensor_name TEXT NOT NULL,
+                sensor_type TEXT NOT NULL DEFAULT 'diymore_012592',
+                mac_address TEXT NOT NULL DEFAULT '',
+                plant_id TEXT NOT NULL DEFAULT '',
+                firmware_version TEXT NOT NULL DEFAULT '',
+                battery_percent REAL,
+                battery_voltage REAL,
+                last_seen_at TEXT NOT NULL DEFAULT '',
+                last_payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(hub_id) REFERENCES hubs(hub_id),
+                FOREIGN KEY(owner_username) REFERENCES app_users(username)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS soil_sensor_pairing_sessions (
+                session_id TEXT PRIMARY KEY,
+                hub_id TEXT NOT NULL,
+                owner_username TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                completed_at TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                paired_sensor_id TEXT,
+                last_error TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY(hub_id) REFERENCES hubs(hub_id),
+                FOREIGN KEY(owner_username) REFERENCES app_users(username)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_soil_sensors_hub
+            ON soil_sensors(hub_id, updated_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_soil_pairing_sessions_hub_status
+            ON soil_sensor_pairing_sessions(hub_id, status, expires_at)
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS customer_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
@@ -2088,6 +2156,7 @@ def init_db() -> None:
             "air_humidity": "REAL",
             "air_pressure": "REAL",
             "lux": "REAL",
+            "sensor_id": "TEXT NOT NULL DEFAULT ''",
         }
         for column_name, column_type in required_columns.items():
             if column_name not in existing_columns:
@@ -3029,6 +3098,294 @@ def complete_pairing_token(
     return hub
 
 
+def generate_soil_pairing_session_id() -> str:
+    return f"soil-{secrets.token_hex(6)}"
+
+
+def normalize_mac_address(value: Any) -> str:
+    text = str(value or "").strip().lower().replace("-", ":")
+    compact = re.sub(r"[^0-9a-f]", "", text)
+    if len(compact) == 12:
+        return ":".join(compact[index:index + 2] for index in range(0, 12, 2))
+    return text
+
+
+def normalize_soil_sensor_id(sensor_id: Any = "", mac_address: Any = "") -> str:
+    clean_id = re.sub(r"[^a-zA-Z0-9_-]", "-", str(sensor_id or "").strip().lower()).strip("-")
+    if clean_id:
+        return clean_id[:64]
+    clean_mac = re.sub(r"[^0-9a-f]", "", normalize_mac_address(mac_address))
+    if clean_mac:
+        return f"soil-{clean_mac}"
+    return f"soil-{secrets.token_hex(6)}"
+
+
+def soil_sensor_from_row(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    item = dict(row)
+    for number_key in ("battery_percent", "battery_voltage"):
+        if item.get(number_key) is not None:
+            item[number_key] = float(item[number_key])
+    return item
+
+
+def soil_pairing_session_from_row(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    return dict(row)
+
+
+def cleanup_soil_pairing_sessions() -> None:
+    now = utc_now_iso()
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE soil_sensor_pairing_sessions
+            SET status = 'expired'
+            WHERE status = 'active'
+              AND expires_at <= ?
+            """,
+            (now,),
+        )
+        connection.commit()
+
+
+def active_soil_pairing_session_for_hub(hub_id: str) -> dict[str, Any] | None:
+    cleanup_soil_pairing_sessions()
+    with db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT session_id, hub_id, owner_username, created_at, expires_at,
+                   completed_at, status, paired_sensor_id, last_error
+            FROM soil_sensor_pairing_sessions
+            WHERE hub_id = ?
+              AND status = 'active'
+              AND expires_at > ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (hub_id, utc_now_iso()),
+        ).fetchone()
+    return soil_pairing_session_from_row(row) if row else None
+
+
+def list_soil_sensors(hub_id: str) -> list[dict[str, Any]]:
+    with db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT sensor_id, hub_id, owner_username, sensor_name, sensor_type,
+                   mac_address, plant_id, firmware_version, battery_percent,
+                   battery_voltage, last_seen_at, last_payload_json, created_at, updated_at
+            FROM soil_sensors
+            WHERE hub_id = ?
+            ORDER BY updated_at DESC, created_at DESC
+            """,
+            (hub_id,),
+        ).fetchall()
+    return [soil_sensor_from_row(row) for row in rows]
+
+
+def list_all_soil_sensors() -> list[dict[str, Any]]:
+    with db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT sensor_id, hub_id, owner_username, sensor_name, sensor_type,
+                   mac_address, plant_id, firmware_version, battery_percent,
+                   battery_voltage, last_seen_at, last_payload_json, created_at, updated_at
+            FROM soil_sensors
+            ORDER BY created_at ASC, sensor_id ASC
+            """
+        ).fetchall()
+    return [soil_sensor_from_row(row) for row in rows]
+
+
+def list_soil_pairing_sessions_for_sync() -> list[dict[str, Any]]:
+    cleanup_soil_pairing_sessions()
+    with db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT session_id, hub_id, owner_username, created_at, expires_at,
+                   completed_at, status, paired_sensor_id, last_error
+            FROM soil_sensor_pairing_sessions
+            WHERE status IN ('active', 'completed')
+            ORDER BY created_at ASC, session_id ASC
+            """
+        ).fetchall()
+    return [soil_pairing_session_from_row(row) for row in rows]
+
+
+def create_soil_pairing_session(username: str, hub_id: str) -> dict[str, Any]:
+    hub = find_hub_for_user(username, hub_id)
+    if not hub:
+        raise ValueError("hub_not_found")
+
+    cleanup_soil_pairing_sessions()
+    now_dt = utc_now()
+    now = now_dt.isoformat()
+    expires_at = (now_dt + SOIL_PAIRING_SESSION_TTL).isoformat()
+    session_id = generate_soil_pairing_session_id()
+    with db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE soil_sensor_pairing_sessions
+            SET status = 'superseded'
+            WHERE hub_id = ?
+              AND status = 'active'
+            """,
+            (hub_id,),
+        )
+        while connection.execute(
+            "SELECT 1 FROM soil_sensor_pairing_sessions WHERE session_id = ?",
+            (session_id,),
+        ).fetchone():
+            session_id = generate_soil_pairing_session_id()
+        connection.execute(
+            """
+            INSERT INTO soil_sensor_pairing_sessions (
+                session_id, hub_id, owner_username, created_at, expires_at,
+                completed_at, status, paired_sensor_id, last_error
+            ) VALUES (?, ?, ?, ?, ?, NULL, 'active', NULL, '')
+            """,
+            (session_id, hub_id, username, now, expires_at),
+        )
+        connection.execute(
+            """
+            UPDATE hubs
+            SET config_revision = config_revision + 1,
+                config_updated_at = ?,
+                updated_at = ?
+            WHERE hub_id = ?
+            """,
+            (now, now, hub_id),
+        )
+        connection.commit()
+
+    session = active_soil_pairing_session_for_hub(hub_id)
+    best_effort_sync_core_to_supabase("soil sensor pairing session")
+    return session or {}
+
+
+def complete_soil_sensor_pairing(payload: dict[str, Any]) -> dict[str, Any]:
+    hub_id = str(payload.get("hub_id") or "").strip()
+    session_id = str(payload.get("session_id") or payload.get("pairing_session_id") or "").strip()
+    if not hub_id:
+        raise ValueError("missing_hub_id")
+    if not session_id:
+        raise ValueError("missing_session_id")
+
+    hub = find_hub(hub_id)
+    if not hub:
+        raise ValueError("hub_not_found")
+    active_session = active_soil_pairing_session_for_hub(hub_id)
+    if not active_session or active_session["session_id"] != session_id:
+        raise ValueError("pairing_session_not_active")
+
+    mac_address = normalize_mac_address(payload.get("mac_address") or payload.get("mac"))
+    sensor_id = normalize_soil_sensor_id(payload.get("sensor_id"), mac_address)
+    sensor_type = str(payload.get("sensor_type") or SOIL_SENSOR_DEFAULT_TYPE).strip()[:64] or SOIL_SENSOR_DEFAULT_TYPE
+    sensor_name = str(payload.get("sensor_name") or payload.get("name") or "Soil sensor").strip()[:80] or "Soil sensor"
+    firmware_version = str(payload.get("firmware_version") or payload.get("version") or "").strip()[:80]
+    now = utc_now_iso()
+    last_payload = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"hub_id", "session_id", "pairing_session_id"}
+    }
+
+    with db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO soil_sensors (
+                sensor_id, hub_id, owner_username, sensor_name, sensor_type,
+                mac_address, plant_id, firmware_version, battery_percent,
+                battery_voltage, last_seen_at, last_payload_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, '', ?, NULL, NULL, ?, ?, ?, ?)
+            ON CONFLICT(sensor_id) DO UPDATE SET
+                hub_id = excluded.hub_id,
+                owner_username = excluded.owner_username,
+                sensor_name = excluded.sensor_name,
+                sensor_type = excluded.sensor_type,
+                mac_address = excluded.mac_address,
+                firmware_version = excluded.firmware_version,
+                last_seen_at = excluded.last_seen_at,
+                last_payload_json = excluded.last_payload_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                sensor_id,
+                hub_id,
+                hub["owner_username"],
+                sensor_name,
+                sensor_type,
+                mac_address,
+                firmware_version,
+                now,
+                json.dumps(last_payload, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE soil_sensor_pairing_sessions
+            SET status = 'completed',
+                completed_at = ?,
+                paired_sensor_id = ?,
+                last_error = ''
+            WHERE session_id = ?
+            """,
+            (now, sensor_id, session_id),
+        )
+        connection.execute(
+            """
+            UPDATE hubs
+            SET config_revision = config_revision + 1,
+                config_updated_at = ?,
+                updated_at = ?
+            WHERE hub_id = ?
+            """,
+            (now, now, hub_id),
+        )
+        connection.commit()
+
+    sensor = next((item for item in list_soil_sensors(hub_id) if item["sensor_id"] == sensor_id), {})
+    best_effort_sync_core_to_supabase("soil sensor paired")
+    return sensor
+
+
+def update_soil_sensor_last_seen(hub_id: str, sensor_id: str, payload: dict[str, Any]) -> None:
+    updates = ["last_seen_at = ?", "last_payload_json = ?", "updated_at = ?"]
+    now = utc_now_iso()
+    values: list[Any] = [now, json.dumps(payload, ensure_ascii=False), now]
+    for key in ("firmware_version", "sensor_name"):
+        if key in payload and str(payload.get(key) or "").strip():
+            column = "firmware_version" if key == "firmware_version" else "sensor_name"
+            updates.append(f"{column} = ?")
+            values.append(str(payload.get(key) or "").strip()[:80])
+    if payload.get("battery_percent") is not None:
+        try:
+            values.append(float(payload["battery_percent"]))
+            updates.append("battery_percent = ?")
+        except (TypeError, ValueError):
+            pass
+    if payload.get("battery_voltage") is not None:
+        try:
+            values.append(float(payload["battery_voltage"]))
+            updates.append("battery_voltage = ?")
+        except (TypeError, ValueError):
+            pass
+    values.extend([hub_id, sensor_id])
+    with db_connection() as connection:
+        connection.execute(
+            f"""
+            UPDATE soil_sensors
+            SET {", ".join(updates)}
+            WHERE hub_id = ?
+              AND sensor_id = ?
+            """,
+            values,
+        )
+        connection.commit()
+    best_effort_sync_core_to_supabase("soil sensor seen")
+
+
 def create_hub_for_user(username: str) -> dict[str, Any]:
     existing_hub = find_hub_by_owner(username)
     if existing_hub:
@@ -3130,6 +3487,20 @@ def transfer_hub_owner(hub_id: str, target_username: str, replace_existing: bool
                 """
                 DELETE FROM pairing_tokens
                 WHERE paired_hub_id = ?
+                """,
+                (target_hub_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM soil_sensor_pairing_sessions
+                WHERE hub_id = ?
+                """,
+                (target_hub_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM soil_sensors
+                WHERE hub_id = ?
                 """,
                 (target_hub_id,),
             )
@@ -3255,6 +3626,20 @@ def delete_hub(hub_id: str) -> None:
             """
             DELETE FROM pairing_tokens
             WHERE paired_hub_id = ?
+            """,
+            (clean_hub_id,),
+        )
+        connection.execute(
+            """
+            DELETE FROM soil_sensor_pairing_sessions
+            WHERE hub_id = ?
+            """,
+            (clean_hub_id,),
+        )
+        connection.execute(
+            """
+            DELETE FROM soil_sensors
+            WHERE hub_id = ?
             """,
             (clean_hub_id,),
         )
@@ -3492,9 +3877,8 @@ def update_hub_device_status(hub_id: str, payload: dict[str, Any]) -> dict[str, 
 
 def device_config_response(hub_id: str, current_version: str = "") -> dict[str, Any]:
     settings = hub_settings(hub_id)
-    bundled_version, bundled_url = bundled_firmware_info()
-    latest_version = ACTIVE_FIRMWARE_VERSION or bundled_version
-    firmware_url = ACTIVE_FIRMWARE_URL or bundled_url
+    soil_pairing = active_soil_pairing_session_for_hub(hub_id)
+    latest_version, firmware_url = latest_firmware_info()
     update_available = (
         bool(latest_version)
         and bool(firmware_url)
@@ -3514,6 +3898,12 @@ def device_config_response(hub_id: str, current_version: str = "") -> dict[str, 
         "config": {
             "revision": settings["config_revision"],
             "updated_at": settings["config_updated_at"],
+        },
+        "soil_pairing": {
+            "active": bool(soil_pairing),
+            "session_id": soil_pairing["session_id"] if soil_pairing else "",
+            "expires_at": soil_pairing["expires_at"] if soil_pairing else "",
+            "sensor_type": SOIL_SENSOR_DEFAULT_TYPE,
         },
         "firmware": {
             "current_version": str(current_version or "").strip(),
@@ -4232,6 +4622,7 @@ def normalized_sensor_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "source": str(payload.get("source", "unknown")),
         "valid": 1 if payload.get("valid", False) else 0,
         "error": str(payload.get("error", "")),
+        "sensor_id": str(payload.get("sensor_id", "") or "").strip(),
     }
     for metric in METRIC_KEYS:
         value = None
@@ -4248,6 +4639,8 @@ def sensor_sample_supabase_payload(normalized: dict[str, Any], hub_id: str) -> d
         "created_at": normalized["recorded_at"],
         "hub_id": hub_id,
     }
+    if normalized.get("sensor_id"):
+        payload["sensor_id"] = normalized["sensor_id"]
     for metric in METRIC_KEYS:
         payload[metric] = normalized.get(metric)
     return payload
@@ -4279,8 +4672,8 @@ def store_sensor_sample(payload: dict[str, Any], hub_id: str) -> dict[str, Any]:
             INSERT INTO sensor_samples (
                 recorded_at, source, valid, error, humidity, temperature, ph,
                 conductivity, nitrogen, phosphorus, potassium, salinity, tds,
-                air_temperature, air_humidity, air_pressure, lux, hub_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                air_temperature, air_humidity, air_pressure, lux, hub_id, sensor_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalized["recorded_at"],
@@ -4301,6 +4694,7 @@ def store_sensor_sample(payload: dict[str, Any], hub_id: str) -> dict[str, Any]:
                 normalized["air_pressure"],
                 normalized["lux"],
                 hub_id,
+                normalized["sensor_id"],
             ),
         )
         connection.commit()
@@ -5115,11 +5509,46 @@ def sync_core_to_supabase() -> dict[str, Any]:
         }
         for pairing in list_active_pairing_tokens()
     ]
+    soil_sensors = [
+        {
+            "sensor_id": sensor["sensor_id"],
+            "hub_id": sensor["hub_id"],
+            "owner_username": sensor["owner_username"],
+            "sensor_name": sensor.get("sensor_name") or "",
+            "sensor_type": sensor.get("sensor_type") or SOIL_SENSOR_DEFAULT_TYPE,
+            "mac_address": sensor.get("mac_address") or "",
+            "plant_id": sensor.get("plant_id") or "",
+            "firmware_version": sensor.get("firmware_version") or "",
+            "battery_percent": sensor.get("battery_percent"),
+            "battery_voltage": sensor.get("battery_voltage"),
+            "last_seen_at": iso_or_none(sensor.get("last_seen_at")),
+            "last_payload_json": json.loads(str(sensor.get("last_payload_json") or "{}")),
+            "created_at": sensor["created_at"],
+            "updated_at": sensor["updated_at"],
+        }
+        for sensor in list_all_soil_sensors()
+    ]
+    soil_pairing_sessions = [
+        {
+            "session_id": session["session_id"],
+            "hub_id": session["hub_id"],
+            "owner_username": session["owner_username"],
+            "created_at": session["created_at"],
+            "expires_at": session["expires_at"],
+            "completed_at": iso_or_none(session.get("completed_at")),
+            "status": session.get("status") or "active",
+            "paired_sensor_id": iso_or_none(session.get("paired_sensor_id")),
+            "last_error": session.get("last_error") or "",
+        }
+        for session in list_soil_pairing_sessions_for_sync()
+    ]
 
     supabase_upsert_rows("growly_users", users, "username")
     supabase_upsert_rows("growly_hubs", hubs, "hub_id")
     supabase_upsert_rows("growly_hub_members", members, "hub_id,username")
     supabase_upsert_rows("growly_pairing_tokens", pairings, "token")
+    supabase_upsert_rows("growly_soil_sensors", soil_sensors, "sensor_id")
+    supabase_upsert_rows("growly_soil_sensor_pairing_sessions", soil_pairing_sessions, "session_id")
 
     return {
         "ok": True,
@@ -5128,6 +5557,8 @@ def sync_core_to_supabase() -> dict[str, Any]:
             "hubs": len(hubs),
             "hub_members": len(members),
             "pairing_tokens": len(pairings),
+            "soil_sensors": len(soil_sensors),
+            "soil_pairing_sessions": len(soil_pairing_sessions),
         },
     }
 
@@ -8518,6 +8949,67 @@ async def pair_hub(payload: dict[str, Any]):
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
     return {"ok": True, "hub": hub}
+
+
+@app.get("/api/soil-sensors")
+async def get_soil_sensors(request: Request):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+    except ValueError as exc:
+        return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
+    sensors = list_soil_sensors(str(hub["hub_id"]))
+    pairing = active_soil_pairing_session_for_hub(str(hub["hub_id"]))
+    return {"ok": True, "hub_id": hub["hub_id"], "sensors": sensors, "pairing": pairing}
+
+
+@app.post("/api/soil-sensors/pairing-session")
+async def create_soil_sensor_pairing_session(request: Request):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        pairing = create_soil_pairing_session(current_username(request), str(hub["hub_id"]))
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "hub_id": hub["hub_id"], "pairing": pairing}
+
+
+@app.post("/api/soil-sensors/pair")
+async def pair_soil_sensor(payload: dict[str, Any]):
+    try:
+        sensor = complete_soil_sensor_pairing(payload)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    return {"ok": True, "sensor": sensor}
+
+
+@app.post("/api/soil-sensors/ingest")
+async def ingest_soil_sensor(payload: dict[str, Any]):
+    hub_id = str(payload.get("hub_id") or "").strip()
+    sensor_id = str(payload.get("sensor_id") or "").strip()
+    if not hub_id:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "missing_hub_id"})
+    if not sensor_id:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "missing_sensor_id"})
+    try:
+        ensure_device_hub(hub_id)
+    except ValueError as exc:
+        return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
+    sensors = list_soil_sensors(hub_id)
+    if not any(sensor["sensor_id"] == sensor_id for sensor in sensors):
+        return JSONResponse(status_code=404, content={"ok": False, "error": "soil_sensor_not_paired"})
+    normalized_payload = {
+        **payload,
+        "valid": payload.get("valid", True),
+        "source": payload.get("source") or f"soil_sensor:{sensor_id}",
+    }
+    stored = store_sensor_sample(normalized_payload, hub_id)
+    update_soil_sensor_last_seen(hub_id, sensor_id, payload)
+    return {"ok": True, "hub_id": hub_id, "sensor_id": sensor_id, "stored": stored}
 
 
 @app.get("/api/device/config")

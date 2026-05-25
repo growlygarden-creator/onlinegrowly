@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   createPairing,
+  createSoilSensorPairing,
   fetchActivePairing,
   fetchMemoryDebug,
   fetchPlants,
+  fetchSoilSensors,
   logout,
   saveHubSettings,
   searchWeatherAddress,
@@ -14,6 +16,8 @@ import {
   type GrowlyPlant,
   type MemoryDebugReport,
   type PairingInfo,
+  type SoilSensor,
+  type SoilSensorPairing,
   type WeatherAddressMatch,
 } from "../lib/api";
 import {
@@ -96,6 +100,9 @@ export function SettingsPage({
   const [sensorPlants, setSensorPlants] = useState<GrowlyPlant[]>([]);
   const [sensorPlantsLoading, setSensorPlantsLoading] = useState(false);
   const [sensorAssigning, setSensorAssigning] = useState(false);
+  const [soilSensors, setSoilSensors] = useState<SoilSensor[]>([]);
+  const [soilPairing, setSoilPairing] = useState<SoilSensorPairing | null>(null);
+  const [soilPairingBusy, setSoilPairingBusy] = useState(false);
   const [memoryDebug, setMemoryDebug] = useState<MemoryDebugReport | null>(null);
   const [memoryDebugBusy, setMemoryDebugBusy] = useState(false);
 
@@ -137,6 +144,8 @@ export function SettingsPage({
   useEffect(() => {
     let cancelled = false;
     setSensorPlants([]);
+    setSoilSensors([]);
+    setSoilPairing(null);
 
     if (!activeHubId) {
       setSensorPlantsLoading(false);
@@ -152,6 +161,13 @@ export function SettingsPage({
       }
       setSensorPlants(items);
       setSensorPlantsLoading(false);
+    });
+    fetchSoilSensors(activeHubId).then((result) => {
+      if (cancelled || !result) {
+        return;
+      }
+      setSoilSensors(result.sensors);
+      setSoilPairing(result.pairing);
     });
 
     return () => {
@@ -256,6 +272,30 @@ export function SettingsPage({
 
     setPairing(result);
     setStatus(t("settings.status.pairingReady"));
+  }
+
+  async function handleCreateSoilPairing() {
+    if (!hasPairedHub) {
+      setStatus(t("settings.status.pairHubBeforeSoilSensor"));
+      return;
+    }
+    if (soilPairingBusy) {
+      return;
+    }
+
+    setSoilPairingBusy(true);
+    setStatus(t("settings.status.creatingSoilPairing"));
+    try {
+      const result = await createSoilSensorPairing(activeHubId);
+      if (!result) {
+        setStatus(t("settings.status.soilPairingFailed"));
+        return;
+      }
+      setSoilPairing(result);
+      setStatus(t("settings.status.soilPairingReady"));
+    } finally {
+      setSoilPairingBusy(false);
+    }
   }
 
   async function handleSaveWeatherLocation() {
@@ -650,6 +690,29 @@ export function SettingsPage({
                     })}
                   </select>
                 </label>
+                <div className="settings-field">
+                  <span>{t("settings.soilSensors")}</span>
+                  <div className="sensor-detail-list">
+                    <div className="sensor-detail-row">
+                      <span>{t("settings.pairedSoilSensors")}</span>
+                      <strong>{soilSensors.length}</strong>
+                    </div>
+                    {soilPairing && soilPairing.status === "active" ? (
+                      <div className="sensor-detail-row">
+                        <span>{t("settings.soilPairingActive")}</span>
+                        <strong>{soilPairing.expires_at}</strong>
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={handleCreateSoilPairing}
+                    disabled={!hasPairedHub || soilPairingBusy}
+                  >
+                    {soilPairingBusy ? t("settings.pairingSoilSensor") : t("settings.pairSoilSensor")}
+                  </button>
+                </div>
               </div>
 
               <div className="settings-divider" />

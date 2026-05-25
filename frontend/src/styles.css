@@ -3532,6 +3532,30 @@ b {
   gap: 12px;
 }
 
+.sensor-detail-list {
+  display: grid;
+  gap: 8px;
+}
+
+.sensor-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid rgba(36, 92, 57, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.sensor-detail-row strong {
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-align: right;
+}
+
 .address-match-list {
   display: grid;
   gap: 8px;
@@ -3604,6 +3628,11 @@ b {
   background: #1f3123;
   border-color: rgba(235, 244, 232, 0.14);
   color: var(--text);
+}
+
+.theme-dark .sensor-detail-row {
+  border-color: rgba(235, 244, 232, 0.12);
+  background: rgba(235, 244, 232, 0.08);
 }
 
 .theme-dark .theme-mode-toggle {
