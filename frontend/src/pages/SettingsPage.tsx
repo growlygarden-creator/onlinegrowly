@@ -10,7 +10,6 @@ import {
   logout,
   saveHubSettings,
   searchWeatherAddress,
-  updatePlant,
   updateProfile,
   updateSoilSensor,
   type AuthSession,
@@ -64,10 +63,6 @@ function plantDisplayName(plant: GrowlyPlant, fallback: string): string {
   return plant.nickname || plant.display_name || plant.profileId || plant.profile_id || fallback;
 }
 
-function plantUsesSevenInOne(plant: GrowlyPlant): boolean {
-  return Boolean(plant.hasSevenInOne ?? plant.has_seven_in_one);
-}
-
 function minutesToMs(minutes: string): number {
   const value = Number(minutes);
   return Math.max(1, Math.min(120, Number.isFinite(value) ? value : 30)) * 60_000;
@@ -110,7 +105,6 @@ export function SettingsPage({
   const [notificationPreferences, setNotificationPreferences] = useState<GrowlyNotificationPreferences>(growlyNotificationPreferences);
   const [sensorPlants, setSensorPlants] = useState<GrowlyPlant[]>([]);
   const [sensorPlantsLoading, setSensorPlantsLoading] = useState(false);
-  const [sensorAssigning, setSensorAssigning] = useState(false);
   const [soilSensors, setSoilSensors] = useState<SoilSensor[]>([]);
   const [soilPairing, setSoilPairing] = useState<SoilSensorPairing | null>(null);
   const [soilSensorLimit, setSoilSensorLimit] = useState(10);
@@ -140,8 +134,6 @@ export function SettingsPage({
 
   const activeHubId = session?.hub?.hub_id || "";
   const hasPairedHub = Boolean(activeHubId);
-  const sensorAssignedPlant = sensorPlants.find(plantUsesSevenInOne) ?? null;
-  const sensorAssignedPlantId = sensorAssignedPlant ? plantInstanceId(sensorAssignedPlant) : "";
 
   useEffect(() => {
     fetchActivePairing().then((activePairing) => {
@@ -216,81 +208,6 @@ export function SettingsPage({
       cancelled = true;
     };
   }, [activeHubId]);
-
-  async function handleAssignSevenInOne(nextPlantId: string) {
-    if (!hasPairedHub) {
-      setStatus(t("settings.status.pairHubBeforeSensor"));
-      return;
-    }
-    if (sensorAssigning) {
-      return;
-    }
-
-    const currentPlant = sensorAssignedPlant;
-    const nextPlant = nextPlantId ? sensorPlants.find((plant) => plantInstanceId(plant) === nextPlantId) ?? null : null;
-    if (nextPlantId && !nextPlant) {
-      setStatus(t("settings.status.plantNotFound"));
-      return;
-    }
-    if ((currentPlant ? plantInstanceId(currentPlant) : "") === nextPlantId) {
-      return;
-    }
-    if (currentPlant && nextPlant && sensorPlants.length > 1) {
-      const confirmed = window.confirm(
-        t("settings.status.confirmMoveSensor", {
-          current: plantDisplayName(currentPlant, t("settings.defaultPlant")),
-          next: plantDisplayName(nextPlant, t("settings.defaultPlant")),
-        }),
-      );
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    setSensorAssigning(true);
-    setStatus(nextPlant ? t("settings.status.movingSensor") : t("settings.status.removingSensor"));
-    try {
-      if (nextPlant) {
-        const updated = await updatePlant(nextPlantId, { hasSevenInOne: true }, activeHubId);
-        if (!updated) {
-          setStatus(t("settings.status.sensorSaveFailed"));
-          return;
-        }
-        setSensorPlants((current) =>
-          current.map((plant) => {
-            const isTarget = plantInstanceId(plant) === nextPlantId;
-            return {
-              ...plant,
-              ...(isTarget ? updated : {}),
-              hasSevenInOne: isTarget,
-              has_seven_in_one: isTarget,
-            };
-          }),
-        );
-        setStatus(t("settings.status.sensorMeasures", { plant: plantDisplayName(updated, t("settings.defaultPlant")) }));
-        return;
-      }
-
-      if (currentPlant) {
-        const currentPlantId = plantInstanceId(currentPlant);
-        const updated = await updatePlant(currentPlantId, { hasSevenInOne: false }, activeHubId);
-        if (!updated) {
-          setStatus(t("settings.status.sensorRemoveFailed"));
-          return;
-        }
-        setSensorPlants((current) =>
-          current.map((plant) =>
-            plantInstanceId(plant) === currentPlantId
-              ? { ...plant, ...updated, hasSevenInOne: false, has_seven_in_one: false }
-              : plant,
-          ),
-        );
-      }
-      setStatus(t("settings.status.sensorUnassigned"));
-    } finally {
-      setSensorAssigning(false);
-    }
-  }
 
   async function handleLogout() {
     setBusy(true);
@@ -780,39 +697,17 @@ export function SettingsPage({
               <div className="settings-divider" />
               <div className="sensor-settings-panel">
                 <div className="settings-row__content">
-                  <strong>{t("settings.sensor")}</strong>
+                  <strong>{t("settings.diagnosticSensor")}</strong>
                   <span>
                     {hasPairedHub
-                      ? sensorAssignedPlant
-                        ? t("settings.sensorAssigned", { plant: plantDisplayName(sensorAssignedPlant, t("settings.defaultPlant")) })
-                        : t("settings.sensorChoose")
+                      ? t("settings.diagnosticSensorBody")
                       : t("settings.sensorPairHub")}
                   </span>
                 </div>
-                <label className="settings-field sensor-select-field">
+                <div className="settings-field sensor-select-field">
                   <span>{t("settings.sevenInOneSensor")}</span>
-                  <select
-                    value={sensorAssignedPlantId}
-                    onChange={(event) => handleAssignSevenInOne(event.target.value)}
-                    disabled={!hasPairedHub || sensorPlantsLoading || sensorAssigning || !sensorPlants.length}
-                  >
-                    <option value="">
-                      {sensorPlantsLoading
-                        ? t("settings.fetchingPlants")
-                        : sensorPlants.length
-                          ? t("settings.sensorUnassigned")
-                          : t("settings.noPlantsOnHub")}
-                    </option>
-                    {sensorPlants.map((plant) => {
-                      const instanceId = plantInstanceId(plant);
-                      return (
-                        <option key={instanceId} value={instanceId}>
-                          {plantDisplayName(plant, t("settings.defaultPlant"))}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </label>
+                  <strong>{t("settings.diagnosticSensorValue")}</strong>
+                </div>
                 <div className="settings-field">
                   <span>{t("settings.soilSensors")}</span>
                   <div className="sensor-detail-list">

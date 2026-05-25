@@ -437,7 +437,6 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const [plantPlanPrompt, setPlantPlanPrompt] = useState<PlantPlanPrompt | null>(null);
   const [plantPlanNote, setPlantPlanNote] = useState("");
   const [plantCalendarEntries, setPlantCalendarEntries] = useState<PlantCalendarEntry[]>([]);
-  const [sensorActionBusy, setSensorActionBusy] = useState(false);
 
   useEffect(() => {
     setCatalogLoading(true);
@@ -487,8 +486,6 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   }, [session?.username, selectedHubId]);
 
   const selectedPlant = plants.find((plant) => plant.instanceId === selectedPlantId) ?? null;
-  const hasPairedHub = Boolean(session?.hub?.hub_id || selectedHubId);
-  const sevenInOnePlant = plants.find((plant) => plant.hasSevenInOne) ?? null;
   const fallbackCatalogItems = useMemo(() => localizePlantCatalogItems(bundledPlantCatalog, language), [language]);
   const searchableCatalogItems = catalogItems.length ? catalogItems : fallbackCatalogItems;
   const selectedCatalogDetail = selectedPlant ? catalogItemForPlant(selectedPlant, searchableCatalogItems) : null;
@@ -627,40 +624,6 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     );
   }
 
-  async function setSevenInOneForPlant(plant: GreenhousePlant, nextEnabled: boolean) {
-    if (!hasPairedHub || sensorActionBusy) {
-      return;
-    }
-
-    const currentSensorPlant = sevenInOnePlant;
-    if (nextEnabled && currentSensorPlant && currentSensorPlant.instanceId !== plant.instanceId && plants.length > 1) {
-      const confirmed = window.confirm(
-        `7-i-1-sensoren er koblet til ${currentSensorPlant.nickname}. Flytte den til ${plant.nickname}?`,
-      );
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    setSensorActionBusy(true);
-    try {
-      const updated = await updatePlant(plant.instanceId, { hasSevenInOne: nextEnabled }, selectedHubId);
-      if (!updated) {
-        return;
-      }
-      setPlants((current) =>
-        current.map((item) => {
-          if (item.instanceId === plant.instanceId) {
-            return normalizePlant({ ...item, ...updated, hasSevenInOne: nextEnabled, has_seven_in_one: nextEnabled });
-          }
-          return nextEnabled ? { ...item, hasSevenInOne: false, has_seven_in_one: false } : item;
-        }),
-      );
-    } finally {
-      setSensorActionBusy(false);
-    }
-  }
-
   async function archivePlant() {
     const plant = plants.find((item) => item.instanceId === finishPlantId);
     if (!plant) {
@@ -720,7 +683,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                     <span>{timeline.dayLabel}</span>
                     <span>{timeline.phase}</span>
                     <span>{timeline.harvestLabel}</span>
-                    <span>{plantLocation(plant) === "greenhouse" ? (plant.hasSevenInOne ? "7-i-1" : "I drivhus") : "Før flytting"}</span>
+                  <span>{plantLocation(plant) === "greenhouse" ? "I drivhus" : "Før flytting"}</span>
                   </div>
                 </button>
               );
@@ -861,28 +824,6 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                 <span>Foreløpig følger vi sådato, planteinfo og såguide.</span>
                 <button className="primary-action" type="button" onClick={() => movePlantToGreenhouse(selectedPlant.instanceId)}>
                   Flytt til drivhus
-                </button>
-              </article>
-            ) : null}
-
-            {plantLocation(selectedPlant) === "greenhouse" && hasPairedHub ? (
-              <article className="plant-info-card plant-sensor-card">
-                <p className="section-kicker">Sensor</p>
-                <strong>{selectedPlant.hasSevenInOne ? "7-i-1 er koblet hit" : "7-i-1-sensor"}</strong>
-                <span>
-                  {selectedPlant.hasSevenInOne
-                    ? "Jordfuktighet, temperatur, pH og næring følger denne planten."
-                    : sevenInOnePlant
-                      ? `Sensoren måler ${sevenInOnePlant.nickname}.`
-                      : "Ingen plante bruker 7-i-1-sensoren nå."}
-                </span>
-                <button
-                  className="secondary-action"
-                  type="button"
-                  onClick={() => setSevenInOneForPlant(selectedPlant, !selectedPlant.hasSevenInOne)}
-                  disabled={sensorActionBusy}
-                >
-                  {selectedPlant.hasSevenInOne ? "Koble fra 7-i-1" : "Bruk 7-i-1 her"}
                 </button>
               </article>
             ) : null}

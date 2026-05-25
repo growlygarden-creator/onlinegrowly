@@ -47,7 +47,7 @@ type TrendMetricConfig = {
   referenceNote?: string;
 };
 
-type DashboardPlant = Pick<GrowlyPlant, "instanceId" | "nickname" | "profileId" | "catalogItemId" | "sowedAt" | "location" | "hasSevenInOne">;
+type DashboardPlant = Pick<GrowlyPlant, "instanceId" | "nickname" | "profileId" | "catalogItemId" | "sowedAt" | "location">;
 type HomeTask = {
   title: string;
   detail: string;
@@ -731,9 +731,6 @@ function dashboardPlantStatus(plant: DashboardPlant, language: AppLanguage): str
   if (dashboardPlantLocation(plant) === "outside") {
     return language === "en" ? "Pre-growing" : "Forkultiveres";
   }
-  if (plant.hasSevenInOne) {
-    return "7-i-1";
-  }
   return language === "en" ? "In greenhouse" : "I drivhus";
 }
 
@@ -1142,7 +1139,6 @@ function normalizeDashboardPlants(plants: GrowlyPlant[]): DashboardPlant[] {
         nickname,
         sowedAt: plant.sowedAt ?? plant.sowed_at ?? null,
         location: plant.location ?? plant.location_label ?? "greenhouse",
-        hasSevenInOne: Boolean(plant.hasSevenInOne ?? plant.has_seven_in_one),
       };
     })
     .filter((plant) => plant.instanceId.trim() && plant.nickname.trim());
@@ -1610,7 +1606,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                   <span>{timeline.dayLabel}</span>
                   <span>{stage}</span>
                   <span>{timeline.daysLeftLabel}</span>
-                  <span>{location === "greenhouse" ? (plant.hasSevenInOne ? "7-i-1" : "I drivhus") : "Før flytting"}</span>
+                  <span>{location === "greenhouse" ? "I drivhus" : "Før flytting"}</span>
                 </div>
               </Link>
             );
