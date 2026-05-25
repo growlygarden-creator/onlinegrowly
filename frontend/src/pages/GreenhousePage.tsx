@@ -876,11 +876,11 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
             {selectedSoilSensor ? (
               <article className="plant-info-card plant-sensor-card">
                 <p className="section-kicker">Jordsensor</p>
-                <strong>{selectedSoilSensorName} måler denne planten</strong>
-                <span>
+                <strong className="plant-sensor-card__name">{selectedSoilSensorName}</strong>
+                <span className="plant-sensor-card__status">
                   {selectedSoilSample?.recorded_at
-                    ? `Sist oppdatert ${new Date(selectedSoilSample.recorded_at).toLocaleTimeString(language === "en" ? "en-US" : "nb-NO", { hour: "2-digit", minute: "2-digit" })}.`
-                    : "Venter på første måling fra sensoren."}
+                    ? `Følger denne planten · oppdatert ${new Date(selectedSoilSample.recorded_at).toLocaleTimeString(language === "en" ? "en-US" : "nb-NO", { hour: "2-digit", minute: "2-digit" })}`
+                    : "Følger denne planten · venter på første måling"}
                 </span>
                 <div className="plant-sensor-values" aria-label="Jordsensorverdier">
                   <span>
@@ -897,7 +897,7 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                   </span>
                 </div>
                 {typeof selectedSoilSensor.battery_percent === "number" ? (
-                  <small>Batteri {Math.round(selectedSoilSensor.battery_percent)}%</small>
+                  <small className="plant-sensor-card__battery">Batteri {Math.round(selectedSoilSensor.battery_percent)}%</small>
                 ) : null}
               </article>
             ) : null}
