@@ -4,17 +4,22 @@ import {
   fetchPlants,
   fetchPlantHistory,
   fetchPlantCatalog,
+  fetchLatestSample,
+  fetchSoilSensors,
   createPlant,
   updatePlant,
   archivePlant as archivePlantApi,
   type AuthSession,
   type GrowlyPlant,
+  type LatestSample,
   type PlantCatalogItem,
+  type SoilSensor,
 } from "../lib/api";
 import { bundledPlantCatalog } from "../data/plantCatalog";
 import { PlantAvatar } from "../components/PlantAvatar";
 import { plantCareGuide } from "../lib/plantCare";
 import { localizePlantCatalogItems } from "../lib/plantCatalogLocalization";
+import { soilSensorDisplayName } from "../lib/soilSensors";
 import {
   listPlantCalendarEntries,
   removePlantCalendarEntriesForPlant,
@@ -398,6 +403,13 @@ function hasRenderablePlant(plant: GreenhousePlant): boolean {
   return Boolean(instanceId.trim() && name.trim());
 }
 
+function metricText(value: number | null | undefined, suffix: string, digits = 0): string {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "–";
+  }
+  return `${value.toFixed(digits)}${suffix}`;
+}
+
 function normalizePlant(plant: GreenhousePlant): GreenhousePlant {
   const nickname = String(plant.nickname || plant.display_name || "").toLowerCase();
   const profileId = plant.profileId || plant.profile_id || "unknown";
@@ -437,6 +449,8 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const [plantPlanPrompt, setPlantPlanPrompt] = useState<PlantPlanPrompt | null>(null);
   const [plantPlanNote, setPlantPlanNote] = useState("");
   const [plantCalendarEntries, setPlantCalendarEntries] = useState<PlantCalendarEntry[]>([]);
+  const [soilSensors, setSoilSensors] = useState<SoilSensor[]>([]);
+  const [selectedSoilSample, setSelectedSoilSample] = useState<LatestSample | null>(null);
 
   useEffect(() => {
     setCatalogLoading(true);
@@ -485,7 +499,29 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
     };
   }, [session?.username, selectedHubId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchSoilSensors(selectedHubId).then((result) => {
+      if (!cancelled) {
+        setSoilSensors(result?.sensors ?? []);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.username, selectedHubId]);
+
   const selectedPlant = plants.find((plant) => plant.instanceId === selectedPlantId) ?? null;
+  const selectedPlantKey = selectedPlant?.instanceId || selectedPlant?.plant_id || "";
+  const selectedSoilSensor = selectedPlantKey
+    ? soilSensors.find((sensor) => sensor.plant_id === selectedPlantKey) ?? null
+    : null;
+  const selectedSoilSensorIndex = selectedSoilSensor
+    ? soilSensors.findIndex((sensor) => sensor.sensor_id === selectedSoilSensor.sensor_id)
+    : -1;
+  const selectedSoilSensorName = selectedSoilSensor
+    ? soilSensorDisplayName(selectedSoilSensor, Math.max(0, selectedSoilSensorIndex))
+    : "";
   const fallbackCatalogItems = useMemo(() => localizePlantCatalogItems(bundledPlantCatalog, language), [language]);
   const searchableCatalogItems = catalogItems.length ? catalogItems : fallbackCatalogItems;
   const selectedCatalogDetail = selectedPlant ? catalogItemForPlant(selectedPlant, searchableCatalogItems) : null;
@@ -499,6 +535,26 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
   const todayPlanDate = todayDateInputValue();
   const selectedUpcomingPlanEntries = selectedPlantPlanEntries.filter((entry) => entry.date >= todayPlanDate);
   const selectedVisiblePlanEntries = (selectedUpcomingPlanEntries.length ? selectedUpcomingPlanEntries : selectedPlantPlanEntries).slice(0, 5);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedSoilSensor) {
+      setSelectedSoilSample(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    fetchLatestSample(selectedHubId, selectedSoilSensor.sensor_id).then((sample) => {
+      if (!cancelled) {
+        setSelectedSoilSample(sample);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedHubId, selectedSoilSensor?.sensor_id]);
   const plantSummaries = plants.map((plant) => {
     const profile = profileForPlant(plant, searchableCatalogItems, language);
     const catalogItem = catalogItemForPlant(plant, searchableCatalogItems);
@@ -816,6 +872,35 @@ export function GreenhousePage({ session, selectedHubId = "" }: GreenhousePagePr
                 </button>
               )}
             </article>
+
+            {selectedSoilSensor ? (
+              <article className="plant-info-card plant-sensor-card">
+                <p className="section-kicker">Jordsensor</p>
+                <strong>{selectedSoilSensorName} måler denne planten</strong>
+                <span>
+                  {selectedSoilSample?.recorded_at
+                    ? `Sist oppdatert ${new Date(selectedSoilSample.recorded_at).toLocaleTimeString(language === "en" ? "en-US" : "nb-NO", { hour: "2-digit", minute: "2-digit" })}.`
+                    : "Venter på første måling fra sensoren."}
+                </span>
+                <div className="plant-sensor-values" aria-label="Jordsensorverdier">
+                  <span>
+                    <small>Jordfukt</small>
+                    <strong>{metricText(selectedSoilSample?.humidity, "%", 0)}</strong>
+                  </span>
+                  <span>
+                    <small>Jordtemp</small>
+                    <strong>{metricText(selectedSoilSample?.temperature, "°C", 1)}</strong>
+                  </span>
+                  <span>
+                    <small>pH</small>
+                    <strong>{metricText(selectedSoilSample?.ph, "", 1)}</strong>
+                  </span>
+                </div>
+                {typeof selectedSoilSensor.battery_percent === "number" ? (
+                  <small>Batteri {Math.round(selectedSoilSensor.battery_percent)}%</small>
+                ) : null}
+              </article>
+            ) : null}
 
             {plantLocation(selectedPlant) !== "greenhouse" ? (
               <article className="plant-info-card plant-nursery-card">

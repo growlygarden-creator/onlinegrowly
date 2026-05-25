@@ -3433,7 +3433,8 @@ def complete_soil_sensor_pairing(payload: dict[str, Any]) -> dict[str, Any]:
     if not soil_sensor_exists(hub_id, sensor_id) and soil_sensor_count_for_hub(hub_id) >= MAX_SOIL_SENSORS_PER_HUB:
         raise ValueError("soil_sensor_limit_reached")
     sensor_type = str(payload.get("sensor_type") or SOIL_SENSOR_DEFAULT_TYPE).strip()[:64] or SOIL_SENSOR_DEFAULT_TYPE
-    default_sensor_name = f"Soil sensor {min(MAX_SOIL_SENSORS_PER_HUB, soil_sensor_count_for_hub(hub_id) + 1)}"
+    next_sensor_number = min(MAX_SOIL_SENSORS_PER_HUB, soil_sensor_count_for_hub(hub_id) + 1)
+    default_sensor_name = f"Soil_ID_{next_sensor_number:03d}"
     sensor_name = str(payload.get("sensor_name") or payload.get("name") or default_sensor_name).strip()[:80] or default_sensor_name
     firmware_version = str(payload.get("firmware_version") or payload.get("version") or "").strip()[:80]
     now = utc_now_iso()
@@ -3510,9 +3511,12 @@ def update_soil_sensor_last_seen(hub_id: str, sensor_id: str, payload: dict[str,
     values: list[Any] = [now, json.dumps(payload, ensure_ascii=False), now]
     for key in ("firmware_version", "sensor_name"):
         if key in payload and str(payload.get(key) or "").strip():
+            value = str(payload.get(key) or "").strip()[:80]
+            if key == "sensor_name" and re.fullmatch(r"soil sensor(?:\s+\d+)?", value, re.IGNORECASE):
+                continue
             column = "firmware_version" if key == "firmware_version" else "sensor_name"
             updates.append(f"{column} = ?")
-            values.append(str(payload.get(key) or "").strip()[:80])
+            values.append(value)
     if payload.get("battery_percent") is not None:
         try:
             values.append(float(payload["battery_percent"]))

@@ -26,6 +26,7 @@ import {
   type GrowlyNotificationPreferences,
   type GrowlyNotificationStatus,
 } from "../lib/notifications";
+import { soilSensorDisplayName, soilSensorTechnicalLabel } from "../lib/soilSensors";
 import { useI18n, type LanguageMode } from "../lib/i18n";
 
 type SettingsPageProps = {
@@ -725,17 +726,17 @@ export function SettingsPage({
                         <strong>{soilPairing.expires_at}</strong>
                       </div>
                     ) : null}
-                    {soilSensors.map((sensor) => {
+                    {soilSensors.map((sensor, sensorIndex) => {
                       const assignedPlant = sensor.plant_id
                         ? sensorPlants.find((plant) => plantInstanceId(plant) === sensor.plant_id)
                         : null;
                       return (
                         <div className="sensor-detail-row sensor-detail-row--stacked" key={sensor.sensor_id}>
                           <div className="sensor-detail-heading">
-                            <span>{sensor.sensor_name || t("settings.soilSensor")}</span>
+                            <span>{soilSensorDisplayName(sensor, sensorIndex)}</span>
                             <strong>{assignedPlant ? plantDisplayName(assignedPlant, t("settings.defaultPlant")) : t("settings.sensorUnassigned")}</strong>
                           </div>
-                          <small>{sensor.mac_address || sensor.sensor_id}</small>
+                          <small>{soilSensorTechnicalLabel(sensor)}</small>
                           <label className="settings-field sensor-select-field sensor-inline-select">
                             <span>{t("settings.soilSensorPlant")}</span>
                             <select

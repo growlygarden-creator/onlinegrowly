@@ -23,6 +23,7 @@ import {
   type GrowlyNotificationHistoryItem,
 } from "../lib/notifications";
 import { useI18n, type AppLanguage } from "../lib/i18n";
+import { soilSensorDisplayName } from "../lib/soilSensors";
 import greenhouseDay from "../assets/greenhouse-assets/greenhouse-day.png";
 import greenhouseEvening from "../assets/greenhouse-assets/greenhouse-evening.png";
 import humidityDot from "../assets/greenhouse-assets/humidity-dot.png";
@@ -1404,7 +1405,8 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
     ? soilSensors.find((sensor) => sensorSource === `soil:${sensor.sensor_id}`) ?? null
     : null;
   const isSoilSensorSource = Boolean(selectedSoilSensor);
-  const sensorSourceLabel = selectedSoilSensor?.sensor_name || selectedSoilSensor?.sensor_id || "Jordsensor";
+  const selectedSoilSensorIndex = selectedSoilSensor ? soilSensors.findIndex((sensor) => sensor.sensor_id === selectedSoilSensor.sensor_id) : -1;
+  const sensorSourceLabel = selectedSoilSensor ? soilSensorDisplayName(selectedSoilSensor, Math.max(0, selectedSoilSensorIndex)) : "Jordsensor";
   const status = growthStatus(activeSample);
   const temperature = metricText(isSoilSensorSource ? activeSample?.temperature : activeSample?.air_temperature ?? activeSample?.temperature, "°C", 0);
   const humidity = metricText(isSoilSensorSource ? activeSample?.humidity : activeSample?.air_humidity, "%", 0);
@@ -1572,7 +1574,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                 >
                   7-i-1 diagnose
                 </button>
-                {soilSensors.map((sensor) => {
+                {soilSensors.map((sensor, sensorIndex) => {
                   const source = `soil:${sensor.sensor_id}` as DashboardSensorSource;
                   return (
                     <button
@@ -1583,7 +1585,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                       onClick={() => selectSensorSource(source)}
                       key={sensor.sensor_id}
                     >
-                      {sensor.sensor_name || sensor.sensor_id}
+                      {soilSensorDisplayName(sensor, sensorIndex)}
                     </button>
                   );
                 })}
