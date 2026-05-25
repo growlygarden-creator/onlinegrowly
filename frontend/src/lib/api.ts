@@ -248,6 +248,7 @@ export type AuthSession = {
     weather_longitude?: number | null;
     owner_username: string;
     is_active?: boolean | number;
+    diagnostic_sensor_enabled?: boolean | number;
     sensor_url: string;
     local_ip: string;
     soil_sensor_day_interval_ms?: number;
@@ -266,6 +267,7 @@ export type AuthSession = {
     weather_longitude?: number | null;
     owner_username: string;
     is_active?: boolean | number;
+    diagnostic_sensor_enabled?: boolean | number;
     sensor_url: string;
     local_ip: string;
     member_role?: string;
@@ -695,6 +697,7 @@ export async function saveHubSettings(payload: {
   weather_latitude?: number | string | null;
   weather_longitude?: number | string | null;
   is_active?: boolean;
+  diagnostic_sensor_enabled?: boolean;
   soil_sensor_day_interval_ms?: number;
   soil_sensor_night_interval_ms?: number;
   soil_sensor_day_start?: string;

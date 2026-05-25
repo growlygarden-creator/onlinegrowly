@@ -56,6 +56,10 @@ function isHubActive(value: unknown): boolean {
   return value === true || value === 1 || value === "1";
 }
 
+function isDiagnosticSensorEnabled(value: unknown): boolean {
+  return value !== false && value !== 0 && value !== "0";
+}
+
 function plantInstanceId(plant: GrowlyPlant): string {
   return plant.instanceId || plant.plant_id || "";
 }
@@ -390,6 +394,29 @@ export function SettingsPage({
     setStatus(nextActive ? t("settings.status.hubActive") : t("settings.status.hubInactive"));
   }
 
+  async function handleToggleDiagnosticSensor(nextEnabled: boolean, event?: React.MouseEvent<HTMLButtonElement>) {
+    event?.stopPropagation();
+    if (!session?.hub) {
+      setStatus(t("settings.status.noHubPaired"));
+      return;
+    }
+    setStatus(nextEnabled ? t("settings.status.activatingDiagnosticSensor") : t("settings.status.deactivatingDiagnosticSensor"));
+    const settings = await saveHubSettings({ diagnostic_sensor_enabled: nextEnabled });
+    if (!settings) {
+      setStatus(t("settings.status.diagnosticSensorSaveFailed"));
+      return;
+    }
+    const updatedHubs = (session.hubs ?? []).map((hub) => (
+      hub.hub_id === settings.hub_id ? { ...hub, ...settings } : hub
+    ));
+    setSession({
+      ...session,
+      hub: session.hub?.hub_id === settings.hub_id ? { ...session.hub, ...settings } : session.hub,
+      hubs: updatedHubs.length ? updatedHubs : session.hubs,
+    });
+    setStatus(nextEnabled ? t("settings.status.diagnosticSensorActive") : t("settings.status.diagnosticSensorInactive"));
+  }
+
   async function handleSaveProfile() {
     setStatus(t("settings.status.savingAccount"));
     const updatedSession = await updateProfile({
@@ -539,6 +566,7 @@ export function SettingsPage({
   const hubId = activeHubId || t("settings.pendingPairing");
   const hubCount = session?.hubs?.length ?? (session?.hub ? 1 : 0);
   const hubActive = isHubActive(session?.hub?.is_active);
+  const diagnosticSensorEnabled = isDiagnosticSensorEnabled(session?.hub?.diagnostic_sensor_enabled);
   const weatherConfigured = !!weatherLatitude && !!weatherLongitude;
   const themeSummary =
     themeMode === "auto"
@@ -707,7 +735,23 @@ export function SettingsPage({
                 </div>
                 <div className="settings-field sensor-select-field">
                   <span>{t("settings.sevenInOneSensor")}</span>
-                  <strong>{t("settings.diagnosticSensorValue")}</strong>
+                  <strong>{diagnosticSensorEnabled ? t("settings.diagnosticSensorValue") : t("settings.diagnosticSensorOff")}</strong>
+                </div>
+                <div className="hub-toggle-row hub-toggle-row--compact">
+                  <div>
+                    <strong>{t("settings.diagnosticSensorSwitch")}</strong>
+                    <span>{diagnosticSensorEnabled ? t("settings.diagnosticSensorActiveBody") : t("settings.diagnosticSensorInactiveBody")}</span>
+                  </div>
+                  <button
+                    className={`hub-switch${diagnosticSensorEnabled ? " is-on" : ""}`}
+                    type="button"
+                    role="switch"
+                    aria-checked={diagnosticSensorEnabled}
+                    onClick={(event) => handleToggleDiagnosticSensor(!diagnosticSensorEnabled, event)}
+                    disabled={!session?.hub}
+                  >
+                    <span>{diagnosticSensorEnabled ? "On" : "Off"}</span>
+                  </button>
                 </div>
                 <div className="settings-field">
                   <span>{t("settings.soilSensors")}</span>

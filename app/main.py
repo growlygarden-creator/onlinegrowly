@@ -1604,6 +1604,7 @@ def rebuild_hubs_without_owner_unique(connection: sqlite3.Connection) -> None:
             weather_longitude REAL,
             owner_username TEXT NOT NULL,
             is_active INTEGER NOT NULL DEFAULT 1,
+            diagnostic_sensor_enabled INTEGER NOT NULL DEFAULT 1,
             sensor_url TEXT NOT NULL,
             local_ip TEXT NOT NULL DEFAULT '',
             sample_time_soil_ms INTEGER NOT NULL,
@@ -1635,14 +1636,14 @@ def rebuild_hubs_without_owner_unique(connection: sqlite3.Connection) -> None:
         """
         INSERT INTO hubs_rebuild (
             hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
-            owner_username, is_active, sensor_url, local_ip,
+            owner_username, is_active, diagnostic_sensor_enabled, sensor_url, local_ip,
             sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
             sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, config_revision,
             config_updated_at, config_applied_revision, config_applied_at,
             config_applied_settings_json, device_status_at, device_status_message,
             device_firmware_version, created_at, updated_at
         )
-        SELECT hub_id, hub_name, '', '', NULL, NULL, owner_username, is_active, sensor_url, local_ip,
+        SELECT hub_id, hub_name, '', '', NULL, NULL, owner_username, is_active, 1, sensor_url, local_ip,
                sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, config_revision,
                config_updated_at, config_applied_revision, config_applied_at,
@@ -1739,6 +1740,7 @@ def init_db() -> None:
                 weather_longitude REAL,
                 owner_username TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
+                diagnostic_sensor_enabled INTEGER NOT NULL DEFAULT 1,
                 sensor_url TEXT NOT NULL,
                 local_ip TEXT NOT NULL DEFAULT '',
                 sample_time_soil_ms INTEGER NOT NULL,
@@ -2262,6 +2264,7 @@ def init_db() -> None:
             "device_status_at": "TEXT NOT NULL DEFAULT ''",
             "device_status_message": "TEXT NOT NULL DEFAULT ''",
             "device_firmware_version": "TEXT NOT NULL DEFAULT ''",
+            "diagnostic_sensor_enabled": "INTEGER NOT NULL DEFAULT 1",
             "soil_sensor_day_interval_ms": "INTEGER NOT NULL DEFAULT 1800000",
             "soil_sensor_night_interval_ms": "INTEGER NOT NULL DEFAULT 3600000",
             "soil_sensor_day_start": "TEXT NOT NULL DEFAULT '07:00'",
@@ -2588,7 +2591,7 @@ def list_hubs() -> list[dict[str, Any]]:
         rows = connection.execute(
             """
             SELECT hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
-                   owner_username, is_active, sensor_url, local_ip,
+                   owner_username, is_active, diagnostic_sensor_enabled, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                    sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
@@ -2606,7 +2609,7 @@ def find_hub(hub_id: str) -> dict[str, Any] | None:
         row = connection.execute(
             """
             SELECT hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
-                   owner_username, is_active, sensor_url, local_ip,
+                   owner_username, is_active, diagnostic_sensor_enabled, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                    sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
@@ -2625,7 +2628,7 @@ def find_hub_by_owner(username: str) -> dict[str, Any] | None:
         row = connection.execute(
             """
             SELECT hub_id, hub_name, location_label, weather_address, weather_latitude, weather_longitude,
-                   owner_username, is_active, sensor_url, local_ip,
+                   owner_username, is_active, diagnostic_sensor_enabled, sensor_url, local_ip,
                    sample_time_soil_ms, sample_time_light_ms, sample_time_air_ms,
                    sample_time_cloud_ms, soil_sensor_day_interval_ms, soil_sensor_night_interval_ms, soil_sensor_day_start, soil_sensor_night_start, soil_sensor_battery_warning_percent, soil_sensor_battery_critical_percent, history_start_at, config_revision,
                    config_updated_at, config_applied_revision, config_applied_at,
@@ -2647,7 +2650,7 @@ def list_hubs_for_user(username: str) -> list[dict[str, Any]]:
         rows = connection.execute(
             """
             SELECT h.hub_id, h.hub_name, h.location_label, h.weather_address, h.weather_latitude, h.weather_longitude,
-                   h.owner_username, h.is_active, h.sensor_url, h.local_ip,
+                   h.owner_username, h.is_active, h.diagnostic_sensor_enabled, h.sensor_url, h.local_ip,
                    h.sample_time_soil_ms, h.sample_time_light_ms, h.sample_time_air_ms,
                    h.sample_time_cloud_ms, h.history_start_at, h.config_revision,
                    h.config_updated_at, h.config_applied_revision, h.config_applied_at,
@@ -2674,7 +2677,7 @@ def find_hub_for_user(username: str, hub_id: str) -> dict[str, Any] | None:
         row = connection.execute(
             """
             SELECT h.hub_id, h.hub_name, h.location_label, h.weather_address, h.weather_latitude, h.weather_longitude,
-                   h.owner_username, h.is_active, h.sensor_url, h.local_ip,
+                   h.owner_username, h.is_active, h.diagnostic_sensor_enabled, h.sensor_url, h.local_ip,
                    h.sample_time_soil_ms, h.sample_time_light_ms, h.sample_time_air_ms,
                    h.sample_time_cloud_ms, h.history_start_at, h.config_revision,
                    h.config_updated_at, h.config_applied_revision, h.config_applied_at,
@@ -3852,6 +3855,7 @@ def hub_settings(hub_id: str) -> dict[str, Any]:
         "weather_longitude": hub.get("weather_longitude"),
         "owner_username": hub["owner_username"],
         "is_active": hub["is_active"],
+        "diagnostic_sensor_enabled": bool_from_int(hub.get("diagnostic_sensor_enabled", 1)),
         "sensor_url": normalize_sensor_url(hub["sensor_url"]),
         "local_ip": str(hub.get("local_ip") or "").strip(),
         "sample_time_soil_ms": int(hub["sample_time_soil_ms"]),
@@ -3884,6 +3888,8 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             updated[text_key] = str(payload.get(text_key) or "").strip()
     if "is_active" in payload and isinstance(payload.get("is_active"), bool):
         updated["is_active"] = 1 if payload.get("is_active") else 0
+    if "diagnostic_sensor_enabled" in payload and isinstance(payload.get("diagnostic_sensor_enabled"), bool):
+        updated["diagnostic_sensor_enabled"] = 1 if payload.get("diagnostic_sensor_enabled") else 0
     if "weather_latitude" in payload:
         updated["weather_latitude"] = normalize_optional_float(payload.get("weather_latitude"), -90, 90)
     if "weather_longitude" in payload:
@@ -3933,6 +3939,7 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 weather_latitude = ?,
                 weather_longitude = ?,
                 is_active = ?,
+                diagnostic_sensor_enabled = ?,
                 sensor_url = ?,
                 local_ip = ?,
                 history_start_at = ?,
@@ -3947,6 +3954,7 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 updated.get("weather_latitude"),
                 updated.get("weather_longitude"),
                 int(updated.get("is_active") or 0),
+                int(updated.get("diagnostic_sensor_enabled", 1)),
                 updated["sensor_url"],
                 str(updated.get("local_ip", "") or "").strip(),
                 updated["history_start_at"],
@@ -5745,6 +5753,7 @@ def sync_core_to_supabase() -> dict[str, Any]:
             "location_label": hub.get("location_label") or "",
             "owner_username": hub["owner_username"],
             "is_active": bool_from_int(hub.get("is_active")),
+            "diagnostic_sensor_enabled": bool_from_int(hub.get("diagnostic_sensor_enabled", 1)),
             "sensor_url": hub.get("sensor_url") or "",
             "local_ip": hub.get("local_ip") or "",
             "sample_time_soil_ms": int(hub.get("sample_time_soil_ms") or DEFAULT_APP_SETTINGS["sample_time_soil_ms"]),

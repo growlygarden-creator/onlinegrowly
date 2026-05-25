@@ -95,6 +95,10 @@ function isHubActive(value: unknown): boolean {
   return value === true || value === 1 || value === "1";
 }
 
+function isDiagnosticSensorEnabled(value: unknown): boolean {
+  return value !== false && value !== 0 && value !== "0";
+}
+
 const dashboardPlantProfiles: Record<
   string,
   {
@@ -1272,11 +1276,19 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   }, [selectedHubId]);
 
   useEffect(() => {
-    if (sensorSource !== "hub" && !soilSensors.some((sensor) => sensorSource === `soil:${sensor.sensor_id}`)) {
-      setSensorSource("hub");
-      saveDashboardSensorSource(selectedHubId, "hub");
+    const diagnosticEnabled = isDiagnosticSensorEnabled(session?.hub?.diagnostic_sensor_enabled);
+    const firstSoilSource = soilSensors[0] ? `soil:${soilSensors[0].sensor_id}` as DashboardSensorSource : "hub";
+    if (sensorSource === "hub" && !diagnosticEnabled && firstSoilSource !== "hub") {
+      setSensorSource(firstSoilSource);
+      saveDashboardSensorSource(selectedHubId, firstSoilSource);
+      return;
     }
-  }, [selectedHubId, sensorSource, soilSensors]);
+    if (sensorSource !== "hub" && !soilSensors.some((sensor) => sensorSource === `soil:${sensor.sensor_id}`)) {
+      const fallbackSource = diagnosticEnabled ? "hub" : firstSoilSource;
+      setSensorSource(fallbackSource);
+      saveDashboardSensorSource(selectedHubId, fallbackSource);
+    }
+  }, [selectedHubId, sensorSource, soilSensors, session?.hub?.diagnostic_sensor_enabled]);
 
   useEffect(() => {
     fetchWeatherForecast(selectedHubId).then((result) => {
@@ -1400,7 +1412,8 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   const scene = greenhouseScene(theme);
   const weatherNow = weather?.forecast.now;
   const hasActiveHub = isHubActive(session?.hub?.is_active);
-  const activeSample = hasActiveHub ? sample : null;
+  const diagnosticSensorEnabled = isDiagnosticSensorEnabled(session?.hub?.diagnostic_sensor_enabled);
+  const activeSample = hasActiveHub && (sensorSource !== "hub" || diagnosticSensorEnabled) ? sample : null;
   const selectedSoilSensor = sensorSource.startsWith("soil:")
     ? soilSensors.find((sensor) => sensorSource === `soil:${sensor.sensor_id}`) ?? null
     : null;
@@ -1565,15 +1578,17 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
           {hasActiveHub ? (
             <>
               <div className="home-sensor-source" role="radiogroup" aria-label="Velg sensorkilde">
-                <button
-                  className={sensorSource === "hub" ? "is-selected" : ""}
-                  type="button"
-                  role="radio"
-                  aria-checked={sensorSource === "hub"}
-                  onClick={() => selectSensorSource("hub")}
-                >
-                  7-i-1 diagnose
-                </button>
+                {diagnosticSensorEnabled ? (
+                  <button
+                    className={sensorSource === "hub" ? "is-selected" : ""}
+                    type="button"
+                    role="radio"
+                    aria-checked={sensorSource === "hub"}
+                    onClick={() => selectSensorSource("hub")}
+                  >
+                    7-i-1 diagnose
+                  </button>
+                ) : null}
                 {soilSensors.map((sensor, sensorIndex) => {
                   const source = `soil:${sensor.sensor_id}` as DashboardSensorSource;
                   return (
