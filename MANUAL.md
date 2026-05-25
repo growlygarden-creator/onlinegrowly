@@ -1,6 +1,6 @@
 # Growly Garden manual
 
-Sist oppdatert: 8. mai 2026
+Sist oppdatert: 25. mai 2026
 
 Dette dokumentet er en samlet forklaring på hvor Growly Garden står nå, hvordan appen brukes, og hvordan Render, Supabase, ESP-kortet og sensorene henger sammen.
 
@@ -284,6 +284,14 @@ Hvis jordsensoren gir timeout, sjekk:
 - at GND er felles mellom ESP32, MAX485 og sensor
 - at A/B ikke er byttet
 - at DE og RE begge ligger på GPIO16
+
+### DIY MORE soil-sensor statuslys
+
+Soil-sensor-firmware `0.1.10-wemosbat-adc-cal` blinker blå status-LED på GPIO16 i tre minutter etter manuell oppstart/reset. LED-en er aktiv-lav, så `LOW` betyr på og `HIGH` betyr av. Det bekrefter at ESP-sensoren er våken i ramp-up-vinduet før den går tilbake til deep sleep. Lyset slukkes før sleep for å spare batteri.
+
+På DIY MORE-kortet leses jordfukt fra GPIO32. Diagnose viste at GPIO34, GPIO35, GPIO36 og GPIO39 ikke får batterispenning på testkortet, heller ikke når kortet kjører bare på batteri. Firmware rapporterer derfor batteri som ukjent når batteri-ADC er frakoblet, i stedet for å sende falsk `0%`.
+
+Hvis vi vil ha ekte batteriprosent, må batteriets pluss måles fysisk via en spenningsdeler til en ledig ADC-pin, for eksempel GPIO34/GPIO35, med felles GND. Firmware er klargjort for en `100k + 100k` divider til GPIO34 (`x2` beregning) og bruker ESP32 sin kalibrerte ADC-millivoltlesing.
 
 ## Render forklart
 

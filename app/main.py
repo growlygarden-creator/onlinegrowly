@@ -155,6 +155,10 @@ MET_WEATHER_USER_AGENT = os.getenv(
 WEATHER_REPORT_CACHE: dict[str, dict[str, Any]] = {}
 WEATHER_FORECAST_CACHE: dict[str, dict[str, Any]] = {}
 WEATHER_FORECAST_CACHE_TTL = timedelta(minutes=20)
+SUN_TIMES_CACHE: dict[str, dict[str, Any]] = {}
+SUN_TIMES_FAILURE_CACHE: dict[str, datetime] = {}
+SUN_TIMES_CACHE_TTL = timedelta(hours=12)
+SUN_TIMES_FAILURE_TTL = timedelta(minutes=20)
 MAX_HISTORY_RAW_ROWS = int(os.getenv("MAX_HISTORY_RAW_ROWS", "3000").strip() or "3000")
 SHARED_SSL_CONTEXT: ssl.SSLContext | None = None
 SENSOR_SAMPLE_WRITE_COUNT = 0
@@ -4080,22 +4084,120 @@ def minutes_from_time(value: str) -> int:
     return parsed.hour * 60 + parsed.minute
 
 
-def soil_sensor_schedule(settings: dict[str, Any]) -> dict[str, Any]:
+def timezone_offset_string(moment: datetime) -> str:
+    offset = moment.utcoffset() or timedelta()
+    total_minutes = int(offset.total_seconds() // 60)
+    sign = "+" if total_minutes >= 0 else "-"
+    absolute_minutes = abs(total_minutes)
+    return f"{sign}{absolute_minutes // 60:02d}:{absolute_minutes % 60:02d}"
+
+
+def time_of_day_from_iso(value: Any) -> str:
+    parsed = parse_iso_datetime(str(value or ""))
+    if not parsed:
+        return ""
+    return parsed.astimezone(APP_TIMEZONE).strftime("%H:%M")
+
+
+def fetch_met_sun_times(lat: float, lon: float, moment: datetime | None = None) -> dict[str, str]:
+    local_moment = (moment or utc_now()).astimezone(APP_TIMEZONE)
+    date_key = local_moment.date().isoformat()
+    offset = timezone_offset_string(local_moment)
+    cache_key = f"{lat:.4f}:{lon:.4f}:{date_key}:{offset}"
+    cached = SUN_TIMES_CACHE.get(cache_key)
+    if cached:
+        cached_at = parse_iso_datetime(str(cached.get("cached_at") or ""))
+        if cached_at and datetime.now(timezone.utc) - cached_at < SUN_TIMES_CACHE_TTL:
+            return {
+                "day_start": str(cached["day_start"]),
+                "night_start": str(cached["night_start"]),
+            }
+
+    failed_at = SUN_TIMES_FAILURE_CACHE.get(cache_key)
+    if failed_at and datetime.now(timezone.utc) - failed_at < SUN_TIMES_FAILURE_TTL:
+        raise ValueError("sun_times_temporarily_unavailable")
+
+    params = urlencode(
+        {
+            "lat": f"{lat:.6f}",
+            "lon": f"{lon:.6f}",
+            "date": date_key,
+            "offset": offset,
+        }
+    )
+    request = UrlRequest(
+        f"https://api.met.no/weatherapi/sunrise/3.0/sun?{params}",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": MET_WEATHER_USER_AGENT,
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=5, context=shared_ssl_context()) as response:
+            payload = response.read().decode("utf-8")
+        data = json.loads(payload)
+        properties = data.get("properties", {})
+        if not isinstance(properties, dict):
+            raise ValueError("sun_times_missing_properties")
+        sunrise = properties.get("sunrise", {})
+        sunset = properties.get("sunset", {})
+        if not isinstance(sunrise, dict) or not isinstance(sunset, dict):
+            raise ValueError("sun_times_missing_events")
+        day_start = time_of_day_from_iso(sunrise.get("time"))
+        night_start = time_of_day_from_iso(sunset.get("time"))
+        if not day_start or not night_start:
+            raise ValueError("sun_times_missing_time")
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError):
+        SUN_TIMES_FAILURE_CACHE[cache_key] = datetime.now(timezone.utc)
+        raise
+
+    SUN_TIMES_FAILURE_CACHE.pop(cache_key, None)
+    SUN_TIMES_CACHE[cache_key] = {
+        "cached_at": utc_now_iso(),
+        "day_start": day_start,
+        "night_start": night_start,
+    }
+    return {"day_start": day_start, "night_start": night_start}
+
+
+def soil_sensor_sun_times(settings: dict[str, Any], now: datetime | None = None) -> dict[str, str]:
+    fallback = {
+        "day_start": normalize_time_of_day(settings.get("soil_sensor_day_start"), str(DEFAULT_APP_SETTINGS["soil_sensor_day_start"])),
+        "night_start": normalize_time_of_day(settings.get("soil_sensor_night_start"), str(DEFAULT_APP_SETTINGS["soil_sensor_night_start"])),
+    }
+    lat = settings.get("weather_latitude")
+    lon = settings.get("weather_longitude")
+    if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+        return fallback
+    try:
+        return fetch_met_sun_times(float(lat), float(lon), now)
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError):
+        return fallback
+
+
+def soil_sensor_schedule(settings: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
+    sun_times = soil_sensor_sun_times(settings, now)
     return {
         "day_interval_ms": int(settings["soil_sensor_day_interval_ms"]),
         "night_interval_ms": int(settings["soil_sensor_night_interval_ms"]),
-        "day_start": settings["soil_sensor_day_start"],
-        "night_start": settings["soil_sensor_night_start"],
+        "day_start": sun_times["day_start"],
+        "night_start": sun_times["night_start"],
         "battery_warning_percent": int(settings["soil_sensor_battery_warning_percent"]),
         "battery_critical_percent": int(settings["soil_sensor_battery_critical_percent"]),
     }
 
 
-def next_soil_sensor_sleep_seconds(settings: dict[str, Any], now: datetime | None = None) -> int:
+def next_soil_sensor_sleep_seconds(
+    settings: dict[str, Any],
+    now: datetime | None = None,
+    schedule: dict[str, Any] | None = None,
+) -> int:
     local_now = (now or utc_now()).astimezone(ZoneInfo("Europe/Oslo"))
     current_minutes = local_now.hour * 60 + local_now.minute
-    day_start = minutes_from_time(str(settings["soil_sensor_day_start"]))
-    night_start = minutes_from_time(str(settings["soil_sensor_night_start"]))
+    effective_schedule = schedule or soil_sensor_schedule(settings, local_now)
+    day_start = minutes_from_time(str(effective_schedule["day_start"]))
+    night_start = minutes_from_time(str(effective_schedule["night_start"]))
     if day_start <= night_start:
         is_day = day_start <= current_minutes < night_start
     else:
@@ -4106,6 +4208,7 @@ def next_soil_sensor_sleep_seconds(settings: dict[str, Any], now: datetime | Non
 
 def device_config_response(hub_id: str, current_version: str = "") -> dict[str, Any]:
     settings = hub_settings(hub_id)
+    schedule = soil_sensor_schedule(settings)
     soil_pairing = active_soil_pairing_session_for_hub(hub_id)
     latest_version, firmware_url = latest_firmware_info()
     soil_firmware = soil_firmware_response()
@@ -4136,8 +4239,8 @@ def device_config_response(hub_id: str, current_version: str = "") -> dict[str, 
             "sensor_type": SOIL_SENSOR_DEFAULT_TYPE,
         },
         "soil_sensor_schedule": {
-            **soil_sensor_schedule(settings),
-            "next_sleep_seconds": next_soil_sensor_sleep_seconds(settings),
+            **schedule,
+            "next_sleep_seconds": next_soil_sensor_sleep_seconds(settings, schedule=schedule),
         },
         "firmware": {
             "current_version": str(current_version or "").strip(),

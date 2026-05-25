@@ -160,8 +160,6 @@ export function SettingsPage({
   const [soilAssigningId, setSoilAssigningId] = useState("");
   const [soilDayIntervalMinutes, setSoilDayIntervalMinutes] = useState(() => msToMinutes(session?.hub?.soil_sensor_day_interval_ms, 1_800_000));
   const [soilNightIntervalMinutes, setSoilNightIntervalMinutes] = useState(() => msToMinutes(session?.hub?.soil_sensor_night_interval_ms, 3_600_000));
-  const [soilDayStart, setSoilDayStart] = useState(session?.hub?.soil_sensor_day_start || "07:00");
-  const [soilNightStart, setSoilNightStart] = useState(session?.hub?.soil_sensor_night_start || "22:00");
   const [soilBatteryWarning, setSoilBatteryWarning] = useState(String(session?.hub?.soil_sensor_battery_warning_percent ?? 30));
   const [soilBatteryCritical, setSoilBatteryCritical] = useState(String(session?.hub?.soil_sensor_battery_critical_percent ?? 15));
   const [soilScheduleSaving, setSoilScheduleSaving] = useState(false);
@@ -204,16 +202,12 @@ export function SettingsPage({
   useEffect(() => {
     setSoilDayIntervalMinutes(msToMinutes(session?.hub?.soil_sensor_day_interval_ms, 1_800_000));
     setSoilNightIntervalMinutes(msToMinutes(session?.hub?.soil_sensor_night_interval_ms, 3_600_000));
-    setSoilDayStart(session?.hub?.soil_sensor_day_start || "07:00");
-    setSoilNightStart(session?.hub?.soil_sensor_night_start || "22:00");
     setSoilBatteryWarning(String(session?.hub?.soil_sensor_battery_warning_percent ?? 30));
     setSoilBatteryCritical(String(session?.hub?.soil_sensor_battery_critical_percent ?? 15));
   }, [
     session?.hub?.hub_id,
     session?.hub?.soil_sensor_day_interval_ms,
     session?.hub?.soil_sensor_night_interval_ms,
-    session?.hub?.soil_sensor_day_start,
-    session?.hub?.soil_sensor_night_start,
     session?.hub?.soil_sensor_battery_warning_percent,
     session?.hub?.soil_sensor_battery_critical_percent,
   ]);
@@ -360,8 +354,6 @@ export function SettingsPage({
       const settings = await saveHubSettings({
         soil_sensor_day_interval_ms: minutesToMs(soilDayIntervalMinutes),
         soil_sensor_night_interval_ms: minutesToMs(soilNightIntervalMinutes),
-        soil_sensor_day_start: soilDayStart,
-        soil_sensor_night_start: soilNightStart,
         soil_sensor_battery_warning_percent: warning,
         soil_sensor_battery_critical_percent: critical,
       });
@@ -876,15 +868,9 @@ export function SettingsPage({
                 </div>
                 <div className="settings-field soil-schedule-panel">
                   <span>{t("settings.soilSensorSchedule")}</span>
-                  <div className="settings-field-grid">
-                    <label className="settings-field">
-                      <span>{t("settings.soilDayStart")}</span>
-                      <input type="time" value={soilDayStart} onChange={(event) => setSoilDayStart(event.target.value)} />
-                    </label>
-                    <label className="settings-field">
-                      <span>{t("settings.soilNightStart")}</span>
-                      <input type="time" value={soilNightStart} onChange={(event) => setSoilNightStart(event.target.value)} />
-                    </label>
+                  <div className="soil-sun-note">
+                    <strong>{t("settings.soilSunScheduleTitle")}</strong>
+                    <span>{t(weatherConfigured ? "settings.soilSunScheduleBody" : "settings.soilSunScheduleMissingLocation")}</span>
                   </div>
                   <div className="settings-field-grid">
                     <label className="settings-field">

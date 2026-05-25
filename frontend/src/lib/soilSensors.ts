@@ -5,7 +5,8 @@ function isMacLike(value: string): boolean {
 }
 
 function isGenericSoilSensorName(value: string): boolean {
-  return /^soil sensor(?:\s+\d+)?$/i.test(value.trim());
+  const name = value.trim();
+  return /^soil sensor(?:\s+\d+)?$/i.test(name) || /^soil_id_\d+$/i.test(name);
 }
 
 export function soilSensorDisplayName(sensor: SoilSensor, index = 0): string {
@@ -14,7 +15,7 @@ export function soilSensorDisplayName(sensor: SoilSensor, index = 0): string {
     return name;
   }
 
-  return `Soil_ID_${String(index + 1).padStart(3, "0")}`;
+  return `sensor ${index + 1}`;
 }
 
 export function soilSensorTechnicalLabel(sensor: SoilSensor): string {

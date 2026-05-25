@@ -13,7 +13,7 @@
 #include "soil_now_protocol.h"
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.1.4-startup-led";
+constexpr char kFirmwareVersion[] = "0.1.11-sleep-confirm";
 constexpr char kPrefsNamespace[] = "growly_soil";
 constexpr char kPrefsSsidKey[] = "ssid";
 constexpr char kPrefsPasswordKey[] = "password";
@@ -28,11 +28,14 @@ constexpr int kBootButtonPin = 0;
 constexpr int kDhtPin = 22;
 constexpr int kSoilAdcPin = 32;
 constexpr int kBatteryAdcPin = 34;
-constexpr int kStatusLedPins[] = {2, 33};
+constexpr int kStatusLedPins[] = {16};
+constexpr bool kStatusLedActiveLow = true;
 constexpr int kDhtType = DHT11;
 constexpr uint16_t kSoilRawWet = 1300;
 constexpr uint16_t kSoilRawDry = 3200;
 constexpr float kBatteryDividerRatio = 2.0f;
+constexpr uint8_t kAnalogSampleCount = 16;
+constexpr uint16_t kBatteryDisconnectedRaw = 4;
 constexpr uint32_t kDefaultSleepSeconds = 30UL * 60UL;
 constexpr uint64_t kPairingRetrySleepUs = 30ULL * 1000000ULL;
 constexpr unsigned long kPairingAttemptMs = 4UL * 60UL * 1000UL;
@@ -337,7 +340,11 @@ void loadConfig() {
     batteryCriticalPercent = min<uint8_t>(batteryWarningPercent - 1, max<uint8_t>(1, batteryCriticalPercent));
 }
 
-void saveSleepPlan(uint32_t sleepSeconds, uint8_t warningPercent, uint8_t criticalPercent) {
+void saveSleepPlan(uint32_t sleepSeconds, uint8_t warningPercent, uint8_t criticalPercent, const char* source) {
+    const uint32_t previousSleepSeconds = configuredSleepSeconds;
+    const uint8_t previousWarningPercent = batteryWarningPercent;
+    const uint8_t previousCriticalPercent = batteryCriticalPercent;
+
     configuredSleepSeconds = min<uint32_t>(7200, max<uint32_t>(300, sleepSeconds));
     batteryWarningPercent = min<uint8_t>(100, max<uint8_t>(2, warningPercent));
     batteryCriticalPercent = min<uint8_t>(batteryWarningPercent - 1, max<uint8_t>(1, criticalPercent));
@@ -346,6 +353,18 @@ void saveSleepPlan(uint32_t sleepSeconds, uint8_t warningPercent, uint8_t critic
     preferences.putUChar(kPrefsBatteryWarnKey, batteryWarningPercent);
     preferences.putUChar(kPrefsBatteryCritKey, batteryCriticalPercent);
     preferences.end();
+
+    const bool changed =
+        previousSleepSeconds != configuredSleepSeconds ||
+        previousWarningPercent != batteryWarningPercent ||
+        previousCriticalPercent != batteryCriticalPercent;
+    Serial.printf(
+        "Sleep plan confirmed via %s: next_sleep=%lus warning=%u%% critical=%u%% %s\n",
+        source ? source : "unknown",
+        static_cast<unsigned long>(configuredSleepSeconds),
+        batteryWarningPercent,
+        batteryCriticalPercent,
+        changed ? "updated" : "unchanged");
 }
 
 void rememberFirmwareUpdate(const String& version, const String& url, bool updateAvailable) {
@@ -385,7 +404,7 @@ void savePairConfig(const SoilNow::PairConfigPacket& config) {
     preferences.putString(kPrefsPasswordKey, configuredWifiPassword);
     preferences.putUChar(kPrefsChannelKey, pairedWifiChannel);
     preferences.end();
-    saveSleepPlan(config.defaultSleepSeconds, config.batteryWarningPercent, config.batteryCriticalPercent);
+    saveSleepPlan(config.defaultSleepSeconds, config.batteryWarningPercent, config.batteryCriticalPercent, "pairing");
 }
 
 void clearConfig() {
@@ -401,7 +420,9 @@ void clearConfig() {
 
 void setStatusLed(bool on) {
     for (int pin : kStatusLedPins) {
-        digitalWrite(pin, on ? HIGH : LOW);
+        const uint8_t activeLevel = kStatusLedActiveLow ? LOW : HIGH;
+        const uint8_t inactiveLevel = kStatusLedActiveLow ? HIGH : LOW;
+        digitalWrite(pin, on ? activeLevel : inactiveLevel);
     }
 }
 
@@ -460,7 +481,7 @@ void onEspNowReceive(const uint8_t*, const uint8_t* data, int length) {
         SoilNow::SampleAckPacket ack = {};
         memcpy(&ack, data, sizeof(ack));
         if (ack.sequence == expectedSampleAckSequence) {
-            saveSleepPlan(ack.nextSleepSeconds, ack.batteryWarningPercent, ack.batteryCriticalPercent);
+            saveSleepPlan(ack.nextSleepSeconds, ack.batteryWarningPercent, ack.batteryCriticalPercent, "esp-now-ack");
             memcpy(pendingFirmwareVersion, ack.firmwareVersion, sizeof(pendingFirmwareVersion));
             memcpy(pendingFirmwareUrl, ack.firmwareUrl, sizeof(pendingFirmwareUrl));
             pendingFirmwareUpdateAvailable = ack.firmwareUpdateAvailable == 1;
@@ -574,18 +595,45 @@ uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
     return static_cast<uint8_t>(map(millivolts, 3000, 4200, 0, 100));
 }
 
+uint16_t readAveragedAdcRaw(int pin) {
+    analogRead(pin);
+    delay(10);
+
+    uint32_t total = 0;
+    for (uint8_t index = 0; index < kAnalogSampleCount; ++index) {
+        total += analogRead(pin);
+        delay(2);
+    }
+    return static_cast<uint16_t>(total / kAnalogSampleCount);
+}
+
+uint16_t readAveragedAdcMillivolts(int pin) {
+    analogReadMilliVolts(pin);
+    delay(10);
+
+    uint32_t total = 0;
+    for (uint8_t index = 0; index < kAnalogSampleCount; ++index) {
+        total += analogReadMilliVolts(pin);
+        delay(2);
+    }
+    return static_cast<uint16_t>(total / kAnalogSampleCount);
+}
+
 SoilSample readSample() {
     SoilSample sample;
     analogSetPinAttenuation(kSoilAdcPin, ADC_11db);
     analogSetPinAttenuation(kBatteryAdcPin, ADC_11db);
     delay(50);
 
-    sample.soilRaw = analogRead(kSoilAdcPin);
+    sample.soilRaw = readAveragedAdcRaw(kSoilAdcPin);
     sample.soilPercent = soilPercentFromRaw(sample.soilRaw);
 
-    const int batteryRaw = analogRead(kBatteryAdcPin);
-    sample.batteryMillivolts = static_cast<uint16_t>((batteryRaw / 4095.0f) * 3300.0f * kBatteryDividerRatio);
-    sample.batteryPercent = batteryPercentFromMillivolts(sample.batteryMillivolts);
+    const int batteryRaw = readAveragedAdcRaw(kBatteryAdcPin);
+    if (batteryRaw > kBatteryDisconnectedRaw) {
+        const uint16_t batteryPinMillivolts = readAveragedAdcMillivolts(kBatteryAdcPin);
+        sample.batteryMillivolts = static_cast<uint16_t>(batteryPinMillivolts * kBatteryDividerRatio);
+        sample.batteryPercent = batteryPercentFromMillivolts(sample.batteryMillivolts);
+    }
 
     const float humidity = dht.readHumidity();
     const float temperature = dht.readTemperature();
@@ -597,14 +645,18 @@ SoilSample readSample() {
     }
 
     Serial.printf(
-        "Sample sensor=%s soil=%u%% raw=%u air=%.2fC %.2f%% battery=%umV %u%%\n",
+        "Sample sensor=%s soil=%u%% raw=%u air=%.2fC %.2f%% battery=%umV ",
         sensorId.c_str(),
         sample.soilPercent,
         sample.soilRaw,
         sample.airTemperatureCenti / 100.0f,
         sample.airHumidityCenti / 100.0f,
-        sample.batteryMillivolts,
-        sample.batteryPercent);
+        sample.batteryMillivolts);
+    if (sample.batteryPercent <= 100) {
+        Serial.printf("%u%%\n", sample.batteryPercent);
+    } else {
+        Serial.println("unknown");
+    }
     return sample;
 }
 
@@ -782,7 +834,8 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
     saveSleepPlan(
         static_cast<uint32_t>(extractJsonLongValue(responseBody, "next_sleep_seconds", configuredSleepSeconds)),
         static_cast<uint8_t>(extractJsonLongValue(responseBody, "battery_warning_percent", batteryWarningPercent)),
-        static_cast<uint8_t>(extractJsonLongValue(responseBody, "battery_critical_percent", batteryCriticalPercent)));
+        static_cast<uint8_t>(extractJsonLongValue(responseBody, "battery_critical_percent", batteryCriticalPercent)),
+        "wifi-backup");
     rememberFirmwareUpdateFromResponse(responseBody);
     return true;
 }

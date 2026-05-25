@@ -151,6 +151,7 @@ void setupSoilEspNow();
 void handlePendingSoilNowWork();
 String currentSampleIntervalsJson();
 String jsonEscape(const String& value);
+void reportDeviceStatus(const String& event, const String& detail = "", unsigned long appliedConfigRevision = 0);
 
 enum class StatusLedColor {
     Off,
@@ -1113,9 +1114,24 @@ void updateSoilScheduleFromConfig(const String& responseBody) {
     if (scheduleObject.length() == 0) {
         return;
     }
+    const uint32_t previousSleepSeconds = soilSensorNextSleepSeconds;
+    const uint8_t previousWarningPercent = soilSensorBatteryWarningPercent;
+    const uint8_t previousCriticalPercent = soilSensorBatteryCriticalPercent;
+
     soilSensorNextSleepSeconds = static_cast<uint32_t>(min<long>(7200, max<long>(300, extractJsonLongValue(scheduleObject, "next_sleep_seconds", soilSensorNextSleepSeconds))));
     soilSensorBatteryWarningPercent = static_cast<uint8_t>(min<long>(100, max<long>(2, extractJsonLongValue(scheduleObject, "battery_warning_percent", soilSensorBatteryWarningPercent))));
     soilSensorBatteryCriticalPercent = static_cast<uint8_t>(min<long>(soilSensorBatteryWarningPercent - 1, max<long>(1, extractJsonLongValue(scheduleObject, "battery_critical_percent", soilSensorBatteryCriticalPercent))));
+
+    const bool changed =
+        previousSleepSeconds != soilSensorNextSleepSeconds ||
+        previousWarningPercent != soilSensorBatteryWarningPercent ||
+        previousCriticalPercent != soilSensorBatteryCriticalPercent;
+    Serial.printf(
+        "Soil schedule confirmed from backend: next_sleep=%lus warning=%u%% critical=%u%% %s\n",
+        static_cast<unsigned long>(soilSensorNextSleepSeconds),
+        soilSensorBatteryWarningPercent,
+        soilSensorBatteryCriticalPercent,
+        changed ? "updated" : "unchanged");
 }
 
 void updateSoilFirmwareFromConfig(const String& responseBody) {
@@ -1215,7 +1231,14 @@ void sendSoilSampleAck(const uint8_t* mac, const SoilNow::SamplePacket& sample, 
     ack.firmwareUpdateAvailable = soilSensorFirmwareUpdateAvailable ? 1 : 0;
     SoilNow::copyCString(ack.firmwareVersion, sizeof(ack.firmwareVersion), soilSensorFirmwareLatestVersion);
     SoilNow::copyCString(ack.firmwareUrl, sizeof(ack.firmwareUrl), soilSensorFirmwareUrl);
-    esp_now_send(mac, reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
+    const esp_err_t result = esp_now_send(mac, reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
+    Serial.printf(
+        "Soil sleep plan sent to %s: next_sleep=%lus warning=%u%% critical=%u%% result=%d\n",
+        SoilNow::packetString(sample.sensorId, sizeof(sample.sensorId)).c_str(),
+        static_cast<unsigned long>(ack.nextSleepSeconds),
+        ack.batteryWarningPercent,
+        ack.batteryCriticalPercent,
+        result);
 }
 
 uint32_t uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample) {
@@ -1557,7 +1580,7 @@ bool ensureHubPairing(bool forceRetry) {
     return true;
 }
 
-void reportDeviceStatus(const String& event, const String& detail = "", unsigned long appliedConfigRevision = 0) {
+void reportDeviceStatus(const String& event, const String& detail, unsigned long appliedConfigRevision) {
     if (WiFi.status() != WL_CONNECTED || captivePortalActive || pairedHubId.length() == 0) {
         return;
     }

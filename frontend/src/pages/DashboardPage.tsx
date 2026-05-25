@@ -16,7 +16,6 @@ import {
   type WeatherForecast,
   type WeatherHour,
 } from "../lib/api";
-import { PlantAvatar } from "../components/PlantAvatar";
 import {
   growlyNotificationHistory,
   syncGrowlyNotificationHistory,
@@ -673,99 +672,6 @@ function buildDailyAdvice(
   };
 }
 
-function dateFromInput(value: string | null | undefined): Date | null {
-  if (!value) {
-    return null;
-  }
-  const date = new Date(`${value}T12:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function addDays(date: Date, days: number): Date {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + days);
-  return nextDate;
-}
-
-function daysBetween(startDate: Date, endDate = new Date()): number {
-  const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime();
-  const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()).getTime();
-  return Math.max(0, Math.floor((end - start) / 86400000));
-}
-
-function formatShortDate(date: Date, language: AppLanguage): string {
-  return date.toLocaleDateString(localeForLanguage(language), { day: "numeric", month: "short" }).replace(".", "");
-}
-
-function plantProgress(profileId: string, index: number, sample: LatestSample | null, sowedAt?: string): number {
-  const profile = dashboardProfile(profileId);
-  const sowedDate = dateFromInput(sowedAt);
-  if (sowedDate) {
-    return Math.max(4, Math.min(100, Math.round((daysBetween(sowedDate) / profile.maturityDays) * 100)));
-  }
-
-  const base = profileId === "tomato" ? 68 : profileId === "cucumber" ? 54 : profileId === "basil" ? 72 : 48;
-  const moistureBoost = typeof sample?.humidity === "number" ? Math.max(-12, Math.min(12, (sample.humidity - 50) / 2)) : 0;
-  const lightBoost = typeof sample?.lux === "number" ? Math.max(-8, Math.min(10, sample.lux / 2500)) : 0;
-  return Math.max(12, Math.min(100, Math.round(base + moistureBoost + lightBoost - index * 5)));
-}
-
-function plantStage(profileId: string, progress: number): string {
-  if (progress > 78) return profileId === "basil" ? "Høsteklar" : "Sterk vekst";
-  if (progress > 58) return "Vokser";
-  if (progress > 36) return "Etablerer seg";
-  return "Følg opp";
-}
-
-function plantTimeline(profileId: string, progress: number, sowedAt: string | undefined, index: number, language: AppLanguage) {
-  const profile = dashboardProfile(profileId);
-  const fallbackSowedDate = addDays(new Date(), -Math.round((progress / 100) * profile.maturityDays) - index * 2);
-  const sowedDate = dateFromInput(sowedAt) ?? fallbackSowedDate;
-  const daysSince = daysBetween(sowedDate);
-  const harvestDate = addDays(sowedDate, profile.maturityDays);
-  const daysLeft = Math.max(0, profile.maturityDays - daysSince);
-  const activeStep = progress >= 85 ? 3 : progress >= 55 ? 2 : progress >= 22 ? 1 : 0;
-
-  return {
-    sowedLabel: language === "no" ? `Sådd ${formatShortDate(sowedDate, language)}` : `Sown ${formatShortDate(sowedDate, language)}`,
-    ageLabel: language === "no"
-      ? `${daysSince} ${daysSince === 1 ? "dag" : "dager"} siden`
-      : `${daysSince} ${daysSince === 1 ? "day" : "days"} ago`,
-    dayLabel: language === "no" ? `Dag ${daysSince}` : `Day ${daysSince}`,
-    harvestLabel: language === "no" ? `Høsting: ~${formatShortDate(harvestDate, language)}` : `Harvest: ~${formatShortDate(harvestDate, language)}`,
-    daysLeftLabel: daysLeft === 0 ? (language === "no" ? "klar" : "ready") : `${daysLeft}d ${language === "no" ? "igjen" : "left"}`,
-    activeStep,
-  };
-}
-
-function plantNextAction(profileId: string, progress: number, sample: LatestSample | null): string {
-  const soilHumidity = sample?.humidity;
-  if (typeof soilHumidity === "number" && soilHumidity < 42) {
-    return "Vann rolig og sjekk jorda igjen senere.";
-  }
-  if (progress >= 88) {
-    return profileId === "basil" ? "Klipp litt og la planten buske seg." : "Sjekk modning og høst det som er klart.";
-  }
-  if (progress >= 58) {
-    return "Hold jevn fukt og følg med på varme dager.";
-  }
-  if (progress >= 24) {
-    return "Gi lys, jevn fukt og rolig videre vekst.";
-  }
-  return "La spirene etablere seg før store endringer.";
-}
-
-function dashboardPlantLocation(plant: DashboardPlant): "greenhouse" | "outside" {
-  return plant.location === "outside" ? "outside" : "greenhouse";
-}
-
-function dashboardPlantStatus(plant: DashboardPlant, language: AppLanguage): string {
-  if (dashboardPlantLocation(plant) === "outside") {
-    return language === "en" ? "Pre-growing" : "Forkultiveres";
-  }
-  return language === "en" ? "In greenhouse" : "I drivhus";
-}
-
 function greenhouseScene(theme: "light" | "dark"): { image: string; mode: "day" | "evening" } {
   if (theme === "dark") {
     return { image: greenhouseEvening, mode: "evening" };
@@ -1235,7 +1141,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   const [soilPanelOpen, setSoilPanelOpen] = useState(false);
   const [reportMetric, setReportMetric] = useState<ClimateReportMetric | null>(null);
   const [trendMetric, setTrendMetric] = useState<TrendMetricKey | null>(null);
-  const [trendRange, setTrendRange] = useState<TrendRange>("7d");
+  const [trendRange, setTrendRange] = useState<TrendRange>("24h");
   const [trendPoints, setTrendPoints] = useState<HistoryPoint[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState("");
@@ -1483,6 +1389,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   function openTrend(metric: TrendMetricKey) {
     setSoilPanelOpen(false);
     setReportMetric(null);
+    setTrendRange("24h");
     setTrendMetric(metric);
   }
 
@@ -1604,11 +1511,6 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                   );
                 })}
               </div>
-              {isSoilSensorSource ? (
-                <span className="home-sensor-source-note">
-                  Viser jordsensorverdier fra {sensorSourceLabel}.
-                </span>
-              ) : null}
               <div className="home-sensor-summary" aria-label="Drivhusverdier">
                 <button className="home-sensor-tile" type="button" onClick={() => (isSoilSensorSource ? openTrend("air_temperature") : setReportMetric("temperature"))}>
                   <span><img src={tempDot} alt="" aria-hidden="true" /> {isSoilSensorSource ? "Lufttemp" : "Temperatur"}</span>
@@ -1680,69 +1582,6 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
             ))}
           </div>
         </article>
-      </section>
-
-      <section className="settings-section">
-        <div className="home-section-head">
-          <div>
-            <p className="section-kicker">Vekstoversikt</p>
-            <Link className="home-section-title-link" to="/drivhus">
-              <h2>{dashboardPlants.length === 1 ? "1 aktiv plante" : `${dashboardPlants.length} aktive planter`}</h2>
-            </Link>
-          </div>
-          <Link className="home-section-action" to="/drivhus">Mine planter</Link>
-        </div>
-        <div className="growth-list">
-          {dashboardPlants.length ? dashboardPlants.slice(0, 4).map((plant, index) => {
-            const profile = dashboardProfile(plant.profileId);
-            const sowedAt = plant.sowedAt ?? undefined;
-            const progress = plantProgress(plant.profileId, index, activeSample, sowedAt);
-            const timeline = plantTimeline(plant.profileId, progress, sowedAt, index, language);
-            const stage = plantStage(plant.profileId, progress);
-            const nextAction = plantNextAction(plant.profileId, progress, activeSample);
-            const location = dashboardPlantLocation(plant);
-            return (
-              <Link
-                className="greenhouse-plant-card greenhouse-plant-card--compact home-plant-card soft-card"
-                key={plant.instanceId ?? `${plant.profileId}-${plant.nickname}`}
-                to="/drivhus"
-              >
-                <div className="greenhouse-plant-card__top">
-                  <PlantAvatar
-                    tone={profile.tone}
-                    plantId={plant.catalogItemId ?? plant.profileId}
-                    name={plant.nickname || profile.name}
-                  />
-                  <div>
-                    <strong>{plant.nickname || profile.name}</strong>
-                    <small>{profile.name.toLowerCase()} · {stage.toLowerCase()}</small>
-                  </div>
-                  <span className={`plant-status-pill plant-status-pill--${location === "outside" ? "watch" : "good"}`}>
-                    {dashboardPlantStatus(plant, language)}
-                  </span>
-                </div>
-                <p className="plant-card-next">Neste: {nextAction}</p>
-                <div className="plant-mini-metrics">
-                  <span>{timeline.dayLabel}</span>
-                  <span>{stage}</span>
-                  <span>{timeline.daysLeftLabel}</span>
-                  <span>{location === "greenhouse" ? "I drivhus" : "Før flytting"}</span>
-                </div>
-              </Link>
-            );
-          }) : (
-            <article className="soft-card empty-state-card">
-              <strong>Ingen planter enda</strong>
-              <p>Legg til den første planten din for å starte din egen dyrkeoversikt.</p>
-              <Link to="/drivhus">Legg til plante</Link>
-            </article>
-          )}
-          {dashboardPlants.length > 4 ? (
-            <Link className="home-plant-more" to="/drivhus">
-              Se {dashboardPlants.length - 4} flere planter
-            </Link>
-          ) : null}
-        </div>
       </section>
 
       {soilPanelOpen ? (
