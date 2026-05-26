@@ -18,6 +18,7 @@ export type SoilSensor = {
   battery_percent?: number | null;
   battery_voltage?: number | null;
   wifi_rssi_dbm?: number | null;
+  espnow_rssi_dbm?: number | null;
   last_payload_json?: string | Record<string, unknown> | null;
   last_seen_at?: string;
   created_at?: string;

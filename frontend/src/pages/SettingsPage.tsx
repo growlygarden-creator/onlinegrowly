@@ -114,9 +114,9 @@ function lastPayloadValue(sensor: SoilSensor, key: string): unknown {
   return payload[key];
 }
 
-function wifiRssiDbm(sensor: SoilSensor): number | null {
-  const direct = sensor.wifi_rssi_dbm;
-  const payloadValue = lastPayloadValue(sensor, "wifi_rssi_dbm");
+function signalDbm(sensor: SoilSensor, key: "wifi_rssi_dbm" | "espnow_rssi_dbm"): number | null {
+  const direct = sensor[key];
+  const payloadValue = lastPayloadValue(sensor, key);
   const numeric = typeof direct === "number" ? direct : typeof payloadValue === "number" ? payloadValue : Number(payloadValue);
   if (!Number.isFinite(numeric) || numeric === 0) {
     return null;
@@ -858,9 +858,12 @@ export function SettingsPage({
                       const warning = Math.max(1, Math.min(100, Number(soilBatteryWarning) || 30));
                       const critical = Math.max(1, Math.min(warning - 1, Number(soilBatteryCritical) || 15));
                       const state = batteryState(percent, warning, critical);
-                      const rssiDbm = wifiRssiDbm(sensor);
-                      const signal = signalPercent(rssiDbm);
-                      const signalQuality = signalState(rssiDbm);
+                      const wifiDbm = signalDbm(sensor, "wifi_rssi_dbm");
+                      const espNowDbm = signalDbm(sensor, "espnow_rssi_dbm");
+                      const wifiSignal = signalPercent(wifiDbm);
+                      const espNowSignal = signalPercent(espNowDbm);
+                      const wifiSignalQuality = signalState(wifiDbm);
+                      const espNowSignalQuality = signalState(espNowDbm);
                       return (
                         <div className="sensor-detail-row sensor-detail-row--stacked" key={sensor.sensor_id}>
                           <div className="sensor-detail-heading">
@@ -878,13 +881,24 @@ export function SettingsPage({
                               <strong>{estimatedBatteryRemaining(percent, soilDayIntervalMinutes, soilNightIntervalMinutes, language)}</strong>
                             </div>
                           </div>
-                          <div className={`soil-signal-summary soil-signal-summary--${signalQuality}`}>
-                            <div className="soil-signal-summary__heading">
-                              <span>Wi-Fi signal</span>
-                              <strong>{rssiDbm === null ? "Venter" : `${Math.round(rssiDbm)} dBm`}</strong>
+                          <div className="soil-signal-grid">
+                            <div className={`soil-signal-summary soil-signal-summary--${wifiSignalQuality}`}>
+                              <div className="soil-signal-summary__heading">
+                                <span>Wi-Fi signal</span>
+                                <strong>{wifiDbm === null ? "Venter" : `${Math.round(wifiDbm)} dBm`}</strong>
+                              </div>
+                              <div className="soil-signal-meter" aria-hidden="true">
+                                <span style={{ width: `${wifiSignal}%` }} />
+                              </div>
                             </div>
-                            <div className="soil-signal-meter" aria-hidden="true">
-                              <span style={{ width: `${signal}%` }} />
+                            <div className={`soil-signal-summary soil-signal-summary--${espNowSignalQuality}`}>
+                              <div className="soil-signal-summary__heading">
+                                <span>ESP-NOW signal</span>
+                                <strong>{espNowDbm === null ? "Venter" : `${Math.round(espNowDbm)} dBm`}</strong>
+                              </div>
+                              <div className="soil-signal-meter" aria-hidden="true">
+                                <span style={{ width: `${espNowSignal}%` }} />
+                              </div>
                             </div>
                           </div>
                           <label className="settings-field sensor-select-field sensor-inline-select">

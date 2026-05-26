@@ -13,6 +13,7 @@ create table if not exists public.growly_soil_sensors (
   battery_percent real,
   battery_voltage real,
   wifi_rssi_dbm real,
+  espnow_rssi_dbm real,
   sleep_plan_seconds integer,
   sleep_plan_warning_percent integer,
   sleep_plan_critical_percent integer,
@@ -25,6 +26,7 @@ create table if not exists public.growly_soil_sensors (
 
 alter table public.growly_soil_sensors
   add column if not exists wifi_rssi_dbm real,
+  add column if not exists espnow_rssi_dbm real,
   add column if not exists sleep_plan_seconds integer,
   add column if not exists sleep_plan_warning_percent integer,
   add column if not exists sleep_plan_critical_percent integer,

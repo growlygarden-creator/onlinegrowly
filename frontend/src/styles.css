@@ -3828,6 +3828,12 @@ b {
   background: rgba(255, 241, 238, 0.82);
 }
 
+.soil-signal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .soil-signal-summary {
   display: grid;
   gap: 9px;
@@ -4031,6 +4037,12 @@ b {
 
 .theme-dark .soil-signal-meter {
   background: rgba(235, 244, 232, 0.16);
+}
+
+@media (max-width: 560px) {
+  .soil-signal-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .theme-dark .soil-sun-note {

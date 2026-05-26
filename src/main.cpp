@@ -122,6 +122,7 @@ struct PendingSoilSample {
     bool pending = false;
     uint8_t mac[ESP_NOW_ETH_ALEN] = {0};
     SoilNow::SamplePacket packet = {};
+    int8_t rssiDbm = 0;
 };
 
 constexpr size_t kSoilNowQueueSize = 10;
@@ -1241,7 +1242,7 @@ void sendSoilSampleAck(const uint8_t* mac, const SoilNow::SamplePacket& sample, 
         result);
 }
 
-uint32_t uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample) {
+uint32_t uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample, int8_t espNowRssiDbm = 0) {
     if (WiFi.status() != WL_CONNECTED || captivePortalActive || pairedHubId.length() == 0) {
         return soilSensorNextSleepSeconds;
     }
@@ -1273,6 +1274,9 @@ uint32_t uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample) {
     }
     if (sample.batteryPercent <= 100) {
         body += ",\"battery_percent\":" + String(sample.batteryPercent);
+    }
+    if (espNowRssiDbm != 0) {
+        body += ",\"espnow_rssi_dbm\":" + String(espNowRssiDbm);
     }
     if (sample.appliedSleepSeconds > 0) {
         body += ",\"applied_sleep_seconds\":" + String(sample.appliedSleepSeconds);
@@ -1330,11 +1334,13 @@ void onSoilNowReceive(const esp_now_recv_info_t* info, const uint8_t* data, int 
         return;
     }
     const uint8_t* mac = info->src_addr;
+    const int8_t rssiDbm = info->rx_ctrl ? static_cast<int8_t>(info->rx_ctrl->rssi) : 0;
 #else
 void onSoilNowReceive(const uint8_t* mac, const uint8_t* data, int length) {
     if (!mac || !data || length < 2) {
         return;
     }
+    const int8_t rssiDbm = 0;
 #endif
     if (data[0] != SoilNow::VERSION) {
         return;
@@ -1363,6 +1369,7 @@ void onSoilNowReceive(const uint8_t* mac, const uint8_t* data, int length) {
             memcpy(entry.mac, mac, ESP_NOW_ETH_ALEN);
             entry.packet = {};
             memcpy(&entry.packet, data, length);
+            entry.rssiDbm = rssiDbm;
             entry.pending = true;
             pendingSoilSampleTail = (pendingSoilSampleTail + 1) % kSoilNowQueueSize;
             ++pendingSoilSampleCount;
@@ -1431,7 +1438,7 @@ void handlePendingSoilNowWork() {
 
     PendingSoilSample sample;
     while (dequeueSoilSample(sample)) {
-        const uint32_t nextSleepSeconds = uploadSoilSampleToBackend(sample.packet);
+        const uint32_t nextSleepSeconds = uploadSoilSampleToBackend(sample.packet, sample.rssiDbm);
         sendSoilSampleAck(sample.mac, sample.packet, nextSleepSeconds);
     }
 }
