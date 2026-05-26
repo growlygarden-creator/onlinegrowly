@@ -3602,7 +3602,7 @@ def update_soil_sensor_last_seen(hub_id: str, sensor_id: str, payload: dict[str,
             values,
         )
         connection.commit()
-    best_effort_sync_core_to_supabase("soil sensor seen")
+    best_effort_sync_soil_sensor_to_supabase(hub_id, sensor_id, "soil sensor seen")
 
 
 def create_hub_for_user(username: str) -> dict[str, Any]:
@@ -5967,31 +5967,7 @@ def sync_core_to_supabase() -> dict[str, Any]:
         }
         for pairing in list_active_pairing_tokens()
     ]
-    soil_sensors = [
-        {
-            "sensor_id": sensor["sensor_id"],
-            "hub_id": sensor["hub_id"],
-            "owner_username": sensor["owner_username"],
-            "sensor_name": sensor.get("sensor_name") or "",
-            "sensor_type": sensor.get("sensor_type") or SOIL_SENSOR_DEFAULT_TYPE,
-            "mac_address": sensor.get("mac_address") or "",
-            "plant_id": sensor.get("plant_id") or "",
-            "firmware_version": sensor.get("firmware_version") or "",
-            "battery_percent": sensor.get("battery_percent"),
-            "battery_voltage": sensor.get("battery_voltage"),
-            "wifi_rssi_dbm": sensor.get("wifi_rssi_dbm"),
-            "espnow_rssi_dbm": sensor.get("espnow_rssi_dbm"),
-            "sleep_plan_seconds": sensor.get("sleep_plan_seconds"),
-            "sleep_plan_warning_percent": sensor.get("sleep_plan_warning_percent"),
-            "sleep_plan_critical_percent": sensor.get("sleep_plan_critical_percent"),
-            "sleep_plan_confirmed_at": iso_or_none(sensor.get("sleep_plan_confirmed_at")),
-            "last_seen_at": iso_or_none(sensor.get("last_seen_at")),
-            "last_payload_json": json.loads(str(sensor.get("last_payload_json") or "{}")),
-            "created_at": sensor["created_at"],
-            "updated_at": sensor["updated_at"],
-        }
-        for sensor in list_all_soil_sensors()
-    ]
+    soil_sensors = [soil_sensor_supabase_payload(sensor) for sensor in list_all_soil_sensors()]
     soil_pairing_sessions = [
         {
             "session_id": session["session_id"],
@@ -6034,6 +6010,43 @@ def best_effort_sync_core_to_supabase(reason: str = "") -> None:
         sync_core_to_supabase()
     except Exception as exc:
         print(f"Supabase core sync skipped{f' after {reason}' if reason else ''}: {exc}")
+
+
+def soil_sensor_supabase_payload(sensor: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sensor_id": sensor["sensor_id"],
+        "hub_id": sensor["hub_id"],
+        "owner_username": sensor["owner_username"],
+        "sensor_name": sensor.get("sensor_name") or "",
+        "sensor_type": sensor.get("sensor_type") or SOIL_SENSOR_DEFAULT_TYPE,
+        "mac_address": sensor.get("mac_address") or "",
+        "plant_id": sensor.get("plant_id") or "",
+        "firmware_version": sensor.get("firmware_version") or "",
+        "battery_percent": sensor.get("battery_percent"),
+        "battery_voltage": sensor.get("battery_voltage"),
+        "wifi_rssi_dbm": sensor.get("wifi_rssi_dbm"),
+        "espnow_rssi_dbm": sensor.get("espnow_rssi_dbm"),
+        "sleep_plan_seconds": sensor.get("sleep_plan_seconds"),
+        "sleep_plan_warning_percent": sensor.get("sleep_plan_warning_percent"),
+        "sleep_plan_critical_percent": sensor.get("sleep_plan_critical_percent"),
+        "sleep_plan_confirmed_at": iso_or_none(sensor.get("sleep_plan_confirmed_at")),
+        "last_seen_at": iso_or_none(sensor.get("last_seen_at")),
+        "last_payload_json": json.loads(str(sensor.get("last_payload_json") or "{}")),
+        "created_at": sensor["created_at"],
+        "updated_at": sensor["updated_at"],
+    }
+
+
+def best_effort_sync_soil_sensor_to_supabase(hub_id: str, sensor_id: str, reason: str = "") -> None:
+    if not SUPABASE_CORE_SYNC_ENABLED or not supabase_enabled():
+        return
+    try:
+        sensor = next((item for item in list_soil_sensors(hub_id) if item["sensor_id"] == sensor_id), None)
+        if not sensor:
+            return
+        supabase_upsert_rows("growly_soil_sensors", [soil_sensor_supabase_payload(sensor)], "sensor_id")
+    except Exception as exc:
+        print(f"Supabase soil sensor sync skipped{f' after {reason}' if reason else ''}: {exc}")
 
 
 def best_effort_delete_supabase_user(username: str) -> None:
