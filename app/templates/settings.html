@@ -174,6 +174,11 @@
                     <small id="config-applied-at">{{ sample_settings['config_applied_at'] or 'Venter på første bekreftelse' }}</small>
                 </div>
                 <div class="config-ack-card">
+                    <span>Bekreftet av soil</span>
+                    <strong id="soil-sleep-plan">{% if sample_settings['soil_sensor_sleep_seconds'] %}{{ (sample_settings['soil_sensor_sleep_seconds'] // 60) }} min{% else %}Venter{% endif %}</strong>
+                    <small id="soil-sleep-confirmed-at">{{ sample_settings['soil_sensor_sleep_confirmed_at'] or 'Venter på sensor' }}</small>
+                </div>
+                <div class="config-ack-card">
                     <span>Hub-status</span>
                     <strong id="device-status-message">{{ sample_settings['device_status_message'] or 'Ingen status enda' }}</strong>
                     <small id="device-status-at">{{ sample_settings['device_status_at'] or 'Ikke sett' }}</small>
@@ -278,6 +283,8 @@
         const configRequestedAt = document.getElementById("config-requested-at");
         const configAppliedRevision = document.getElementById("config-applied-revision");
         const configAppliedAt = document.getElementById("config-applied-at");
+        const soilSleepPlan = document.getElementById("soil-sleep-plan");
+        const soilSleepConfirmedAt = document.getElementById("soil-sleep-confirmed-at");
         const deviceStatusMessage = document.getElementById("device-status-message");
         const deviceStatusAt = document.getElementById("device-status-at");
         const deviceFirmwareVersion = document.getElementById("device-firmware-version");
@@ -327,17 +334,24 @@
         function renderConfigAck(settings) {
             const requestedRevision = Number(settings.config_revision || 0);
             const appliedRevision = Number(settings.config_applied_revision || 0);
+            const soilSleepSeconds = Number(settings.soil_sensor_sleep_seconds || 0);
+            const configUpdatedAtMs = Date.parse(settings.config_updated_at || "");
+            const soilConfirmedAtMs = Date.parse(settings.soil_sensor_sleep_confirmed_at || "");
+            const soilConfirmationFresh = soilSleepSeconds > 0
+                && (!Number.isFinite(configUpdatedAtMs) || (Number.isFinite(soilConfirmedAtMs) && soilConfirmedAtMs >= configUpdatedAtMs));
             configRequestedRevision.textContent = `rev ${requestedRevision}`;
             configRequestedAt.textContent = formatTimestamp(settings.config_updated_at) || "Ikke endret enda";
             configAppliedRevision.textContent = `rev ${appliedRevision}`;
             configAppliedAt.textContent = formatTimestamp(settings.config_applied_at) || "Venter på første bekreftelse";
+            soilSleepPlan.textContent = soilSleepSeconds > 0 ? `${Math.round(soilSleepSeconds / 60)} min` : "Venter";
+            soilSleepConfirmedAt.textContent = formatTimestamp(settings.soil_sensor_sleep_confirmed_at) || "Venter på sensor";
             deviceStatusMessage.textContent = settings.device_status_message || "Ingen status enda";
             deviceStatusAt.textContent = formatTimestamp(settings.device_status_at) || "Ikke sett";
             deviceFirmwareVersion.textContent = settings.device_firmware_version || "Ukjent";
 
             if (requestedRevision > 0 && appliedRevision >= requestedRevision) {
-                configAckState.textContent = "Tatt i bruk av hub";
-                configAckState.dataset.mode = "online";
+                configAckState.textContent = soilConfirmationFresh ? "Hub + soil bekreftet" : "Hub bekreftet, venter på soil";
+                configAckState.dataset.mode = soilConfirmationFresh ? "online" : "warning";
                 return;
             }
             configAckState.textContent = "Venter på hub";

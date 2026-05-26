@@ -287,11 +287,13 @@ Hvis jordsensoren gir timeout, sjekk:
 
 ### DIY MORE soil-sensor statuslys
 
-Soil-sensor-firmware `0.1.10-wemosbat-adc-cal` blinker blå status-LED på GPIO16 i tre minutter etter manuell oppstart/reset. LED-en er aktiv-lav, så `LOW` betyr på og `HIGH` betyr av. Det bekrefter at ESP-sensoren er våken i ramp-up-vinduet før den går tilbake til deep sleep. Lyset slukkes før sleep for å spare batteri.
+Soil-sensor-firmware `0.1.12-sleep-confirm` blinker blå status-LED på GPIO16 i tre minutter etter manuell oppstart/reset. LED-en er aktiv-lav, så `LOW` betyr på og `HIGH` betyr av. Det bekrefter at ESP-sensoren er våken i ramp-up-vinduet før den går tilbake til deep sleep. Lyset slukkes før sleep for å spare batteri.
 
 På DIY MORE-kortet leses jordfukt fra GPIO32. Diagnose viste at GPIO34, GPIO35, GPIO36 og GPIO39 ikke får batterispenning på testkortet, heller ikke når kortet kjører bare på batteri. Firmware rapporterer derfor batteri som ukjent når batteri-ADC er frakoblet, i stedet for å sende falsk `0%`.
 
 Hvis vi vil ha ekte batteriprosent, må batteriets pluss måles fysisk via en spenningsdeler til en ledig ADC-pin, for eksempel GPIO34/GPIO35, med felles GND. Firmware er klargjort for en `100k + 100k` divider til GPIO34 (`x2` beregning) og bruker ESP32 sin kalibrerte ADC-millivoltlesing.
+
+Soil-sensoren sender også med hvilken sleep-plan den faktisk kjører (`applied_sleep_seconds`). Management viser derfor både “Bekreftet av hub” og “Bekreftet av soil”. Hub-bekreftelsen betyr at ESP32-S3 har hentet ny konfig; soil-bekreftelsen betyr at soil-sensoren har våknet med og rapportert lagret sleep-plan.
 
 ## Render forklart
 

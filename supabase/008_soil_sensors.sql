@@ -12,11 +12,23 @@ create table if not exists public.growly_soil_sensors (
   firmware_version text not null default '',
   battery_percent real,
   battery_voltage real,
+  wifi_rssi_dbm real,
+  sleep_plan_seconds integer,
+  sleep_plan_warning_percent integer,
+  sleep_plan_critical_percent integer,
+  sleep_plan_confirmed_at timestamptz,
   last_seen_at timestamptz,
   last_payload_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.growly_soil_sensors
+  add column if not exists wifi_rssi_dbm real,
+  add column if not exists sleep_plan_seconds integer,
+  add column if not exists sleep_plan_warning_percent integer,
+  add column if not exists sleep_plan_critical_percent integer,
+  add column if not exists sleep_plan_confirmed_at timestamptz;
 
 create table if not exists public.growly_soil_sensor_pairing_sessions (
   session_id text primary key,

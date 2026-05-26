@@ -1161,21 +1161,37 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
 
   useEffect(() => {
     const sensorFilter = sensorSource === "hub" ? HUB_SENSOR_FILTER : sensorSource.replace("soil:", "");
-    fetchLatestSample(selectedHubId, sensorFilter).then((result) => {
-      setSample(result);
-    });
+    let cancelled = false;
+    const refreshLatestSample = () => {
+      fetchLatestSample(selectedHubId, sensorFilter).then((result) => {
+        if (!cancelled) {
+          setSample(result);
+        }
+      });
+    };
+    refreshLatestSample();
+    const refreshTimer = window.setInterval(refreshLatestSample, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshTimer);
+    };
   }, [selectedHubId, sensorSource]);
 
   useEffect(() => {
     let cancelled = false;
-    fetchSoilSensors(selectedHubId).then((result) => {
-      if (cancelled) {
-        return;
-      }
-      setSoilSensors(result?.sensors ?? []);
-    });
+    const refreshSoilSensors = () => {
+      fetchSoilSensors(selectedHubId).then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setSoilSensors(result?.sensors ?? []);
+      });
+    };
+    refreshSoilSensors();
+    const refreshTimer = window.setInterval(refreshSoilSensors, 60_000);
     return () => {
       cancelled = true;
+      window.clearInterval(refreshTimer);
     };
   }, [selectedHubId]);
 

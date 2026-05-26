@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <stddef.h>
 
 namespace SoilNow {
 constexpr uint8_t VERSION = 2;
@@ -60,7 +61,12 @@ struct __attribute__((packed)) SamplePacket {
     uint16_t batteryMillivolts;
     uint8_t batteryPercent;
     char firmwareVersion[FIRMWARE_VERSION_LENGTH];
+    uint32_t appliedSleepSeconds;
+    uint8_t appliedBatteryWarningPercent;
+    uint8_t appliedBatteryCriticalPercent;
 };
+
+constexpr size_t SAMPLE_PACKET_BASE_LENGTH = offsetof(SamplePacket, appliedSleepSeconds);
 
 struct __attribute__((packed)) SampleAckPacket {
     uint8_t version;

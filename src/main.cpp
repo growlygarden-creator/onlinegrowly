@@ -1274,6 +1274,11 @@ uint32_t uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample) {
     if (sample.batteryPercent <= 100) {
         body += ",\"battery_percent\":" + String(sample.batteryPercent);
     }
+    if (sample.appliedSleepSeconds > 0) {
+        body += ",\"applied_sleep_seconds\":" + String(sample.appliedSleepSeconds);
+        body += ",\"applied_battery_warning_percent\":" + String(sample.appliedBatteryWarningPercent);
+        body += ",\"applied_battery_critical_percent\":" + String(sample.appliedBatteryCriticalPercent);
+    }
     const String firmwareVersion = SoilNow::packetString(sample.firmwareVersion, sizeof(sample.firmwareVersion));
     if (firmwareVersion.length() > 0) {
         body += ",\"firmware_version\":\"" + jsonEscape(firmwareVersion) + "\"";
@@ -1349,12 +1354,15 @@ void onSoilNowReceive(const uint8_t* mac, const uint8_t* data, int length) {
         return;
     }
 
-    if (data[1] == SoilNow::Sample && length == static_cast<int>(sizeof(SoilNow::SamplePacket))) {
+    if (data[1] == SoilNow::Sample &&
+        length >= static_cast<int>(SoilNow::SAMPLE_PACKET_BASE_LENGTH) &&
+        length <= static_cast<int>(sizeof(SoilNow::SamplePacket))) {
         portENTER_CRITICAL_ISR(&soilNowMux);
         if (pendingSoilSampleCount < kSoilNowQueueSize) {
             PendingSoilSample& entry = pendingSoilSampleQueue[pendingSoilSampleTail];
             memcpy(entry.mac, mac, ESP_NOW_ETH_ALEN);
-            memcpy(&entry.packet, data, sizeof(SoilNow::SamplePacket));
+            entry.packet = {};
+            memcpy(&entry.packet, data, length);
             entry.pending = true;
             pendingSoilSampleTail = (pendingSoilSampleTail + 1) % kSoilNowQueueSize;
             ++pendingSoilSampleCount;

@@ -98,6 +98,52 @@ function batteryState(percent: number | null, warning: number, critical: number)
   return "ok";
 }
 
+function lastPayloadValue(sensor: SoilSensor, key: string): unknown {
+  const payload = sensor.last_payload_json;
+  if (!payload) {
+    return undefined;
+  }
+  if (typeof payload === "string") {
+    try {
+      const parsed = JSON.parse(payload) as Record<string, unknown>;
+      return parsed[key];
+    } catch {
+      return undefined;
+    }
+  }
+  return payload[key];
+}
+
+function wifiRssiDbm(sensor: SoilSensor): number | null {
+  const direct = sensor.wifi_rssi_dbm;
+  const payloadValue = lastPayloadValue(sensor, "wifi_rssi_dbm");
+  const numeric = typeof direct === "number" ? direct : typeof payloadValue === "number" ? payloadValue : Number(payloadValue);
+  if (!Number.isFinite(numeric) || numeric === 0) {
+    return null;
+  }
+  return numeric;
+}
+
+function signalPercent(dbm: number | null): number {
+  if (dbm === null) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, ((dbm + 95) / 45) * 100));
+}
+
+function signalState(dbm: number | null): "unknown" | "weak" | "fair" | "good" {
+  if (dbm === null) {
+    return "unknown";
+  }
+  if (dbm < -82) {
+    return "weak";
+  }
+  if (dbm < -70) {
+    return "fair";
+  }
+  return "good";
+}
+
 function estimatedBatteryRemaining(percent: number | null, dayIntervalMinutes: string, nightIntervalMinutes: string, language: string): string {
   const english = language === "en";
   if (percent === null) {
@@ -812,6 +858,9 @@ export function SettingsPage({
                       const warning = Math.max(1, Math.min(100, Number(soilBatteryWarning) || 30));
                       const critical = Math.max(1, Math.min(warning - 1, Number(soilBatteryCritical) || 15));
                       const state = batteryState(percent, warning, critical);
+                      const rssiDbm = wifiRssiDbm(sensor);
+                      const signal = signalPercent(rssiDbm);
+                      const signalQuality = signalState(rssiDbm);
                       return (
                         <div className="sensor-detail-row sensor-detail-row--stacked" key={sensor.sensor_id}>
                           <div className="sensor-detail-heading">
@@ -827,6 +876,15 @@ export function SettingsPage({
                             <div>
                               <span>{t("settings.soilBatteryRemaining")}</span>
                               <strong>{estimatedBatteryRemaining(percent, soilDayIntervalMinutes, soilNightIntervalMinutes, language)}</strong>
+                            </div>
+                          </div>
+                          <div className={`soil-signal-summary soil-signal-summary--${signalQuality}`}>
+                            <div className="soil-signal-summary__heading">
+                              <span>Wi-Fi signal</span>
+                              <strong>{rssiDbm === null ? "Venter" : `${Math.round(rssiDbm)} dBm`}</strong>
+                            </div>
+                            <div className="soil-signal-meter" aria-hidden="true">
+                              <span style={{ width: `${signal}%` }} />
                             </div>
                           </div>
                           <label className="settings-field sensor-select-field sensor-inline-select">

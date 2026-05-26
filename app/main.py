@@ -1812,6 +1812,11 @@ def init_db() -> None:
                 firmware_version TEXT NOT NULL DEFAULT '',
                 battery_percent REAL,
                 battery_voltage REAL,
+                wifi_rssi_dbm REAL,
+                sleep_plan_seconds INTEGER,
+                sleep_plan_warning_percent INTEGER,
+                sleep_plan_critical_percent INTEGER,
+                sleep_plan_confirmed_at TEXT NOT NULL DEFAULT '',
                 last_seen_at TEXT NOT NULL DEFAULT '',
                 last_payload_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
@@ -1821,6 +1826,20 @@ def init_db() -> None:
             )
             """
         )
+        existing_soil_sensor_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(soil_sensors)").fetchall()
+        }
+        soil_sensor_column_defaults = {
+            "wifi_rssi_dbm": "REAL",
+            "sleep_plan_seconds": "INTEGER",
+            "sleep_plan_warning_percent": "INTEGER",
+            "sleep_plan_critical_percent": "INTEGER",
+            "sleep_plan_confirmed_at": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column_name, column_definition in soil_sensor_column_defaults.items():
+            if column_name not in existing_soil_sensor_columns:
+                connection.execute(f"ALTER TABLE soil_sensors ADD COLUMN {column_name} {column_definition}")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS soil_sensor_pairing_sessions (
@@ -3224,9 +3243,12 @@ def normalize_soil_sensor_id(sensor_id: Any = "", mac_address: Any = "") -> str:
 
 def soil_sensor_from_row(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
     item = dict(row)
-    for number_key in ("battery_percent", "battery_voltage"):
+    for number_key in ("battery_percent", "battery_voltage", "wifi_rssi_dbm"):
         if item.get(number_key) is not None:
             item[number_key] = float(item[number_key])
+    for int_key in ("sleep_plan_seconds", "sleep_plan_warning_percent", "sleep_plan_critical_percent"):
+        if item.get(int_key) is not None:
+            item[int_key] = int(item[int_key])
     return item
 
 
@@ -3274,7 +3296,9 @@ def list_soil_sensors(hub_id: str) -> list[dict[str, Any]]:
             """
             SELECT sensor_id, hub_id, owner_username, sensor_name, sensor_type,
                    mac_address, plant_id, firmware_version, battery_percent,
-                   battery_voltage, last_seen_at, last_payload_json, created_at, updated_at
+                   battery_voltage, wifi_rssi_dbm, sleep_plan_seconds, sleep_plan_warning_percent,
+                   sleep_plan_critical_percent, sleep_plan_confirmed_at,
+                   last_seen_at, last_payload_json, created_at, updated_at
             FROM soil_sensors
             WHERE hub_id = ?
             ORDER BY updated_at DESC, created_at DESC
@@ -3308,7 +3332,9 @@ def list_all_soil_sensors() -> list[dict[str, Any]]:
             """
             SELECT sensor_id, hub_id, owner_username, sensor_name, sensor_type,
                    mac_address, plant_id, firmware_version, battery_percent,
-                   battery_voltage, last_seen_at, last_payload_json, created_at, updated_at
+                   battery_voltage, wifi_rssi_dbm, sleep_plan_seconds, sleep_plan_warning_percent,
+                   sleep_plan_critical_percent, sleep_plan_confirmed_at,
+                   last_seen_at, last_payload_json, created_at, updated_at
             FROM soil_sensors
             ORDER BY created_at ASC, sensor_id ASC
             """
@@ -3457,8 +3483,8 @@ def complete_soil_sensor_pairing(payload: dict[str, Any]) -> dict[str, Any]:
             INSERT INTO soil_sensors (
                 sensor_id, hub_id, owner_username, sensor_name, sensor_type,
                 mac_address, plant_id, firmware_version, battery_percent,
-                battery_voltage, last_seen_at, last_payload_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, '', ?, NULL, NULL, ?, ?, ?, ?)
+                battery_voltage, wifi_rssi_dbm, last_seen_at, last_payload_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, '', ?, NULL, NULL, NULL, ?, ?, ?, ?)
             ON CONFLICT(sensor_id) DO UPDATE SET
                 hub_id = excluded.hub_id,
                 owner_username = excluded.owner_username,
@@ -3534,6 +3560,26 @@ def update_soil_sensor_last_seen(hub_id: str, sensor_id: str, payload: dict[str,
         try:
             values.append(float(payload["battery_voltage"]))
             updates.append("battery_voltage = ?")
+        except (TypeError, ValueError):
+            pass
+    if payload.get("wifi_rssi_dbm") is not None:
+        try:
+            values.append(float(payload["wifi_rssi_dbm"]))
+            updates.append("wifi_rssi_dbm = ?")
+        except (TypeError, ValueError):
+            pass
+    if payload.get("applied_sleep_seconds") is not None:
+        try:
+            applied_sleep_seconds = max(300, min(7200, int(payload["applied_sleep_seconds"])))
+            applied_warning = max(2, min(100, int(payload.get("applied_battery_warning_percent") or DEFAULT_APP_SETTINGS["soil_sensor_battery_warning_percent"])))
+            applied_critical = max(1, min(applied_warning - 1, int(payload.get("applied_battery_critical_percent") or DEFAULT_APP_SETTINGS["soil_sensor_battery_critical_percent"])))
+            values.extend([applied_sleep_seconds, applied_warning, applied_critical, now])
+            updates.extend([
+                "sleep_plan_seconds = ?",
+                "sleep_plan_warning_percent = ?",
+                "sleep_plan_critical_percent = ?",
+                "sleep_plan_confirmed_at = ?",
+            ])
         except (TypeError, ValueError):
             pass
     values.extend([hub_id, sensor_id])
@@ -3849,6 +3895,10 @@ def hub_settings(hub_id: str) -> dict[str, Any]:
         applied_settings = {}
     if not isinstance(applied_settings, dict):
         applied_settings = {}
+    latest_soil_confirmation = next(
+        (sensor for sensor in list_soil_sensors(hub_id) if sensor.get("sleep_plan_confirmed_at")),
+        {},
+    )
 
     return {
         "hub_id": hub["hub_id"],
@@ -3881,6 +3931,11 @@ def hub_settings(hub_id: str) -> dict[str, Any]:
         "device_status_at": str(hub.get("device_status_at") or ""),
         "device_status_message": str(hub.get("device_status_message") or ""),
         "device_firmware_version": str(hub.get("device_firmware_version") or ""),
+        "soil_sensor_sleep_sensor_id": str(latest_soil_confirmation.get("sensor_id") or ""),
+        "soil_sensor_sleep_seconds": latest_soil_confirmation.get("sleep_plan_seconds"),
+        "soil_sensor_sleep_warning_percent": latest_soil_confirmation.get("sleep_plan_warning_percent"),
+        "soil_sensor_sleep_critical_percent": latest_soil_confirmation.get("sleep_plan_critical_percent"),
+        "soil_sensor_sleep_confirmed_at": str(latest_soil_confirmation.get("sleep_plan_confirmed_at") or ""),
     }
 
 
@@ -5916,6 +5971,11 @@ def sync_core_to_supabase() -> dict[str, Any]:
             "firmware_version": sensor.get("firmware_version") or "",
             "battery_percent": sensor.get("battery_percent"),
             "battery_voltage": sensor.get("battery_voltage"),
+            "wifi_rssi_dbm": sensor.get("wifi_rssi_dbm"),
+            "sleep_plan_seconds": sensor.get("sleep_plan_seconds"),
+            "sleep_plan_warning_percent": sensor.get("sleep_plan_warning_percent"),
+            "sleep_plan_critical_percent": sensor.get("sleep_plan_critical_percent"),
+            "sleep_plan_confirmed_at": iso_or_none(sensor.get("sleep_plan_confirmed_at")),
             "last_seen_at": iso_or_none(sensor.get("last_seen_at")),
             "last_payload_json": json.loads(str(sensor.get("last_payload_json") or "{}")),
             "created_at": sensor["created_at"],

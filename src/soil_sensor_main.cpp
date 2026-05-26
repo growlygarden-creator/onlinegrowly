@@ -13,7 +13,7 @@
 #include "soil_now_protocol.h"
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.1.11-sleep-confirm";
+constexpr char kFirmwareVersion[] = "0.1.16-awake-wifi-retry";
 constexpr char kPrefsNamespace[] = "growly_soil";
 constexpr char kPrefsSsidKey[] = "ssid";
 constexpr char kPrefsPasswordKey[] = "password";
@@ -40,8 +40,13 @@ constexpr uint32_t kDefaultSleepSeconds = 30UL * 60UL;
 constexpr uint64_t kPairingRetrySleepUs = 30ULL * 1000000ULL;
 constexpr unsigned long kPairingAttemptMs = 4UL * 60UL * 1000UL;
 constexpr unsigned long kPairingPerChannelMs = 1200;
-constexpr unsigned long kSampleAckTimeoutMs = 15000;
-constexpr unsigned long kWifiConnectTimeoutMs = 15000;
+constexpr uint8_t kEspNowSampleAttempts = 3;
+constexpr uint8_t kWifiUploadAttempts = 3;
+constexpr unsigned long kSampleAckAttemptTimeoutMs = 7000;
+constexpr unsigned long kWifiConnectTimeoutMs = 45000;
+constexpr unsigned long kWifiPostTimeoutMs = 30000;
+constexpr bool kTestKeepAwake = true;
+constexpr unsigned long kTestAwakeSampleIntervalMs = 60UL * 1000UL;
 constexpr unsigned long kStartupConfirmWindowMs = 3UL * 60UL * 1000UL;
 constexpr unsigned long kStartupConfirmSampleIntervalMs = 15UL * 1000UL;
 constexpr unsigned long kStartupConfirmLedBlinkMs = 700;
@@ -75,6 +80,7 @@ struct SoilSample {
     int16_t airHumidityCenti = -1;
     uint16_t batteryMillivolts = 0;
     uint8_t batteryPercent = 255;
+    int16_t wifiRssiDbm = 0;
 };
 
 String backendUrl(const char* path) {
@@ -84,6 +90,13 @@ String backendUrl(const char* path) {
         base.remove(base.length() - 1);
     }
     return base + String(path);
+}
+
+void configureRadioForReach() {
+    WiFi.setSleep(false);
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    esp_wifi_set_max_tx_power(78);
 }
 
 String jsonEscape(const String& value) {
@@ -495,6 +508,7 @@ bool initEspNow() {
         return true;
     }
     WiFi.mode(WIFI_STA);
+    configureRadioForReach();
     if (esp_now_init() != ESP_OK) {
         Serial.println("ESP-NOW init failed.");
         return false;
@@ -679,22 +693,28 @@ bool sendSampleEspNow(const SoilSample& sample) {
     packet.batteryMillivolts = sample.batteryMillivolts;
     packet.batteryPercent = sample.batteryPercent;
     SoilNow::copyCString(packet.firmwareVersion, sizeof(packet.firmwareVersion), kFirmwareVersion);
+    packet.appliedSleepSeconds = configuredSleepSeconds;
+    packet.appliedBatteryWarningPercent = batteryWarningPercent;
+    packet.appliedBatteryCriticalPercent = batteryCriticalPercent;
 
     expectedSampleAckSequence = packet.sequence;
     sampleAckReceived = false;
-    const esp_err_t result = esp_now_send(kBroadcastMac, reinterpret_cast<uint8_t*>(&packet), sizeof(packet));
-    if (result != ESP_OK) {
-        Serial.printf("ESP-NOW sample send failed: %d\n", result);
-        return false;
-    }
-
-    const unsigned long startedAt = millis();
-    while (millis() - startedAt < kSampleAckTimeoutMs) {
-        if (sampleAckReceived) {
-            Serial.println("ESP-NOW sample acknowledged by hub.");
-            return true;
+    for (uint8_t attempt = 1; attempt <= kEspNowSampleAttempts; ++attempt) {
+        const esp_err_t result = esp_now_send(kBroadcastMac, reinterpret_cast<uint8_t*>(&packet), sizeof(packet));
+        if (result != ESP_OK) {
+            Serial.printf("ESP-NOW sample send failed attempt=%u result=%d\n", attempt, result);
+            continue;
         }
-        delay(25);
+
+        const unsigned long startedAt = millis();
+        while (millis() - startedAt < kSampleAckAttemptTimeoutMs) {
+            if (sampleAckReceived) {
+                Serial.printf("ESP-NOW sample acknowledged by hub on attempt %u.\n", attempt);
+                return true;
+            }
+            delay(25);
+        }
+        Serial.printf("ESP-NOW sample ack timed out on attempt %u.\n", attempt);
     }
     Serial.println("ESP-NOW sample ack timed out.");
     return false;
@@ -706,6 +726,7 @@ bool connectWifiForBackup() {
     }
     stopEspNow();
     WiFi.mode(WIFI_STA);
+    configureRadioForReach();
     WiFi.begin(configuredWifiSsid.c_str(), configuredWifiPassword.c_str());
     Serial.printf("Connecting Wi-Fi backup to %s", configuredWifiSsid.c_str());
     const unsigned long startedAt = millis();
@@ -793,14 +814,6 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
     }
 
     const String ingestUrl = backendUrl(DeviceConfig::SOIL_SENSOR_INGEST_PATH);
-    HTTPClient http;
-    WiFiClient plainClient;
-    WiFiClientSecure secureClient;
-    http.setTimeout(7000);
-    if (!beginHttpClient(http, plainClient, secureClient, ingestUrl)) {
-        return false;
-    }
-
     String body = String("{\"hub_id\":\"") + jsonEscape(pairedHubId) + "\"";
     body += ",\"sensor_id\":\"" + jsonEscape(sensorId) + "\"";
     body += ",\"source\":\"soil_sensor_wifi_backup\"";
@@ -820,15 +833,47 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
     if (sample.batteryPercent <= 100) {
         body += ",\"battery_percent\":" + String(sample.batteryPercent);
     }
+    const int wifiRssiDbm = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : sample.wifiRssiDbm;
+    if (wifiRssiDbm != 0) {
+        body += ",\"wifi_rssi_dbm\":" + String(wifiRssiDbm);
+    }
+    body += ",\"test_awake\":true";
+    body += ",\"applied_sleep_seconds\":" + String(configuredSleepSeconds);
+    body += ",\"applied_battery_warning_percent\":" + String(batteryWarningPercent);
+    body += ",\"applied_battery_critical_percent\":" + String(batteryCriticalPercent);
     body += "}";
 
-    http.addHeader("Content-Type", "application/json");
-    const int statusCode = http.POST(body);
-    const String responseBody = http.getString();
-    http.end();
-    Serial.printf("Wi-Fi backup sample POST -> HTTP %d\n", statusCode);
+    int statusCode = -1;
+    String responseBody;
+    for (uint8_t attempt = 1; attempt <= kWifiUploadAttempts; ++attempt) {
+        if (WiFi.status() != WL_CONNECTED && !connectWifiForBackup()) {
+            return false;
+        }
+        const int connectedRssiDbm = WiFi.RSSI();
+        Serial.printf("Wi-Fi RSSI=%d dBm\n", connectedRssiDbm);
+
+        HTTPClient http;
+        WiFiClient plainClient;
+        WiFiClientSecure secureClient;
+        http.setTimeout(kWifiPostTimeoutMs);
+        if (!beginHttpClient(http, plainClient, secureClient, ingestUrl)) {
+            return false;
+        }
+        http.addHeader("Content-Type", "application/json");
+        statusCode = http.POST(body);
+        responseBody = http.getString();
+        http.end();
+        Serial.printf("Wi-Fi backup sample POST attempt=%u -> HTTP %d\n", attempt, statusCode);
+        if (statusCode >= 200 && statusCode < 300) {
+            break;
+        }
+        if (responseBody.length() > 0) {
+            Serial.println(responseBody);
+        }
+        delay(2500);
+    }
+
     if (statusCode < 200 || statusCode >= 300) {
-        Serial.println(responseBody);
         return false;
     }
     saveSleepPlan(
@@ -846,6 +891,19 @@ bool deliverSample(const SoilSample& sample) {
         return uploadSampleViaWifi(sample);
     }
     return true;
+}
+
+void runAwakeTestLoop() {
+    Serial.printf(
+        "Awake radio test mode active; sampling every %lu seconds and not entering deep sleep.\n",
+        kTestAwakeSampleIntervalMs / 1000UL);
+    setStatusLed(true);
+    while (true) {
+        SoilSample sample = readSample();
+        sample.wifiRssiDbm = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+        deliverSample(sample);
+        delay(kTestAwakeSampleIntervalMs);
+    }
 }
 
 void runStartupConfirmWindow() {
@@ -912,7 +970,9 @@ void setup() {
         sleepFor(paired ? configuredSleepSeconds * 1000000ULL : kPairingRetrySleepUs);
     }
 
-    if (wakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
+    if (kTestKeepAwake) {
+        runAwakeTestLoop();
+    } else if (wakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
         const SoilSample sample = readSample();
         deliverSample(sample);
     } else {
