@@ -13,7 +13,7 @@
 #include "soil_now_protocol.h"
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.1.16-awake-wifi-retry";
+constexpr char kFirmwareVersion[] = "0.1.17-dht-auto";
 constexpr char kPrefsNamespace[] = "growly_soil";
 constexpr char kPrefsSsidKey[] = "ssid";
 constexpr char kPrefsPasswordKey[] = "password";
@@ -30,7 +30,6 @@ constexpr int kSoilAdcPin = 32;
 constexpr int kBatteryAdcPin = 34;
 constexpr int kStatusLedPins[] = {16};
 constexpr bool kStatusLedActiveLow = true;
-constexpr int kDhtType = DHT11;
 constexpr uint16_t kSoilRawWet = 1300;
 constexpr uint16_t kSoilRawDry = 3200;
 constexpr float kBatteryDividerRatio = 2.0f;
@@ -52,7 +51,8 @@ constexpr unsigned long kStartupConfirmSampleIntervalMs = 15UL * 1000UL;
 constexpr unsigned long kStartupConfirmLedBlinkMs = 700;
 
 Preferences preferences;
-DHT dht(kDhtPin, kDhtType);
+DHT dht22(kDhtPin, DHT22);
+DHT dht11(kDhtPin, DHT11);
 
 String configuredWifiSsid;
 String configuredWifiPassword;
@@ -81,6 +81,13 @@ struct SoilSample {
     uint16_t batteryMillivolts = 0;
     uint8_t batteryPercent = 255;
     int16_t wifiRssiDbm = 0;
+};
+
+struct AirSample {
+    bool valid = false;
+    float temperature = NAN;
+    float humidity = NAN;
+    const char* sensorType = "none";
 };
 
 String backendUrl(const char* path) {
@@ -633,6 +640,53 @@ uint16_t readAveragedAdcMillivolts(int pin) {
     return static_cast<uint16_t>(total / kAnalogSampleCount);
 }
 
+bool isPlausibleAirSample(float temperature, float humidity) {
+    return !isnan(temperature) &&
+           !isnan(humidity) &&
+           temperature > -40.0f &&
+           temperature < 80.0f &&
+           humidity >= 0.0f &&
+           humidity <= 100.0f;
+}
+
+AirSample readAirSample() {
+    AirSample sample;
+
+    const float dht22Humidity = dht22.readHumidity();
+    const float dht22Temperature = dht22.readTemperature();
+    if (isPlausibleAirSample(dht22Temperature, dht22Humidity)) {
+        sample.valid = true;
+        sample.temperature = dht22Temperature;
+        sample.humidity = dht22Humidity;
+        sample.sensorType = "DHT22";
+        return sample;
+    }
+
+    delay(2200);
+    const float dht11Humidity = dht11.readHumidity();
+    const float dht11Temperature = dht11.readTemperature();
+    if (isPlausibleAirSample(dht11Temperature, dht11Humidity)) {
+        sample.valid = true;
+        sample.temperature = dht11Temperature;
+        sample.humidity = dht11Humidity;
+        sample.sensorType = "DHT11";
+        return sample;
+    }
+
+    const String dht22TemperatureText = isnan(dht22Temperature) ? "nan" : String(dht22Temperature, 2);
+    const String dht22HumidityText = isnan(dht22Humidity) ? "nan" : String(dht22Humidity, 2);
+    const String dht11TemperatureText = isnan(dht11Temperature) ? "nan" : String(dht11Temperature, 2);
+    const String dht11HumidityText = isnan(dht11Humidity) ? "nan" : String(dht11Humidity, 2);
+    Serial.printf(
+        "Air sensor unavailable on GPIO %d (DHT22 temp=%s hum=%s, DHT11 temp=%s hum=%s).\n",
+        kDhtPin,
+        dht22TemperatureText.c_str(),
+        dht22HumidityText.c_str(),
+        dht11TemperatureText.c_str(),
+        dht11HumidityText.c_str());
+    return sample;
+}
+
 SoilSample readSample() {
     SoilSample sample;
     analogSetPinAttenuation(kSoilAdcPin, ADC_11db);
@@ -649,13 +703,16 @@ SoilSample readSample() {
         sample.batteryPercent = batteryPercentFromMillivolts(sample.batteryMillivolts);
     }
 
-    const float humidity = dht.readHumidity();
-    const float temperature = dht.readTemperature();
-    if (!isnan(temperature)) {
-        sample.airTemperatureCenti = static_cast<int16_t>(temperature * 100.0f);
-    }
-    if (!isnan(humidity)) {
-        sample.airHumidityCenti = static_cast<int16_t>(humidity * 100.0f);
+    const AirSample airSample = readAirSample();
+    if (airSample.valid) {
+        sample.airTemperatureCenti = static_cast<int16_t>(airSample.temperature * 100.0f);
+        sample.airHumidityCenti = static_cast<int16_t>(airSample.humidity * 100.0f);
+        Serial.printf(
+            "Air sensor %s on GPIO %d: %.2fC %.2f%%\n",
+            airSample.sensorType,
+            kDhtPin,
+            airSample.temperature,
+            airSample.humidity);
     }
 
     Serial.printf(
@@ -902,6 +959,7 @@ void runAwakeTestLoop() {
         SoilSample sample = readSample();
         sample.wifiRssiDbm = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
         deliverSample(sample);
+        performPendingFirmwareUpdate();
         delay(kTestAwakeSampleIntervalMs);
     }
 }
@@ -949,7 +1007,8 @@ void setup() {
         pinMode(pin, OUTPUT);
     }
     setStatusLed(false);
-    dht.begin();
+    dht22.begin();
+    dht11.begin();
     WiFi.mode(WIFI_STA);
 
     Serial.println();
