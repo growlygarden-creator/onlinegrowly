@@ -41,12 +41,14 @@ unsigned long wifiResetLastNoticeAt = 0;
 volatile bool wifiFactoryResetInProgress = false;
 unsigned long lastBackendUploadAt = 0;
 unsigned long lastDeviceConfigPollAt = 0;
+unsigned long lastDeviceConfigStatusAt = 0;
 unsigned long lastSupabaseUploadAt = 0;
 unsigned long lastStatusLedUpdateAt = 0;
 unsigned long lastSoilPollAt = 0;
 unsigned long lastLightPollAt = 0;
 unsigned long lastPairingAttemptAt = 0;
 unsigned long wifiConnectedAt = 0;
+unsigned long lastReportedConfigRevision = 0;
 bool statusLedOn = false;
 bool soilEspNowReady = false;
 bool soilPairingActive = false;
@@ -1848,10 +1850,16 @@ void pollDeviceConfig(bool force) {
     const bool intervalsChanged = applyRemoteSampleIntervals(responseBody);
     const unsigned long configRevision = extractJsonLongValue(responseBody, "revision", 0);
     if (configRevision > 0) {
-        reportDeviceStatus(
-            intervalsChanged ? "config_applied" : "config_confirmed",
-            intervalsChanged ? "sample_intervals_updated" : "sample_intervals_current",
-            configRevision);
+        const bool revisionChanged = configRevision != lastReportedConfigRevision;
+        const bool heartbeatDue = now - lastDeviceConfigStatusAt >= DeviceConfig::DEVICE_STATUS_HEARTBEAT_INTERVAL_MS;
+        if (intervalsChanged || revisionChanged || heartbeatDue) {
+            reportDeviceStatus(
+                intervalsChanged ? "config_applied" : "config_confirmed",
+                intervalsChanged ? "sample_intervals_updated" : "sample_intervals_current",
+                configRevision);
+            lastDeviceConfigStatusAt = now;
+            lastReportedConfigRevision = configRevision;
+        }
     }
     const bool updateAvailable = extractJsonBoolValue(responseBody, "update_available", false);
     const String latestVersion = extractJsonStringValue(responseBody, "latest_version");
