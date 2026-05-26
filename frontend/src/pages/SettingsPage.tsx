@@ -144,6 +144,28 @@ function signalState(dbm: number | null): "unknown" | "weak" | "fair" | "good" {
   return "good";
 }
 
+function soilSensorRoute(sensor: SoilSensor): "espnow" | "wifi" | "unknown" {
+  const source = String(lastPayloadValue(sensor, "source") || "").toLowerCase();
+  if (source.includes("espnow") || source.includes("esp-now")) {
+    return "espnow";
+  }
+  if (source.includes("wifi")) {
+    return "wifi";
+  }
+  return "unknown";
+}
+
+function soilSensorRouteLabel(sensor: SoilSensor): string {
+  const route = soilSensorRoute(sensor);
+  if (route === "espnow") {
+    return "ESP-NOW";
+  }
+  if (route === "wifi") {
+    return "Wi-Fi fallback";
+  }
+  return "Venter";
+}
+
 function estimatedBatteryRemaining(percent: number | null, dayIntervalMinutes: string, nightIntervalMinutes: string, language: string): string {
   const english = language === "en";
   if (percent === null) {
@@ -281,18 +303,23 @@ export function SettingsPage({
       setSensorPlants(items);
       setSensorPlantsLoading(false);
     });
-    fetchSoilSensors(activeHubId).then((result) => {
-      if (cancelled || !result) {
-        return;
-      }
-      setSoilSensors(result.sensors);
-      setSoilPairing(result.pairing);
-      setSoilSensorLimit(result.max_sensors);
-      setSoilSensorSlotsRemaining(result.slots_remaining);
-    });
+    const refreshSoilSensors = () => {
+      fetchSoilSensors(activeHubId).then((result) => {
+        if (cancelled || !result) {
+          return;
+        }
+        setSoilSensors(result.sensors);
+        setSoilPairing(result.pairing);
+        setSoilSensorLimit(result.max_sensors);
+        setSoilSensorSlotsRemaining(result.slots_remaining);
+      });
+    };
+    refreshSoilSensors();
+    const soilSensorRefreshTimer = window.setInterval(refreshSoilSensors, 30_000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(soilSensorRefreshTimer);
     };
   }, [activeHubId]);
 
@@ -864,6 +891,7 @@ export function SettingsPage({
                       const espNowSignal = signalPercent(espNowDbm);
                       const wifiSignalQuality = signalState(wifiDbm);
                       const espNowSignalQuality = signalState(espNowDbm);
+                      const routeLabel = soilSensorRouteLabel(sensor);
                       return (
                         <div className="sensor-detail-row sensor-detail-row--stacked" key={sensor.sensor_id}>
                           <div className="sensor-detail-heading">
@@ -880,6 +908,10 @@ export function SettingsPage({
                               <span>{t("settings.soilBatteryRemaining")}</span>
                               <strong>{estimatedBatteryRemaining(percent, soilDayIntervalMinutes, soilNightIntervalMinutes, language)}</strong>
                             </div>
+                          </div>
+                          <div className="soil-route-summary">
+                            <span>Siste rute</span>
+                            <strong>{routeLabel}</strong>
                           </div>
                           <div className="soil-signal-grid">
                             <div className={`soil-signal-summary soil-signal-summary--${wifiSignalQuality}`}>
