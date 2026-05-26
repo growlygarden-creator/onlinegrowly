@@ -64,6 +64,8 @@ bool soilSensorFirmwareUpdateAvailable = false;
 String soilSensorFirmwareLatestVersion;
 String soilSensorFirmwareUrl;
 
+constexpr unsigned long kEspNowRssiMaxAgeMs = 2000;
+constexpr size_t kEspNowRssiCacheSize = 12;
 constexpr uint8_t kBh1750PrimaryAddress = 0x23;
 constexpr uint8_t kBh1750SecondaryAddress = 0x5C;
 constexpr uint8_t kBh1750ContinuousHighResMode = 0x10;
@@ -135,6 +137,16 @@ size_t pendingSoilPairCount = 0;
 size_t pendingSoilSampleHead = 0;
 size_t pendingSoilSampleTail = 0;
 size_t pendingSoilSampleCount = 0;
+
+struct EspNowRssiCacheEntry {
+    bool valid = false;
+    uint8_t mac[ESP_NOW_ETH_ALEN] = {0};
+    int8_t rssiDbm = 0;
+    unsigned long seenAt = 0;
+};
+
+EspNowRssiCacheEntry espNowRssiCache[kEspNowRssiCacheSize];
+size_t espNowRssiCacheNext = 0;
 
 struct VisibleNetwork {
     String ssid;
@@ -1328,6 +1340,75 @@ uint32_t uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample, int8_t e
     return soilSensorNextSleepSeconds;
 }
 
+#if ESP_ARDUINO_VERSION_MAJOR < 3
+void rememberEspNowRssi(const uint8_t* mac, int8_t rssiDbm) {
+    if (!mac || rssiDbm == 0) {
+        return;
+    }
+    const unsigned long now = millis();
+    portENTER_CRITICAL_ISR(&soilNowMux);
+    for (size_t index = 0; index < kEspNowRssiCacheSize; ++index) {
+        EspNowRssiCacheEntry& entry = espNowRssiCache[index];
+        if (entry.valid && memcmp(entry.mac, mac, ESP_NOW_ETH_ALEN) == 0) {
+            entry.rssiDbm = rssiDbm;
+            entry.seenAt = now;
+            portEXIT_CRITICAL_ISR(&soilNowMux);
+            return;
+        }
+    }
+    EspNowRssiCacheEntry& entry = espNowRssiCache[espNowRssiCacheNext];
+    entry.valid = true;
+    memcpy(entry.mac, mac, ESP_NOW_ETH_ALEN);
+    entry.rssiDbm = rssiDbm;
+    entry.seenAt = now;
+    espNowRssiCacheNext = (espNowRssiCacheNext + 1) % kEspNowRssiCacheSize;
+    portEXIT_CRITICAL_ISR(&soilNowMux);
+}
+
+int8_t recentEspNowRssi(const uint8_t* mac) {
+    if (!mac) {
+        return 0;
+    }
+    const unsigned long now = millis();
+    int8_t rssiDbm = 0;
+    portENTER_CRITICAL(&soilNowMux);
+    for (size_t index = 0; index < kEspNowRssiCacheSize; ++index) {
+        const EspNowRssiCacheEntry& entry = espNowRssiCache[index];
+        if (entry.valid &&
+            memcmp(entry.mac, mac, ESP_NOW_ETH_ALEN) == 0 &&
+            now - entry.seenAt <= kEspNowRssiMaxAgeMs) {
+            rssiDbm = entry.rssiDbm;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&soilNowMux);
+    return rssiDbm;
+}
+
+void onEspNowPromiscuousPacket(void* buffer, wifi_promiscuous_pkt_type_t type) {
+    if (type != WIFI_PKT_MGMT || !buffer) {
+        return;
+    }
+    const wifi_promiscuous_pkt_t* packet = reinterpret_cast<const wifi_promiscuous_pkt_t*>(buffer);
+    const uint8_t* frame = packet->payload;
+    const uint16_t frameControl = static_cast<uint16_t>(frame[0]) | (static_cast<uint16_t>(frame[1]) << 8);
+    const uint8_t frameType = (frameControl >> 2) & 0x03;
+    const uint8_t frameSubtype = (frameControl >> 4) & 0x0F;
+    if (frameType != 0 || frameSubtype != 13) {
+        return;
+    }
+    rememberEspNowRssi(frame + 10, static_cast<int8_t>(packet->rx_ctrl.rssi));
+}
+
+void enableEspNowRssiCapture() {
+    wifi_promiscuous_filter_t filter = {};
+    filter.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
+    esp_wifi_set_promiscuous_filter(&filter);
+    esp_wifi_set_promiscuous_rx_cb(onEspNowPromiscuousPacket);
+    esp_wifi_set_promiscuous(true);
+}
+#endif
+
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
 void onSoilNowReceive(const esp_now_recv_info_t* info, const uint8_t* data, int length) {
     if (!info || !info->src_addr || !data || length < 2) {
@@ -1340,7 +1421,7 @@ void onSoilNowReceive(const uint8_t* mac, const uint8_t* data, int length) {
     if (!mac || !data || length < 2) {
         return;
     }
-    const int8_t rssiDbm = 0;
+    const int8_t rssiDbm = recentEspNowRssi(mac);
 #endif
     if (data[0] != SoilNow::VERSION) {
         return;
@@ -1389,6 +1470,9 @@ void setupSoilEspNow() {
     }
     esp_now_set_pmk(reinterpret_cast<uint8_t*>(const_cast<char*>(SoilNow::PMK)));
     esp_now_register_recv_cb(onSoilNowReceive);
+#if ESP_ARDUINO_VERSION_MAJOR < 3
+    enableEspNowRssiCapture();
+#endif
     soilEspNowReady = true;
     Serial.printf("ESP-NOW ready for soil sensors on Wi-Fi channel %u\n", currentWifiChannel());
 }
