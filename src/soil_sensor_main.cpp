@@ -933,6 +933,17 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
     if (statusCode < 200 || statusCode >= 300) {
         return false;
     }
+    if (responseBody.indexOf("\"reason\":\"sensor_sync_disabled\"") >= 0) {
+        Serial.println("Backend stored Wi-Fi backup sample locally, but Supabase sensor sync is disabled.");
+    } else if (responseBody.indexOf("\"reason\":\"supabase_not_configured\"") >= 0) {
+        Serial.println("Backend stored Wi-Fi backup sample locally, but Supabase is not configured.");
+    } else if (
+        responseBody.indexOf("\"supabase\"") >= 0 &&
+        responseBody.indexOf("\"ok\":false") >= 0
+    ) {
+        Serial.println("Backend stored Wi-Fi backup sample locally, but Supabase sensor sync failed:");
+        Serial.println(responseBody.substring(0, min(static_cast<unsigned int>(responseBody.length()), 360U)));
+    }
     saveSleepPlan(
         static_cast<uint32_t>(extractJsonLongValue(responseBody, "next_sleep_seconds", configuredSleepSeconds)),
         static_cast<uint8_t>(extractJsonLongValue(responseBody, "battery_warning_percent", batteryWarningPercent)),

@@ -59,6 +59,7 @@ unsigned long soilSampleIntervalMs = DeviceConfig::SENSOR_POLL_INTERVAL_MS;
 unsigned long lightSampleIntervalMs = DeviceConfig::SENSOR_POLL_INTERVAL_MS;
 unsigned long airSampleIntervalMs = DeviceConfig::SENSOR_POLL_INTERVAL_MS;
 unsigned long cloudSampleIntervalMs = DeviceConfig::BACKEND_UPLOAD_INTERVAL_MS;
+unsigned long deviceConfigPollIntervalMs = DeviceConfig::DEVICE_CONFIG_POLL_INTERVAL_MS;
 uint32_t soilSensorNextSleepSeconds = 1800;
 uint8_t soilSensorBatteryWarningPercent = 30;
 uint8_t soilSensorBatteryCriticalPercent = 15;
@@ -220,6 +221,18 @@ unsigned long sanitizeSampleInterval(long value) {
     return static_cast<unsigned long>(value);
 }
 
+unsigned long sanitizeDeviceConfigPollInterval(long value) {
+    constexpr long kMinConfigPollMs = 60000;
+    constexpr long kMaxConfigPollMs = 1800000;
+    if (value < kMinConfigPollMs) {
+        return static_cast<unsigned long>(kMinConfigPollMs);
+    }
+    if (value > kMaxConfigPollMs) {
+        return static_cast<unsigned long>(kMaxConfigPollMs);
+    }
+    return static_cast<unsigned long>(value);
+}
+
 void setStatusLedColor(StatusLedColor color) {
     statusLedOn = color != StatusLedColor::Off;
 #if defined(RGB_BUILTIN)
@@ -322,7 +335,8 @@ String currentSampleIntervalsJson() {
            "\"sample_time_soil_ms\":" + String(soilSampleIntervalMs) + "," +
            "\"sample_time_light_ms\":" + String(lightSampleIntervalMs) + "," +
            "\"sample_time_air_ms\":" + String(airSampleIntervalMs) + "," +
-           "\"sample_time_cloud_ms\":" + String(cloudSampleIntervalMs) +
+           "\"sample_time_cloud_ms\":" + String(cloudSampleIntervalMs) + "," +
+           "\"device_config_poll_interval_ms\":" + String(deviceConfigPollIntervalMs) +
            "}";
 }
 
@@ -984,26 +998,32 @@ bool applyRemoteSampleIntervals(const String& payload) {
     const unsigned long oldLight = lightSampleIntervalMs;
     const unsigned long oldAir = airSampleIntervalMs;
     const unsigned long oldCloud = cloudSampleIntervalMs;
+    const unsigned long oldConfigPoll = deviceConfigPollIntervalMs;
 
     soilSampleIntervalMs = sanitizeSampleInterval(extractJsonLongValue(payload, "sample_time_soil_ms", soilSampleIntervalMs));
     lightSampleIntervalMs = sanitizeSampleInterval(extractJsonLongValue(payload, "sample_time_light_ms", lightSampleIntervalMs));
     airSampleIntervalMs = sanitizeSampleInterval(extractJsonLongValue(payload, "sample_time_air_ms", airSampleIntervalMs));
     cloudSampleIntervalMs = sanitizeSampleInterval(extractJsonLongValue(payload, "sample_time_cloud_ms", cloudSampleIntervalMs));
+    deviceConfigPollIntervalMs = sanitizeDeviceConfigPollInterval(extractJsonLongValue(payload, "device_config_poll_interval_ms", deviceConfigPollIntervalMs));
 
-    const bool changed = oldSoil != soilSampleIntervalMs ||
-                         oldLight != lightSampleIntervalMs ||
-                         oldAir != airSampleIntervalMs ||
-                         oldCloud != cloudSampleIntervalMs;
-    if (changed) {
+    const bool sampleIntervalsChanged = oldSoil != soilSampleIntervalMs ||
+                                        oldLight != lightSampleIntervalMs ||
+                                        oldAir != airSampleIntervalMs ||
+                                        oldCloud != cloudSampleIntervalMs;
+    const bool configPollChanged = oldConfigPoll != deviceConfigPollIntervalMs;
+    if (sampleIntervalsChanged) {
         saveSampleIntervals();
+    }
+    if (sampleIntervalsChanged || configPollChanged) {
         Serial.printf(
-            "Remote intervals applied: soil=%lu light=%lu air=%lu cloud=%lu\n",
+            "Remote intervals applied: soil=%lu light=%lu air=%lu cloud=%lu config=%lu\n",
             soilSampleIntervalMs,
             lightSampleIntervalMs,
             airSampleIntervalMs,
-            cloudSampleIntervalMs);
+            cloudSampleIntervalMs,
+            deviceConfigPollIntervalMs);
     }
-    return changed;
+    return sampleIntervalsChanged || configPollChanged;
 }
 
 String jsonEscape(const String& value) {
@@ -1326,6 +1346,17 @@ uint32_t uploadSoilSampleToBackend(const SoilNow::SamplePacket& sample, int8_t e
     if (statusCode < 200 || statusCode >= 300) {
         Serial.println(responseBody);
         return soilSensorNextSleepSeconds;
+    }
+    if (responseBody.indexOf("\"reason\":\"sensor_sync_disabled\"") >= 0) {
+        Serial.println("Backend stored soil sample locally, but Supabase sensor sync is disabled.");
+    } else if (responseBody.indexOf("\"reason\":\"supabase_not_configured\"") >= 0) {
+        Serial.println("Backend stored soil sample locally, but Supabase is not configured.");
+    } else if (
+        responseBody.indexOf("\"supabase\"") >= 0 &&
+        responseBody.indexOf("\"ok\":false") >= 0
+    ) {
+        Serial.println("Backend stored soil sample locally, but Supabase sensor sync failed:");
+        Serial.println(responseBody.substring(0, min(static_cast<unsigned int>(responseBody.length()), 360U)));
     }
     soilSensorNextSleepSeconds = static_cast<uint32_t>(min<long>(7200, max<long>(300, extractJsonLongValue(responseBody, "next_sleep_seconds", soilSensorNextSleepSeconds))));
     soilSensorBatteryWarningPercent = static_cast<uint8_t>(min<long>(100, max<long>(2, extractJsonLongValue(responseBody, "battery_warning_percent", soilSensorBatteryWarningPercent))));
@@ -1809,7 +1840,7 @@ void pollDeviceConfig(bool force) {
     }
 
     const unsigned long now = millis();
-    if (!force && now - lastDeviceConfigPollAt < DeviceConfig::DEVICE_CONFIG_POLL_INTERVAL_MS) {
+    if (!force && now - lastDeviceConfigPollAt < deviceConfigPollIntervalMs) {
         return;
     }
     lastDeviceConfigPollAt = now;

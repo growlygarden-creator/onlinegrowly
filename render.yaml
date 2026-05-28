@@ -4,13 +4,23 @@ services:
     runtime: python
     plan: starter
     buildCommand: cd frontend && npm ci && npm run build && cd .. && pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: 'gunicorn main:app --bind 0.0.0.0:$PORT --worker-class uvicorn.workers.UvicornWorker --workers ${WEB_CONCURRENCY:-1} --max-requests ${MAX_WORKER_REQUESTS:-750} --max-requests-jitter ${MAX_WORKER_REQUESTS_JITTER:-100} --timeout 60 --graceful-timeout 30'
     healthCheckPath: /login
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: GROWLY_DATA_DIR
         value: /var/data
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: MAX_WORKER_REQUESTS
+        value: "750"
+      - key: MAX_WORKER_REQUESTS_JITTER
+        value: "100"
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: DEBUG_MEMORY
+        value: "false"
       - key: ADMIN_USERNAME
         sync: false
       - key: ADMIN_PASSWORD
@@ -61,6 +71,16 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: SUPABASE_SENSOR_SYNC_ENABLED
+        value: "true"
+      - key: SUPABASE_SENSOR_READ_ENABLED
+        value: "true"
+      - key: SUPABASE_STATUS_SYNC_MIN_INTERVAL_SECONDS
+        value: "1800"
+      - key: DEVICE_CONFIG_CACHE_TTL_SECONDS
+        value: "300"
+      - key: MEMORY_TRIM_INTERVAL_SECONDS
+        value: "60"
     disk:
       name: growly-data
       mountPath: /var/data

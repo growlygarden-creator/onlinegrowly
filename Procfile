@@ -1,1 +1,1 @@
-web: uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+web: gunicorn main:app --bind 0.0.0.0:${PORT:-8000} --worker-class uvicorn.workers.UvicornWorker --workers ${WEB_CONCURRENCY:-1} --max-requests ${MAX_WORKER_REQUESTS:-750} --max-requests-jitter ${MAX_WORKER_REQUESTS_JITTER:-100} --timeout 60 --graceful-timeout 30

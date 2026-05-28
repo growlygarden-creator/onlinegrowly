@@ -18,6 +18,7 @@ import shutil
 import smtplib
 import ssl
 import sqlite3
+import time
 import tracemalloc
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -148,6 +149,14 @@ SUPABASE_REST_ENDPOINT = os.getenv(
 SUPABASE_API_KEY = os.getenv("SUPABASE_API_KEY", "").strip()
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 SUPABASE_CORE_SYNC_ENABLED = os.getenv("SUPABASE_CORE_SYNC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+SUPABASE_SENSOR_SYNC_ENABLED = os.getenv("SUPABASE_SENSOR_SYNC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+SUPABASE_SENSOR_READ_ENABLED = os.getenv("SUPABASE_SENSOR_READ_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+SUPABASE_STATUS_SYNC_MIN_INTERVAL_SECONDS = int(os.getenv("SUPABASE_STATUS_SYNC_MIN_INTERVAL_SECONDS", "1800").strip() or "1800")
+DEVICE_CONFIG_CACHE_TTL_SECONDS = int(os.getenv("DEVICE_CONFIG_CACHE_TTL_SECONDS", "300").strip() or "300")
+DEVICE_CONFIG_ACTIVE_PAIRING_CACHE_TTL_SECONDS = int(os.getenv("DEVICE_CONFIG_ACTIVE_PAIRING_CACHE_TTL_SECONDS", "10").strip() or "10")
+FIRMWARE_INFO_CACHE_TTL_SECONDS = int(os.getenv("FIRMWARE_INFO_CACHE_TTL_SECONDS", "300").strip() or "300")
+MEMORY_TRIM_INTERVAL_SECONDS = int(os.getenv("MEMORY_TRIM_INTERVAL_SECONDS", "60").strip() or "60")
+SOIL_PAIRING_CLEANUP_INTERVAL_SECONDS = int(os.getenv("SOIL_PAIRING_CLEANUP_INTERVAL_SECONDS", "60").strip() or "60")
 MET_WEATHER_USER_AGENT = os.getenv(
     "MET_WEATHER_USER_AGENT",
     "GrowlyGarden/1.0 growlygarden@gmail.com",
@@ -164,6 +173,11 @@ SHARED_SSL_CONTEXT: ssl.SSLContext | None = None
 SENSOR_SAMPLE_WRITE_COUNT = 0
 LIBC: Any | None | bool = None
 MEMORY_DEBUG_BASELINE: tracemalloc.Snapshot | None = None
+LAST_REQUEST_MEMORY_TRIM_AT = 0.0
+LAST_SOIL_PAIRING_CLEANUP_AT = 0.0
+LAST_SUPABASE_STATUS_SYNC_AT = 0.0
+DEVICE_CONFIG_RESPONSE_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+FIRMWARE_INFO_CACHE: dict[str, dict[str, Any]] = {}
 SUPABASE_CORE_TABLES = (
     "growly_users",
     "growly_hubs",
@@ -924,6 +938,19 @@ def log_memory_debug(reason: str) -> None:
     print("MEMORY_DEBUG " + json.dumps(report, ensure_ascii=False), flush=True)
 
 
+def maybe_trim_request_memory() -> None:
+    global LAST_REQUEST_MEMORY_TRIM_AT
+    if MEMORY_TRIM_INTERVAL_SECONDS <= 0:
+        return
+    now = time.monotonic()
+    if now - LAST_REQUEST_MEMORY_TRIM_AT < MEMORY_TRIM_INTERVAL_SECONDS:
+        return
+    LAST_REQUEST_MEMORY_TRIM_AT = now
+    gc.collect()
+    trim_process_memory()
+    log_memory_debug("request_interval")
+
+
 def maybe_collect_after_sensor_write() -> None:
     global SENSOR_SAMPLE_WRITE_COUNT
     if SENSOR_INGEST_GC_INTERVAL <= 0:
@@ -933,6 +960,44 @@ def maybe_collect_after_sensor_write() -> None:
         gc.collect()
         trim_process_memory()
         log_memory_debug("sensor_ingest_interval")
+
+
+def invalidate_device_config_cache(hub_id: str | None = None) -> None:
+    if not hub_id:
+        DEVICE_CONFIG_RESPONSE_CACHE.clear()
+        return
+    clean_hub_id = str(hub_id or "").strip()
+    for cache_key in list(DEVICE_CONFIG_RESPONSE_CACHE):
+        if cache_key[0] == clean_hub_id:
+            DEVICE_CONFIG_RESPONSE_CACHE.pop(cache_key, None)
+
+
+def cache_device_config_response(hub_id: str, version: str, payload: dict[str, Any]) -> None:
+    if DEVICE_CONFIG_CACHE_TTL_SECONDS <= 0:
+        return
+    if len(DEVICE_CONFIG_RESPONSE_CACHE) > 32:
+        DEVICE_CONFIG_RESPONSE_CACHE.clear()
+    soil_pairing = payload.get("soil_pairing")
+    active_pairing = isinstance(soil_pairing, dict) and bool(soil_pairing.get("active"))
+    ttl = DEVICE_CONFIG_ACTIVE_PAIRING_CACHE_TTL_SECONDS if active_pairing else DEVICE_CONFIG_CACHE_TTL_SECONDS
+    if ttl <= 0:
+        return
+    DEVICE_CONFIG_RESPONSE_CACHE[(hub_id, version)] = {
+        "stored_at": time.monotonic(),
+        "ttl": ttl,
+        "payload": payload,
+    }
+
+
+def cached_device_config_response(hub_id: str, version: str) -> dict[str, Any] | None:
+    cached = DEVICE_CONFIG_RESPONSE_CACHE.get((hub_id, version))
+    if not cached:
+        return None
+    if time.monotonic() - float(cached.get("stored_at") or 0) >= float(cached.get("ttl") or 0):
+        DEVICE_CONFIG_RESPONSE_CACHE.pop((hub_id, version), None)
+        return None
+    payload = cached.get("payload")
+    return payload if isinstance(payload, dict) else None
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -991,6 +1056,12 @@ def public_base_url() -> str:
 
 
 def bundled_firmware_info(prefix: str = "growly-") -> tuple[str, str]:
+    cached = FIRMWARE_INFO_CACHE.get(prefix)
+    if cached and time.monotonic() - float(cached.get("stored_at") or 0) < FIRMWARE_INFO_CACHE_TTL_SECONDS:
+        value = cached.get("value")
+        if isinstance(value, tuple) and len(value) == 2:
+            return str(value[0]), str(value[1])
+
     if not BUNDLED_FIRMWARE_DIR.exists():
         return "", ""
     candidates = [
@@ -1003,6 +1074,10 @@ def bundled_firmware_info(prefix: str = "growly-") -> tuple[str, str]:
     firmware_path = candidates[-1]
     version = firmware_path.stem.removeprefix(prefix)
     url = f"{public_base_url()}/static/firmware/{firmware_path.name}"
+    FIRMWARE_INFO_CACHE[prefix] = {
+        "stored_at": time.monotonic(),
+        "value": (version, url),
+    }
     return version, url
 
 
@@ -3258,7 +3333,16 @@ def soil_pairing_session_from_row(row: sqlite3.Row | dict[str, Any]) -> dict[str
     return dict(row)
 
 
-def cleanup_soil_pairing_sessions() -> None:
+def cleanup_soil_pairing_sessions(force: bool = False) -> None:
+    global LAST_SOIL_PAIRING_CLEANUP_AT
+    monotonic_now = time.monotonic()
+    if (
+        not force
+        and SOIL_PAIRING_CLEANUP_INTERVAL_SECONDS > 0
+        and monotonic_now - LAST_SOIL_PAIRING_CLEANUP_AT < SOIL_PAIRING_CLEANUP_INTERVAL_SECONDS
+    ):
+        return
+    LAST_SOIL_PAIRING_CLEANUP_AT = monotonic_now
     now = utc_now_iso()
     with db_connection() as connection:
         connection.execute(
@@ -3381,7 +3465,7 @@ def update_soil_sensor_assignment(username: str, hub_id: str, sensor_id: str, pl
 
 
 def list_soil_pairing_sessions_for_sync() -> list[dict[str, Any]]:
-    cleanup_soil_pairing_sessions()
+    cleanup_soil_pairing_sessions(force=True)
     with db_connection() as connection:
         rows = connection.execute(
             """
@@ -3400,7 +3484,7 @@ def create_soil_pairing_session(username: str, hub_id: str) -> dict[str, Any]:
     if not hub:
         raise ValueError("hub_not_found")
 
-    cleanup_soil_pairing_sessions()
+    cleanup_soil_pairing_sessions(force=True)
     if soil_sensor_count_for_hub(hub_id) >= MAX_SOIL_SENSORS_PER_HUB:
         raise ValueError("soil_sensor_limit_reached")
     now_dt = utc_now()
@@ -3444,6 +3528,7 @@ def create_soil_pairing_session(username: str, hub_id: str) -> dict[str, Any]:
         connection.commit()
 
     session = active_soil_pairing_session_for_hub(hub_id)
+    invalidate_device_config_cache(hub_id)
     best_effort_sync_core_to_supabase("soil sensor pairing session")
     return session or {}
 
@@ -3536,6 +3621,7 @@ def complete_soil_sensor_pairing(payload: dict[str, Any]) -> dict[str, Any]:
         connection.commit()
 
     sensor = next((item for item in list_soil_sensors(hub_id) if item["sensor_id"] == sensor_id), {})
+    invalidate_device_config_cache(hub_id)
     best_effort_sync_core_to_supabase("soil sensor paired")
     return sensor
 
@@ -3881,6 +3967,7 @@ def delete_hub(hub_id: str) -> None:
     best_effort_delete_supabase_sensor_samples(clean_hub_id)
     best_effort_delete_supabase_plants_for_hub(clean_hub_id)
     best_effort_delete_supabase_seeds_for_hub(clean_hub_id)
+    invalidate_device_config_cache(clean_hub_id)
     best_effort_sync_core_to_supabase("hub delete")
 
 
@@ -4067,6 +4154,7 @@ def save_hub_settings(hub_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         connection.commit()
 
     settings = hub_settings(hub_id)
+    invalidate_device_config_cache(hub_id)
     best_effort_sync_core_to_supabase("hub settings")
     return settings
 
@@ -4138,7 +4226,10 @@ def update_hub_device_status(hub_id: str, payload: dict[str, Any]) -> dict[str, 
         )
         connection.commit()
     settings = hub_settings(hub_id)
-    best_effort_sync_core_to_supabase("hub device status")
+    best_effort_sync_core_to_supabase(
+        "hub device status",
+        min_interval_seconds=SUPABASE_STATUS_SYNC_MIN_INTERVAL_SECONDS,
+    )
     return settings
 
 
@@ -4290,6 +4381,7 @@ def device_config_response(hub_id: str, current_version: str = "") -> dict[str, 
             "sample_time_light_ms": settings["sample_time_light_ms"],
             "sample_time_air_ms": settings["sample_time_air_ms"],
             "sample_time_cloud_ms": settings["sample_time_cloud_ms"],
+            "device_config_poll_interval_ms": DEVICE_CONFIG_CACHE_TTL_SECONDS * 1000,
         },
         "config": {
             "revision": settings["config_revision"],
@@ -5048,8 +5140,10 @@ def sensor_sample_supabase_payload(normalized: dict[str, Any], hub_id: str) -> d
 
 
 def best_effort_store_sensor_sample_supabase(normalized: dict[str, Any], hub_id: str) -> dict[str, Any] | None:
+    if not SUPABASE_SENSOR_SYNC_ENABLED:
+        return {"ok": False, "skipped": True, "reason": "sensor_sync_disabled"}
     if not supabase_enabled():
-        return None
+        return {"ok": False, "skipped": True, "reason": "supabase_not_configured"}
     try:
         supabase_request(
             "sensor_data",
@@ -5059,8 +5153,10 @@ def best_effort_store_sensor_sample_supabase(normalized: dict[str, Any], hub_id:
         )
     except HTTPError as exc:
         body = http_error_body(exc)
+        print(f"Supabase sensor sample sync failed for hub={hub_id}: HTTP {exc.code}: {body or exc.reason}", flush=True)
         return {"ok": False, "error": f"HTTP {exc.code}: {body or exc.reason}"}
     except (URLError, json.JSONDecodeError) as exc:
+        print(f"Supabase sensor sample sync failed for hub={hub_id}: {exc}", flush=True)
         return {"ok": False, "error": str(exc)}
     return {"ok": True}
 
@@ -5141,7 +5237,7 @@ def latest_sample(hub_id: str, sensor_id: str | None = None) -> dict[str, Any] |
 
 def ai_sample_context(hub_id: str) -> dict[str, Any] | None:
     try:
-        if supabase_enabled():
+        if supabase_sensor_read_enabled():
             return supabase_latest_sample(hub_id)
     except (HTTPError, URLError, json.JSONDecodeError):
         pass
@@ -5509,6 +5605,14 @@ def supabase_enabled() -> bool:
     return bool(SUPABASE_REST_ENDPOINT and supabase_auth_key())
 
 
+def supabase_sensor_sync_enabled() -> bool:
+    return SUPABASE_SENSOR_SYNC_ENABLED and supabase_enabled()
+
+
+def supabase_sensor_read_enabled() -> bool:
+    return SUPABASE_SENSOR_READ_ENABLED and supabase_enabled()
+
+
 def supabase_auth_key() -> str:
     return SUPABASE_SERVICE_ROLE_KEY or SUPABASE_API_KEY
 
@@ -5869,6 +5973,10 @@ def supabase_core_readiness() -> dict[str, Any]:
     status: dict[str, Any] = {
         "enabled": supabase_enabled(),
         "sync_enabled": SUPABASE_CORE_SYNC_ENABLED,
+        "sensor_sync_enabled": SUPABASE_SENSOR_SYNC_ENABLED,
+        "sensor_read_enabled": SUPABASE_SENSOR_READ_ENABLED,
+        "sensor_sync_active": supabase_sensor_sync_enabled(),
+        "sensor_read_active": supabase_sensor_read_enabled(),
         "service_role": bool(SUPABASE_SERVICE_ROLE_KEY),
         "tables": {},
     }
@@ -6003,9 +6111,15 @@ def sync_core_to_supabase() -> dict[str, Any]:
     }
 
 
-def best_effort_sync_core_to_supabase(reason: str = "") -> None:
+def best_effort_sync_core_to_supabase(reason: str = "", min_interval_seconds: int = 0) -> None:
+    global LAST_SUPABASE_STATUS_SYNC_AT
     if not SUPABASE_CORE_SYNC_ENABLED or not supabase_enabled():
         return
+    if min_interval_seconds > 0:
+        now = time.monotonic()
+        if now - LAST_SUPABASE_STATUS_SYNC_AT < min_interval_seconds:
+            return
+        LAST_SUPABASE_STATUS_SYNC_AT = now
     try:
         sync_core_to_supabase()
     except Exception as exc:
@@ -8148,7 +8262,9 @@ async def reject_oversized_requests(request: Request, call_next):
             body_size = 0
         if body_size > MAX_REQUEST_BODY_BYTES:
             return JSONResponse(status_code=413, content={"ok": False, "error": "request_too_large"})
-    return await call_next(request)
+    response = await call_next(request)
+    maybe_trim_request_memory()
+    return response
 
 
 app.add_middleware(
@@ -8708,7 +8824,7 @@ async def history(
     source = "local"
     fallback_reason: str | None = None
     try:
-        if supabase_enabled():
+        if supabase_sensor_read_enabled():
             history_rows = supabase_metric_history_by_span(hub_id, metric, span, limit, date_from=date_from, date_to=date_to, sensor_id=sensor_id)
             source = "supabase"
         else:
@@ -8750,7 +8866,7 @@ async def history_start(request: Request, metric: str):
     source = "local"
     fallback_reason: str | None = None
     try:
-        if supabase_enabled():
+        if supabase_sensor_read_enabled():
             recorded_at = supabase_metric_first_recorded_at(hub_id, metric)
             source = "supabase"
         else:
@@ -8788,7 +8904,7 @@ async def latest(request: Request, sensor_id: str | None = Query(default=None)):
     source = "local"
     fallback_reason: str | None = None
     try:
-        if supabase_enabled():
+        if supabase_sensor_read_enabled():
             sample = supabase_latest_sample(hub_id, sensor_id=sensor_id)
             source = "supabase"
         else:
@@ -8813,7 +8929,7 @@ async def day_summary(request: Request):
     source = "local"
     fallback_reason: str | None = None
     try:
-        if supabase_enabled():
+        if supabase_sensor_read_enabled():
             summary = supabase_day_summary(hub_id)
             source = "supabase"
         else:
@@ -9541,11 +9657,17 @@ async def ingest_soil_sensor(payload: dict[str, Any]):
 @app.get("/api/device/config")
 async def get_device_config(hub_id: str = Query(""), version: str = Query("")):
     hub_id = hub_id.strip()
+    version = version.strip()
     if not hub_id:
         return JSONResponse(status_code=400, content={"ok": False, "error": "missing_hub_id"})
+    cached = cached_device_config_response(hub_id, version)
+    if cached:
+        return cached
     try:
         ensure_device_hub(hub_id)
-        return device_config_response(hub_id, version)
+        payload = device_config_response(hub_id, version)
+        cache_device_config_response(hub_id, version, payload)
+        return payload
     except ValueError as exc:
         return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
 
