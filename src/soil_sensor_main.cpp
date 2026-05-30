@@ -13,7 +13,7 @@
 #include "soil_now_protocol.h"
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.1.18-production-sleep";
+constexpr char kFirmwareVersion[] = "0.1.19-field-diagnostics";
 constexpr char kPrefsNamespace[] = "growly_soil";
 constexpr char kPrefsSsidKey[] = "ssid";
 constexpr char kPrefsPasswordKey[] = "password";
@@ -35,6 +35,8 @@ constexpr uint16_t kSoilRawDry = 3200;
 constexpr float kBatteryDividerRatio = 2.0f;
 constexpr uint8_t kAnalogSampleCount = 16;
 constexpr uint16_t kBatteryDisconnectedRaw = 4;
+constexpr uint16_t kBatteryValidMinMillivolts = 2500;
+constexpr uint16_t kBatteryValidMaxMillivolts = 4500;
 constexpr uint32_t kDefaultSleepSeconds = 30UL * 60UL;
 constexpr uint64_t kPairingRetrySleepUs = 30ULL * 1000000ULL;
 constexpr unsigned long kPairingAttemptMs = 4UL * 60UL * 1000UL;
@@ -699,8 +701,14 @@ SoilSample readSample() {
     const int batteryRaw = readAveragedAdcRaw(kBatteryAdcPin);
     if (batteryRaw > kBatteryDisconnectedRaw) {
         const uint16_t batteryPinMillivolts = readAveragedAdcMillivolts(kBatteryAdcPin);
-        sample.batteryMillivolts = static_cast<uint16_t>(batteryPinMillivolts * kBatteryDividerRatio);
-        sample.batteryPercent = batteryPercentFromMillivolts(sample.batteryMillivolts);
+        const uint16_t measuredMillivolts = static_cast<uint16_t>(batteryPinMillivolts * kBatteryDividerRatio);
+        if (
+            measuredMillivolts >= kBatteryValidMinMillivolts &&
+            measuredMillivolts <= kBatteryValidMaxMillivolts
+        ) {
+            sample.batteryMillivolts = measuredMillivolts;
+            sample.batteryPercent = batteryPercentFromMillivolts(sample.batteryMillivolts);
+        }
     }
 
     const AirSample airSample = readAirSample();
@@ -1032,6 +1040,7 @@ void setup() {
         clearConfig();
         blinkStatusLed(5, 80);
     }
+    blinkStatusLed(1, 60);
 
     const bool configured = configuredWifiSsid.length() > 0 && pairedHubId.length() > 0 && pairedWifiChannel > 0;
     if (!configured) {
