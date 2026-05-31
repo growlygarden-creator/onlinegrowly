@@ -53,6 +53,8 @@ export type LatestSample = {
   salinity?: number | null;
   tds?: number | null;
   lux?: number | null;
+  battery_percent?: number | null;
+  battery_voltage?: number | null;
   valid?: number | boolean | null;
 };
 

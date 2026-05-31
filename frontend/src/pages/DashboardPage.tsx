@@ -35,7 +35,7 @@ type DashboardPageProps = {
   theme: "light" | "dark";
 };
 
-type TrendMetricKey = "humidity" | "temperature" | "ph" | "conductivity" | "nitrogen" | "phosphorus" | "potassium" | "salinity" | "tds" | "air_temperature" | "air_humidity" | "air_pressure" | "lux";
+type TrendMetricKey = "humidity" | "temperature" | "ph" | "conductivity" | "nitrogen" | "phosphorus" | "potassium" | "salinity" | "tds" | "air_temperature" | "air_humidity" | "air_pressure" | "lux" | "battery_percent" | "battery_voltage";
 type TrendRange = "24h" | "3d" | "7d" | "all";
 type ClimateReportMetric = "temperature" | "humidity" | "lux";
 type DashboardSensorSource = "hub" | `soil:${string}`;
@@ -228,6 +228,22 @@ const trendMetricConfigs: TrendMetricConfig[] = [
     referenceNote: "Generell drivhusreferanse. Plantekortet kan ha strammere krav.",
   },
   {
+    key: "battery_percent",
+    label: "Batteri",
+    unit: "%",
+    digits: 0,
+    optimal: [30, 100],
+    acceptable: [15, 100],
+    referenceNote: "Bruk denne til å se hvor raskt sensoren trekker batteriet ned over tid.",
+  },
+  {
+    key: "battery_voltage",
+    label: "Batterispenning",
+    unit: " V",
+    digits: 2,
+    referenceNote: "Rå spenning fra batterimålingen. Nyttig når prosentberegningen virker rar.",
+  },
+  {
     key: "temperature",
     label: "Jordtemperatur",
     unit: "°C",
@@ -253,7 +269,7 @@ const trendMetricConfigs: TrendMetricConfig[] = [
   { key: "tds", label: "TDS", unit: "", digits: 0 },
 ];
 
-const diySoilSensorMetricKeys: TrendMetricKey[] = ["humidity", "air_temperature", "air_humidity"];
+const diySoilSensorMetricKeys: TrendMetricKey[] = ["humidity", "battery_percent", "air_temperature", "air_humidity"];
 const diySoilSensorMetricConfigs = trendMetricConfigs.filter((metric) => diySoilSensorMetricKeys.includes(metric.key));
 
 const trendRangeOptions: Array<{ key: TrendRange; label: string }> = [

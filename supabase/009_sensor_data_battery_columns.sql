@@ -1,3 +1,9 @@
+-- Add battery logging to each raw sensor sample.
+
+alter table public.sensor_data
+  add column if not exists battery_percent real,
+  add column if not exists battery_voltage real;
+
 create or replace view public.sensor_data_oslo as
 select
   id,
@@ -20,3 +26,5 @@ select
   battery_voltage
 from public.sensor_data
 order by created_at desc;
+
+notify pgrst, 'reload schema';

@@ -775,6 +775,8 @@ METRIC_KEYS = (
     "potassium",
     "salinity",
     "tds",
+    "battery_percent",
+    "battery_voltage",
 )
 
 METRIC_PAYLOAD_ALIASES = {
@@ -1778,7 +1780,9 @@ def init_db() -> None:
                 phosphorus REAL,
                 potassium REAL,
                 salinity REAL,
-                tds REAL
+                tds REAL,
+                battery_percent REAL,
+                battery_voltage REAL
             )
             """
         )
@@ -2317,6 +2321,8 @@ def init_db() -> None:
             "air_humidity": "REAL",
             "air_pressure": "REAL",
             "lux": "REAL",
+            "battery_percent": "REAL",
+            "battery_voltage": "REAL",
             "sensor_id": "TEXT NOT NULL DEFAULT ''",
         }
         for column_name, column_type in required_columns.items():
@@ -5127,7 +5133,7 @@ def normalized_sensor_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def sensor_sample_supabase_payload(normalized: dict[str, Any], hub_id: str) -> dict[str, Any]:
+def sensor_sample_supabase_payload(normalized: dict[str, Any], hub_id: str, include_battery: bool = True) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "created_at": normalized["recorded_at"],
         "hub_id": hub_id,
@@ -5135,6 +5141,8 @@ def sensor_sample_supabase_payload(normalized: dict[str, Any], hub_id: str) -> d
     if normalized.get("sensor_id"):
         payload["sensor_id"] = normalized["sensor_id"]
     for metric in METRIC_KEYS:
+        if not include_battery and metric in {"battery_percent", "battery_voltage"}:
+            continue
         payload[metric] = normalized.get(metric)
     return payload
 
@@ -5153,6 +5161,29 @@ def best_effort_store_sensor_sample_supabase(normalized: dict[str, Any], hub_id:
         )
     except HTTPError as exc:
         body = http_error_body(exc)
+        if exc.code == 400 and ("battery_percent" in body or "battery_voltage" in body):
+            try:
+                supabase_request(
+                    "sensor_data",
+                    method="POST",
+                    payload=sensor_sample_supabase_payload(normalized, hub_id, include_battery=False),
+                    prefer="return=minimal",
+                )
+                print(
+                    "Supabase sensor sample sync stored without battery columns; run battery migration for full logging.",
+                    flush=True,
+                )
+                return {"ok": True, "battery_logged": False, "warning": "supabase_battery_columns_missing"}
+            except HTTPError as retry_exc:
+                retry_body = http_error_body(retry_exc)
+                print(
+                    f"Supabase sensor sample sync retry failed for hub={hub_id}: HTTP {retry_exc.code}: {retry_body or retry_exc.reason}",
+                    flush=True,
+                )
+                return {"ok": False, "error": f"HTTP {retry_exc.code}: {retry_body or retry_exc.reason}"}
+            except (URLError, json.JSONDecodeError) as retry_exc:
+                print(f"Supabase sensor sample sync retry failed for hub={hub_id}: {retry_exc}", flush=True)
+                return {"ok": False, "error": str(retry_exc)}
         print(f"Supabase sensor sample sync failed for hub={hub_id}: HTTP {exc.code}: {body or exc.reason}", flush=True)
         return {"ok": False, "error": f"HTTP {exc.code}: {body or exc.reason}"}
     except (URLError, json.JSONDecodeError) as exc:
@@ -5169,8 +5200,9 @@ def store_sensor_sample(payload: dict[str, Any], hub_id: str) -> dict[str, Any]:
             INSERT INTO sensor_samples (
                 recorded_at, source, valid, error, humidity, temperature, ph,
                 conductivity, nitrogen, phosphorus, potassium, salinity, tds,
-                air_temperature, air_humidity, air_pressure, lux, hub_id, sensor_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                air_temperature, air_humidity, air_pressure, lux,
+                battery_percent, battery_voltage, hub_id, sensor_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalized["recorded_at"],
@@ -5190,6 +5222,8 @@ def store_sensor_sample(payload: dict[str, Any], hub_id: str) -> dict[str, Any]:
                 normalized["air_humidity"],
                 normalized["air_pressure"],
                 normalized["lux"],
+                normalized["battery_percent"],
+                normalized["battery_voltage"],
                 hub_id,
                 normalized["sensor_id"],
             ),
@@ -5738,7 +5772,7 @@ def apply_supabase_sensor_sample_filter(params: dict[str, str], sensor_id: str |
 
 def supabase_latest_sample(hub_id: str, sensor_id: str | None = None) -> dict[str, Any] | None:
     params = {
-        "select": "created_at,sensor_id,temperature,humidity,ph,conductivity,nitrogen,phosphorus,potassium,salinity,tds,lux,air_temperature,air_humidity,air_pressure",
+        "select": "created_at,sensor_id,temperature,humidity,ph,conductivity,nitrogen,phosphorus,potassium,salinity,tds,lux,air_temperature,air_humidity,air_pressure,battery_percent,battery_voltage",
         "order": "created_at.desc",
         "limit": "1",
     }
@@ -5950,7 +5984,7 @@ def supabase_day_summary(hub_id: str) -> dict[str, dict[str, float | None]]:
     rows = fetch_supabase_rows_for_hub(
         hub_id,
         {
-            "select": "created_at,temperature,humidity,ph,conductivity,nitrogen,phosphorus,potassium,salinity,tds,lux,air_temperature,air_humidity,air_pressure",
+            "select": "created_at,temperature,humidity,ph,conductivity,nitrogen,phosphorus,potassium,salinity,tds,lux,air_temperature,air_humidity,air_pressure,battery_percent,battery_voltage",
             "created_at": f"gte.{since}",
             "and": f"(created_at.lt.{until})",
             "order": "created_at.asc",
