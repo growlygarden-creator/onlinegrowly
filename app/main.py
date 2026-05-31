@@ -6215,13 +6215,58 @@ def best_effort_delete_supabase_hub(hub_id: str) -> None:
         print(f"Supabase hub delete skipped for {hub_id}: {exc}")
 
 
-def best_effort_delete_supabase_sensor_samples(hub_id: str) -> None:
+def best_effort_delete_supabase_sensor_samples(hub_id: str) -> dict[str, Any]:
     if not supabase_enabled():
-        return
+        return {"ok": False, "skipped": True, "reason": "supabase_not_configured"}
     try:
         supabase_delete_rows("sensor_data", {"hub_id": f"eq.{hub_id}"})
+        return {"ok": True}
     except Exception as exc:
         print(f"Supabase sensor sample delete skipped for {hub_id}: {exc}")
+        return {"ok": False, "error": str(exc)}
+
+
+def reset_sensor_history_for_hub(hub_id: str) -> dict[str, Any]:
+    clean_hub_id = hub_id.strip()
+    now = utc_now_iso()
+    with db_connection() as connection:
+        sample_count_row = connection.execute(
+            "SELECT COUNT(*) AS sample_count FROM sensor_samples WHERE hub_id = ?",
+            (clean_hub_id,),
+        ).fetchone()
+        sample_count = int(sample_count_row["sample_count"] if sample_count_row else 0)
+        connection.execute(
+            """
+            DELETE FROM sensor_samples
+            WHERE hub_id = ?
+            """,
+            (clean_hub_id,),
+        )
+        sensor_update = connection.execute(
+            """
+            UPDATE soil_sensors
+            SET battery_percent = NULL,
+                battery_voltage = NULL,
+                wifi_rssi_dbm = NULL,
+                espnow_rssi_dbm = NULL,
+                last_seen_at = '',
+                last_payload_json = '{}',
+                updated_at = ?
+            WHERE hub_id = ?
+            """,
+            (now, clean_hub_id),
+        )
+        sensors_reset = int(sensor_update.rowcount or 0)
+        connection.commit()
+
+    supabase_result = best_effort_delete_supabase_sensor_samples(clean_hub_id)
+    if sensors_reset:
+        best_effort_sync_core_to_supabase("sensor history reset")
+    return {
+        "local_samples_deleted": sample_count,
+        "soil_sensors_reset": sensors_reset,
+        "supabase": supabase_result,
+    }
 
 
 def best_effort_delete_supabase_plants_for_hub(hub_id: str) -> None:
@@ -8923,6 +8968,20 @@ async def history_start(request: Request, metric: str):
         "fallback_reason": fallback_reason,
         "recorded_at": recorded_at,
     }
+
+
+@app.delete("/api/sensor-history")
+async def reset_sensor_history_api(request: Request):
+    auth_error = require_viewer_api(request)
+    if auth_error:
+        return auth_error
+    try:
+        hub = resolve_request_hub(request)
+        hub_id = str(hub["hub_id"])
+        result = reset_sensor_history_for_hub(hub_id)
+    except ValueError as exc:
+        return hub_error_response(str(exc))
+    return {"ok": True, "hub_id": hub_id, "reset": result}
 
 
 @app.get("/api/latest")
