@@ -297,6 +297,15 @@ function loadDashboardSensorSource(hubId: string): DashboardSensorSource {
   return "hub";
 }
 
+function hasDashboardSensorSourcePreference(hubId: string): boolean {
+  try {
+    const value = window.localStorage.getItem(dashboardSourceStorageKey(hubId));
+    return value === "hub" || Boolean(value?.startsWith("soil:"));
+  } catch {
+    return false;
+  }
+}
+
 function saveDashboardSensorSource(hubId: string, source: DashboardSensorSource): void {
   try {
     window.localStorage.setItem(dashboardSourceStorageKey(hubId), source);
@@ -1214,7 +1223,8 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   useEffect(() => {
     const diagnosticEnabled = isDiagnosticSensorEnabled(session?.hub?.diagnostic_sensor_enabled);
     const firstSoilSource = soilSensors[0] ? `soil:${soilSensors[0].sensor_id}` as DashboardSensorSource : "hub";
-    if (sensorSource === "hub" && !diagnosticEnabled && firstSoilSource !== "hub") {
+    const hasSavedSource = hasDashboardSensorSourcePreference(selectedHubId);
+    if (sensorSource === "hub" && firstSoilSource !== "hub" && (!diagnosticEnabled || !hasSavedSource)) {
       setSensorSource(firstSoilSource);
       saveDashboardSensorSource(selectedHubId, firstSoilSource);
       return;
@@ -1360,6 +1370,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
   const temperature = metricText(activeSample?.air_temperature ?? activeSample?.temperature, "°C", 0);
   const humidity = metricText(isSoilSensorSource ? activeSample?.humidity : activeSample?.air_humidity, "%", 0);
   const soilAirHumidity = metricText(activeSample?.air_humidity, "%", 0);
+  const batteryPercent = metricText(activeSample?.battery_percent ?? selectedSoilSensor?.battery_percent, "%", 0);
   const pressure = metricText(activeSample?.air_pressure, " hPa", 0);
   const thirdMetric = isSoilSensorSource
     ? soilAirHumidity
@@ -1543,7 +1554,7 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                   );
                 })}
               </div>
-              <div className="home-sensor-summary" aria-label="Drivhusverdier">
+              <div className={isSoilSensorSource ? "home-sensor-summary home-sensor-summary--soil" : "home-sensor-summary"} aria-label="Drivhusverdier">
                 <button className="home-sensor-tile" type="button" onClick={() => (isSoilSensorSource ? openTrend("air_temperature") : setReportMetric("temperature"))}>
                   <span><img src={tempDot} alt="" aria-hidden="true" /> {isSoilSensorSource ? "Lufttemp" : "Temperatur"}</span>
                   <strong>{temperature}</strong>
@@ -1556,6 +1567,18 @@ export function DashboardPage({ session, selectedHubId = "", theme }: DashboardP
                   <span><i className="metric-strip__sun-dot" aria-hidden="true" /> {isSoilSensorSource ? "Luftfukt" : "Lys"}</span>
                   <strong>{thirdMetric}</strong>
                 </button>
+                {isSoilSensorSource ? (
+                  <button className="home-sensor-tile" type="button" onClick={() => openTrend("battery_percent")}>
+                    <span>
+                      <svg className="home-sensor-battery-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 8.5h13a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                        <path d="M20 11h1.5v2H20M6 11h8v2H6Z" fill="currentColor" />
+                      </svg>
+                      Batteri
+                    </span>
+                    <strong>{batteryPercent}</strong>
+                  </button>
+                ) : null}
               </div>
               <button className="home-details-toggle" type="button" onClick={() => setSensorDetailsOpen((open) => !open)}>
                 {sensorDetailsOpen ? "Skjul detaljer" : "Detaljer"}
