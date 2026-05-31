@@ -13,7 +13,7 @@
 #include "soil_now_protocol.h"
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.1.21-production-sleep";
+constexpr char kFirmwareVersion[] = "0.1.22-wifi-primary";
 constexpr char kPrefsNamespace[] = "growly_soil";
 constexpr char kPrefsSsidKey[] = "ssid";
 constexpr char kPrefsPasswordKey[] = "password";
@@ -46,6 +46,7 @@ constexpr uint8_t kWifiUploadAttempts = 3;
 constexpr unsigned long kSampleAckAttemptTimeoutMs = 7000;
 constexpr unsigned long kWifiConnectTimeoutMs = 45000;
 constexpr unsigned long kWifiPostTimeoutMs = 30000;
+constexpr bool kWifiPrimaryDelivery = true;
 constexpr bool kPowerbankSafeAwakeMode = false;
 constexpr unsigned long kTestAwakeSampleIntervalMs = 60UL * 1000UL;
 constexpr unsigned long kStartupConfirmWindowMs = 3UL * 60UL * 1000UL;
@@ -793,7 +794,7 @@ bool connectWifiForBackup() {
     WiFi.mode(WIFI_STA);
     configureRadioForReach();
     WiFi.begin(configuredWifiSsid.c_str(), configuredWifiPassword.c_str());
-    Serial.printf("Connecting Wi-Fi backup to %s", configuredWifiSsid.c_str());
+    Serial.printf("Connecting Wi-Fi delivery to %s", configuredWifiSsid.c_str());
     const unsigned long startedAt = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - startedAt < kWifiConnectTimeoutMs) {
         Serial.print(".");
@@ -805,7 +806,7 @@ bool connectWifiForBackup() {
         Serial.println(WiFi.localIP());
         return true;
     }
-    Serial.println("Wi-Fi backup failed.");
+    Serial.println("Wi-Fi delivery failed.");
     WiFi.disconnect(true, true);
     return false;
 }
@@ -881,7 +882,7 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
     const String ingestUrl = backendUrl(DeviceConfig::SOIL_SENSOR_INGEST_PATH);
     String body = String("{\"hub_id\":\"") + jsonEscape(pairedHubId) + "\"";
     body += ",\"sensor_id\":\"" + jsonEscape(sensorId) + "\"";
-    body += ",\"source\":\"soil_sensor_wifi_backup\"";
+    body += ",\"source\":\"" + String(kWifiPrimaryDelivery ? "soil_sensor_wifi_primary" : "soil_sensor_wifi_backup") + "\"";
     body += ",\"firmware_version\":\"" + jsonEscape(String(kFirmwareVersion)) + "\"";
     body += ",\"valid\":true";
     body += ",\"humidity\":" + String(sample.soilPercent);
@@ -902,7 +903,6 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
     if (wifiRssiDbm != 0) {
         body += ",\"wifi_rssi_dbm\":" + String(wifiRssiDbm);
     }
-    body += ",\"test_awake\":true";
     body += ",\"applied_sleep_seconds\":" + String(configuredSleepSeconds);
     body += ",\"applied_battery_warning_percent\":" + String(batteryWarningPercent);
     body += ",\"applied_battery_critical_percent\":" + String(batteryCriticalPercent);
@@ -928,7 +928,7 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
         statusCode = http.POST(body);
         responseBody = http.getString();
         http.end();
-        Serial.printf("Wi-Fi backup sample POST attempt=%u -> HTTP %d\n", attempt, statusCode);
+        Serial.printf("Wi-Fi sample POST attempt=%u -> HTTP %d\n", attempt, statusCode);
         if (statusCode >= 200 && statusCode < 300) {
             break;
         }
@@ -942,14 +942,14 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
         return false;
     }
     if (responseBody.indexOf("\"reason\":\"sensor_sync_disabled\"") >= 0) {
-        Serial.println("Backend stored Wi-Fi backup sample locally, but Supabase sensor sync is disabled.");
+        Serial.println("Backend stored Wi-Fi sample locally, but Supabase sensor sync is disabled.");
     } else if (responseBody.indexOf("\"reason\":\"supabase_not_configured\"") >= 0) {
-        Serial.println("Backend stored Wi-Fi backup sample locally, but Supabase is not configured.");
+        Serial.println("Backend stored Wi-Fi sample locally, but Supabase is not configured.");
     } else if (
         responseBody.indexOf("\"supabase\"") >= 0 &&
         responseBody.indexOf("\"ok\":false") >= 0
     ) {
-        Serial.println("Backend stored Wi-Fi backup sample locally, but Supabase sensor sync failed:");
+        Serial.println("Backend stored Wi-Fi sample locally, but Supabase sensor sync failed:");
         Serial.println(responseBody.substring(0, min(static_cast<unsigned int>(responseBody.length()), 360U)));
     }
     saveSleepPlan(
@@ -962,11 +962,16 @@ bool uploadSampleViaWifi(const SoilSample& sample) {
 }
 
 bool deliverSample(const SoilSample& sample) {
-    const bool espNowDelivered = sendSampleEspNow(sample);
-    if (!espNowDelivered) {
-        return uploadSampleViaWifi(sample);
+    if (kWifiPrimaryDelivery) {
+        const bool wifiDelivered = uploadSampleViaWifi(sample);
+        if (wifiDelivered) {
+            return true;
+        }
+        Serial.println("Wi-Fi primary delivery failed; falling back to ESP-NOW.");
+        return sendSampleEspNow(sample);
     }
-    return true;
+    const bool espNowDelivered = sendSampleEspNow(sample);
+    return espNowDelivered || uploadSampleViaWifi(sample);
 }
 
 void runAwakeTestLoop() {
