@@ -13,7 +13,7 @@
 #include "soil_now_protocol.h"
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.1.19-field-diagnostics";
+constexpr char kFirmwareVersion[] = "0.1.20-awake-stability";
 constexpr char kPrefsNamespace[] = "growly_soil";
 constexpr char kPrefsSsidKey[] = "ssid";
 constexpr char kPrefsPasswordKey[] = "password";
@@ -46,7 +46,7 @@ constexpr uint8_t kWifiUploadAttempts = 3;
 constexpr unsigned long kSampleAckAttemptTimeoutMs = 7000;
 constexpr unsigned long kWifiConnectTimeoutMs = 45000;
 constexpr unsigned long kWifiPostTimeoutMs = 30000;
-constexpr bool kTestKeepAwake = false;
+constexpr bool kPowerbankSafeAwakeMode = true;
 constexpr unsigned long kTestAwakeSampleIntervalMs = 60UL * 1000UL;
 constexpr unsigned long kStartupConfirmWindowMs = 3UL * 60UL * 1000UL;
 constexpr unsigned long kStartupConfirmSampleIntervalMs = 15UL * 1000UL;
@@ -983,6 +983,36 @@ void runAwakeTestLoop() {
     }
 }
 
+void waitAwakeSeconds(uint32_t seconds) {
+    setStatusLed(false);
+    const unsigned long startedAt = millis();
+    const unsigned long waitMs = static_cast<unsigned long>(seconds) * 1000UL;
+    while (millis() - startedAt < waitMs) {
+        delay(1000);
+        yield();
+    }
+}
+
+void waitAwakeThenRestart(uint32_t seconds) {
+    Serial.printf("Keeping awake for %lu seconds before pairing retry.\n", static_cast<unsigned long>(seconds));
+    waitAwakeSeconds(seconds);
+    ESP.restart();
+}
+
+void runPowerbankSafeAwakeLoop() {
+    Serial.println("Powerbank-safe awake mode active; deep sleep disabled.");
+    setStatusLed(false);
+    while (true) {
+        SoilSample sample = readSample();
+        sample.wifiRssiDbm = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+        deliverSample(sample);
+        performPendingFirmwareUpdate();
+        const uint32_t waitSeconds = min<uint32_t>(7200, max<uint32_t>(60, configuredSleepSeconds));
+        Serial.printf("Awake stability wait for %lu seconds.\n", static_cast<unsigned long>(waitSeconds));
+        waitAwakeSeconds(waitSeconds);
+    }
+}
+
 void runStartupConfirmWindow() {
     Serial.printf(
         "Startup confirmation window active for %lu seconds; sampling every %lu seconds.\n",
@@ -1046,12 +1076,15 @@ void setup() {
     if (!configured) {
         const bool paired = pairWithHub();
         stopEspNow();
-        sleepFor(paired ? configuredSleepSeconds * 1000000ULL : kPairingRetrySleepUs);
+        if (!kPowerbankSafeAwakeMode || !paired) {
+            if (kPowerbankSafeAwakeMode) {
+                waitAwakeThenRestart(static_cast<uint32_t>(kPairingRetrySleepUs / 1000000ULL));
+            }
+            sleepFor(paired ? configuredSleepSeconds * 1000000ULL : kPairingRetrySleepUs);
+        }
     }
 
-    if (kTestKeepAwake) {
-        runAwakeTestLoop();
-    } else if (wakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
+    if (wakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
         const SoilSample sample = readSample();
         deliverSample(sample);
     } else {
@@ -1059,6 +1092,9 @@ void setup() {
     }
     stopEspNow();
     performPendingFirmwareUpdate();
+    if (kPowerbankSafeAwakeMode) {
+        runPowerbankSafeAwakeLoop();
+    }
     sleepFor(configuredSleepSeconds * 1000000ULL);
 }
 
