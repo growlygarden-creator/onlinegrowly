@@ -13,7 +13,7 @@
 #include "soil_now_protocol.h"
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.1.20-awake-stability";
+constexpr char kFirmwareVersion[] = "0.1.21-production-sleep";
 constexpr char kPrefsNamespace[] = "growly_soil";
 constexpr char kPrefsSsidKey[] = "ssid";
 constexpr char kPrefsPasswordKey[] = "password";
@@ -46,7 +46,7 @@ constexpr uint8_t kWifiUploadAttempts = 3;
 constexpr unsigned long kSampleAckAttemptTimeoutMs = 7000;
 constexpr unsigned long kWifiConnectTimeoutMs = 45000;
 constexpr unsigned long kWifiPostTimeoutMs = 30000;
-constexpr bool kPowerbankSafeAwakeMode = true;
+constexpr bool kPowerbankSafeAwakeMode = false;
 constexpr unsigned long kTestAwakeSampleIntervalMs = 60UL * 1000UL;
 constexpr unsigned long kStartupConfirmWindowMs = 3UL * 60UL * 1000UL;
 constexpr unsigned long kStartupConfirmSampleIntervalMs = 15UL * 1000UL;
